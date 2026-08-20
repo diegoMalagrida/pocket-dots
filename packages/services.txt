@@ -1,0 +1,34 @@
+# Services to enable. The installer reads this file.
+# Format:  <scope>  <unit>        scope = system | user
+#
+# Lines starting with # are comments and are ignored.
+
+# --- system (these need sudo) ---
+system		NetworkManager.service
+system		NetworkManager-dispatcher.service
+system		bluetooth.service
+system		sddm.service
+system		nftables.service
+system		auto-cpufreq.service
+system		systemd-oomd.service
+system		fstrim.timer
+system		paccache.timer
+system		reflector.timer
+
+# --- user ---
+user		pipewire.socket
+user		pipewire-pulse.socket
+user		wireplumber.service
+user		gnome-keyring-daemon.socket
+user		p11-kit-server.socket
+user		xdg-user-dirs.service
+user		ydotool.service
+user		hypridle.service
+user		hyprpolkitagent.service
+user		quickshell.service
+user		bt-agent.service
+# luminous-autoselect responde que SI a toda peticion de captura de pantalla,
+# sin preguntar y siempre con la salida 0. Solo hace falta para RustDesk, y
+# RustDesk no lo instala este repo. Ver home/.config/xdg-desktop-portal/
+# hyprland-portals.conf para encenderlo a conciencia.
+#user		luminous-autoselect.service

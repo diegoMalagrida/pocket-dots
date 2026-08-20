@@ -1,0 +1,166 @@
+{{
+  "document": {{
+    "color": "{foreground}",
+    "margin": 2
+  }},
+  "block_quote": {{
+    "color": "{color8}",
+    "italic": true,
+    "indent": 1,
+    "indent_token": "│ "
+  }},
+  "heading": {{
+    "color": "{color6}",
+    "bold": true,
+    "block_suffix": "\n"
+  }},
+  "h1": {{
+    "prefix": " ",
+    "suffix": " ",
+    "color": "{background}",
+    "background_color": "{color6}",
+    "bold": true
+  }},
+  "h2": {{
+    "prefix": "## ",
+    "color": "{color4}"
+  }},
+  "h3": {{
+    "prefix": "### ",
+    "color": "{color5}"
+  }},
+  "item": {{
+    "block_prefix": "• "
+  }},
+  "strong": {{
+    "bold": true
+  }},
+  "emph": {{
+    "italic": true
+  }},
+  "strikethrough": {{
+    "crossed_out": true
+  }},
+  "link": {{
+    "color": "{color6}",
+    "underline": true
+  }},
+  "link_text": {{
+    "color": "{color4}",
+    "bold": true
+  }},
+  "code": {{
+    "prefix": " ",
+    "suffix": " ",
+    "color": "{foreground}",
+    "background_color": "{color1}"
+  }},
+  "code_block": {{
+    "color": "{foreground}",
+    "margin": 2,
+    "chroma": {{
+      "text": {{
+        "color": "{foreground}"
+      }},
+      "error": {{
+        "color": "{foreground}",
+        "background_color": "{color1}"
+      }},
+      "comment": {{
+        "color": "{color8}"
+      }},
+      "comment_preproc": {{
+        "color": "{color3}"
+      }},
+      "keyword": {{
+        "color": "{color6}"
+      }},
+      "keyword_reserved": {{
+        "color": "{color5}"
+      }},
+      "keyword_namespace": {{
+        "color": "{color5}"
+      }},
+      "keyword_type": {{
+        "color": "{color4}"
+      }},
+      "operator": {{
+        "color": "{color3}"
+      }},
+      "punctuation": {{
+        "color": "{foreground}"
+      }},
+      "name": {{
+        "color": "{foreground}"
+      }},
+      "name_builtin": {{
+        "color": "{color4}"
+      }},
+      "name_tag": {{
+        "color": "{color5}"
+      }},
+      "name_attribute": {{
+        "color": "{color6}"
+      }},
+      "name_class": {{
+        "color": "{color4}",
+        "bold": true
+      }},
+      "name_constant": {{
+        "color": "{color3}"
+      }},
+      "name_decorator": {{
+        "color": "{color3}"
+      }},
+      "name_exception": {{
+        "color": "{color1}"
+      }},
+      "name_function": {{
+        "color": "{color2}"
+      }},
+      "name_other": {{
+        "color": "{foreground}"
+      }},
+      "literal": {{
+        "color": "{foreground}"
+      }},
+      "literal_number": {{
+        "color": "{color3}"
+      }},
+      "literal_date": {{
+        "color": "{color3}"
+      }},
+      "literal_string": {{
+        "color": "{color2}"
+      }},
+      "literal_string_escape": {{
+        "color": "{color4}"
+      }},
+      "generic_deleted": {{
+        "color": "{color1}"
+      }},
+      "generic_inserted": {{
+        "color": "{color2}"
+      }},
+      "generic_emph": {{
+        "color": "{foreground}",
+        "italic": true
+      }},
+      "generic_strong": {{
+        "color": "{foreground}",
+        "bold": true
+      }},
+      "generic_subheading": {{
+        "color": "{color8}"
+      }},
+      "background": {{
+        "background_color": "{background}"
+      }}
+    }}
+  }},
+  "hr": {{
+    "color": "{color8}",
+    "format": "\n────────\n"
+  }},
+  "table": {{}}
+}}

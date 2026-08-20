@@ -1,0 +1,32 @@
+[Unit]
+# Quickshell (barra + notch + paneles) supervisado por systemd.
+#
+# Antes vivia en 'exec-once = qs' de hyprland.conf, o sea como hijo suelto del
+# compositor: si qs se moria, NADIE lo levantaba y te quedabas sin barra ni
+# notch hasta relanzarlo a mano. Paso de verdad el 2026-08-05 a las 15:37:11
+# (SIGSEGV en el cargador de tipos QML) y de paso solto el nombre D-Bus de las
+# notificaciones, que se llevo swaync para siempre.
+#
+# --no-duplicate hace que un 'qs' lanzado a mano salga solo si ya hay instancia,
+# asi que esta unidad y la costumbre de relanzar desde la terminal conviven sin
+# acabar con dos barras.
+Description=Quickshell: barra, notch y paneles
+Documentation=file:///home/diego/.config/quickshell/README.md
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+
+# Si la config QML esta rota, qs sale al instante: sin este limite systemd
+# reintentaria en bucle cerrado. Cinco intentos en un minuto y se rinde.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/qs --no-duplicate
+Restart=on-failure
+RestartSec=1s
+Slice=session.slice
+
+[Install]
+WantedBy=graphical-session.target

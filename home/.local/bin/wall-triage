@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# wall-triage — revisa los fondos uno a uno y aparta los que descartes.
+#
+#   g / espacio  guardar        d  descartar
+#   u            deshacer       q  salir (retoma donde lo dejaste)
+#
+# No borra nada: los descartados se mueven a ~/Pictures/wallpapers/.descartes/
+# El borrado definitivo lo haces tú despues de repasar esa carpeta.
+
+set -uo pipefail
+
+DIR="${1:-$HOME/Pictures/wallpapers}"
+TRASH="$DIR/.descartes"
+STATE="$HOME/.cache/wall-triage.state"
+
+[[ -d "$DIR" ]] || { echo "no existe el directorio: $DIR"; exit 1; }
+
+LOG="$HOME/.cache/wall-triage.log"
+: > "$LOG"
+
+# Motor de dibujo: kitty si estamos dentro de kitty, si no timg o chafa.
+if [[ -n "${KITTY_WINDOW_ID:-}" ]] && command -v kitten >/dev/null; then
+  ENGINE=kitty; ICAT=(kitten icat)
+elif [[ -n "${KITTY_WINDOW_ID:-}" ]] && command -v kitty >/dev/null; then
+  ENGINE=kitty; ICAT=(kitty +kitten icat)
+elif command -v timg >/dev/null; then
+  ENGINE=timg
+elif command -v chafa >/dev/null; then
+  ENGINE=chafa
+else
+  echo "no encuentro kitty, timg ni chafa para dibujar las imagenes."; exit 1
+fi
+
+# El timeout es por si el protocolo grafico no llega (tmux sin passthrough, ssh)
+# y icat se queda esperando respuesta del terminal.
+#
+# --foreground es OBLIGATORIO: sin el, timeout mete el comando en su propio
+# grupo de procesos, deja de ser el grupo en primer plano del tty, y en cuanto
+# icat intenta leer la respuesta del handshake grafico le llega SIGTTIN y se
+# queda parado. Resultado: pantalla en negro y ninguna imagen.
+draw() {  # draw <fichero> <cols> <filas>
+  case "$ENGINE" in
+    kitty) timeout --foreground 5 "${ICAT[@]}" --clear --align center \
+             --place "${2}x${3}@0x2" "$1" 2>>"$LOG" ;;
+    timg)  timeout --foreground 5 timg -g "${2}x${3}" --center "$1" 2>>"$LOG" ;;
+    chafa) timeout --foreground 5 chafa --size "${2}x${3}" --align center "$1" 2>>"$LOG" ;;
+  esac
+}
+if [[ ! -t 0 ]]; then
+  echo "Esto necesita una terminal interactiva."
+  echo "Abre una kitty y ejecuta:  wall-triage"
+  exit 1
+fi
+
+mkdir -p "$TRASH" "$(dirname "$STATE")"
+touch "$STATE"
+
+R=$'\e[0m'; B=$'\e[1m'; D=$'\e[2m'
+GRN=$'\e[38;5;114m'; RED=$'\e[38;5;203m'; YEL=$'\e[38;5;179m'; CYA=$'\e[38;5;110m'
+
+cleanup() { printf '\e[?25h\e[2J\e[H'; }
+trap cleanup EXIT
+printf '\e[?25l'   # oculta el cursor
+
+mapfile -t ALL < <(find "$DIR" -maxdepth 1 -type f \
+  \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort)
+
+FILES=()
+for f in "${ALL[@]}"; do
+  grep -Fxq "$(basename "$f")" "$STATE" || FILES+=("$f")
+done
+
+total=${#FILES[@]}
+if (( total == 0 )); then
+  cleanup
+  echo "Nada nuevo que revisar en $DIR"
+  echo "${D}(borra $STATE si quieres repasarlos todos otra vez)${R}"
+  exit 0
+fi
+
+declare -a HIST_F HIST_A
+kept=0; dropped=0; i=0
+
+while (( i < total )); do
+  f="${FILES[$i]}"
+  if [[ ! -f "$f" ]]; then ((i++)); continue; fi
+
+  cols=$(tput cols); rows=$(tput lines)
+  imgrows=$(( rows - 5 )); (( imgrows < 5 )) && imgrows=5
+
+  name=$(basename "$f")
+  dims=$(identify -quiet -format '%wx%h' "${f}[0]" 2>/dev/null) || dims='?'
+  size=$(du -h "$f" | cut -f1)
+
+  printf '\e[2J\e[H'
+  printf ' %s[%d/%d]%s  %s%s%s  %s%s · %s%s\n' \
+    "$CYA" $((i+1)) "$total" "$R" "$B" "$name" "$R" "$D" "$dims" "$size" "$R"
+
+  draw "$f" "$cols" "$imgrows"
+
+  printf '\e[%d;1H' $(( rows - 1 ))
+  printf ' %sg%s guardar  %sd%s descartar  %su%s deshacer  %sq%s salir   %s│  %d guardados · %d descartados%s' \
+    "$GRN" "$R" "$RED" "$R" "$YEL" "$R" "$D" "$R" "$D" "$kept" "$dropped" "$R"
+
+  IFS= read -rsn1 key </dev/tty || break
+
+  case "$key" in
+    g|G|' ')
+      echo "$name" >> "$STATE"
+      HIST_F+=("$f"); HIST_A+=(keep); ((kept++)); ((i++))
+      ;;
+    d|D|x|X)
+      mv -f "$f" "$TRASH/" 2>/dev/null
+      HIST_F+=("$f"); HIST_A+=(drop); ((dropped++)); ((i++))
+      ;;
+    u|U)
+      n=${#HIST_F[@]}
+      (( n == 0 )) && continue
+      last=$(( n - 1 ))
+      pf="${HIST_F[$last]}"; pa="${HIST_A[$last]}"; pn=$(basename "$pf")
+      if [[ "$pa" == drop ]]; then
+        mv -f "$TRASH/$pn" "$pf" 2>/dev/null; (( dropped > 0 )) && ((dropped--))
+      else
+        grep -Fxv "$pn" "$STATE" > "$STATE.tmp" 2>/dev/null && mv "$STATE.tmp" "$STATE"
+        (( kept > 0 )) && ((kept--))
+      fi
+      unset 'HIST_F[last]' 'HIST_A[last]'
+      HIST_F=("${HIST_F[@]}"); HIST_A=("${HIST_A[@]}")
+      (( i > 0 )) && ((i--))
+      ;;
+    q|Q)
+      break
+      ;;
+  esac
+done
+
+cleanup
+n_trash=$(find "$TRASH" -maxdepth 1 -type f | wc -l)
+echo " ${B}Repasadas${R} $((kept + dropped)) de $total   ${GRN}$kept guardadas${R} · ${RED}$dropped descartadas${R}"
+if (( i < total )); then
+  echo " ${D}Quedan $(( total - i )) sin ver — vuelve a lanzar wall-triage y sigue donde ibas.${R}"
+fi
+if (( n_trash > 0 )); then
+  echo
+  echo " En ${B}$TRASH${R} hay $n_trash ficheros apartados:"
+  find "$TRASH" -maxdepth 1 -type f -printf '   %f\n' | sort
+  echo
+  echo " ${D}Ya no salen en el picker. Bórralos de esa carpeta cuando los hayas repasado.${R}"
+fi

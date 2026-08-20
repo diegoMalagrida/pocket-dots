@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+"""poke-theme — ordena los sprites de pokemon por lo bien que pegan con el tema pywal.
+
+NO pinta nada: solo decide QUE sprite deberia salir. El dibujado (kitten icat /
+chafa) sigue siendo cosa de pokefetch() en ~/.zshrc.
+
+    poke-theme index          extrae la paleta de cada sprite  -> sprites.tsv  (lento, 1 vez)
+    poke-theme rank           puntua contra el tema actual     -> rank-*.txt   (rapido, por tema)
+    poke-theme top [-n 20]    enseña el ranking para revisarlo
+    poke-theme pick [gif|png] escupe un sprite ya sesgado por tema
+    poke-theme on|off|toggle  activa/desactiva el sesgo por tema (vuelve al azar)
+    poke-theme is-on          imprime on/off (lo consulta el notch de quickshell)
+
+Ficheros:
+    ~/.cache/pokeanim/N.gif        sprites animados gen5   (los que usa el arranque)
+    ~/.cache/pokeart/N.png         artwork oficial         (fallback de chafa)
+    ~/.cache/pokepalette/          indice + rankings (todo cacheado aqui)
+    ~/.cache/wal/colors.json       tema vigente (lo escribe set-wallpaper.sh)
+    ~/.config/poke-theme/state     on/off — preferencia, por eso NO va en la cache
+"""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import math
+import os
+import random
+import sys
+from pathlib import Path
+
+HOME = Path.home()
+DIR_GIF = HOME / ".cache" / "pokeanim"
+DIR_PNG = HOME / ".cache" / "pokeart"
+CACHE = HOME / ".cache" / "pokepalette"
+INDEX = CACHE / "sprites.tsv"
+WAL = HOME / ".cache" / "wal" / "colors.json"
+# La preferencia va en .config, no en .cache: vaciar la cache no debe cambiar
+# lo que el usuario dejo puesto. Si el fichero no existe -> activado.
+ESTADO = HOME / ".config" / "poke-theme" / "state"
+
+# --- parametros de gusto (tocar aqui si el resultado no convence) ------------
+MUESTRA = 48        # el sprite se reduce a esto para contar colores (vecino mas cercano)
+MAX_CLUSTERS = 8    # cuantos colores representativos guardamos por pokemon
+UMBRAL_CLUSTER = 14 # dos colores mas cerca que esto en Lab son "el mismo"
+PESO_L = 0.55       # la luminosidad pesa menos que el tono: un azul claro sigue siendo azul
+PESO_OSCURO = 0.30  # el contorno negro esta en TODOS los sprites -> cuenta menos
+UMBRAL_FONDO = 22   # por debajo de esto un color se confunde con el fondo del tema
+CASTIGO_FONDO = 1.5 # cuanto penaliza camuflarse con el fondo (invisible = feo)
+LASTRE_TEXTO = 10.0 # el foreground suele ser casi neutro y atrae a TODO lo gris:
+                    # parecerse al texto cuenta menos que parecerse a un acento
+PESO_CROMA = 0.55   # castigo por estar mas descolorido que el tema (un tema vivo
+                    # quiere pokemon vivos; con un tema gris este termino se anula)
+
+
+# --- color ------------------------------------------------------------------
+def hex_a_rgb(h: str) -> tuple[int, int, int]:
+    h = h.strip().lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def rgb_a_lab(rgb: tuple[int, int, int]) -> tuple[float, float, float]:
+    """sRGB -> CIELAB (D65). En Lab las distancias se parecen a lo que ve el ojo."""
+    def lineal(c: float) -> float:
+        c /= 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (lineal(c) for c in rgb)
+    x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047
+    y = (r * 0.2126 + g * 0.7152 + b * 0.0722) / 1.00000
+    z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883
+
+    def f(t: float) -> float:
+        return t ** (1.0 / 3.0) if t > 0.008856 else 7.787 * t + 16.0 / 116.0
+
+    fx, fy, fz = f(x), f(y), f(z)
+    return (116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+
+
+def dist(a, b) -> float:
+    dl = (a[0] - b[0]) * PESO_L
+    da = a[1] - b[1]
+    db = a[2] - b[2]
+    return math.sqrt(dl * dl + da * da + db * db)
+
+
+# --- indice: paleta de cada sprite ------------------------------------------
+def paleta(ruta: Path) -> list[tuple[float, float, float, float]]:
+    """Devuelve [(L, a, b, peso)] con los colores dominantes del sprite."""
+    from PIL import Image
+
+    with Image.open(ruta) as im:
+        if getattr(im, "is_animated", False):
+            im.seek(0)  # el frame 0 del gen5 ya es el lienzo completo
+        im = im.convert("RGBA")
+        # NEAREST a proposito: interpolar inventaria colores intermedios que el
+        # pixel art no tiene y ensuciaria la paleta.
+        im.thumbnail((MUESTRA, MUESTRA), Image.NEAREST)
+        colores = im.getcolors(MUESTRA * MUESTRA * 4) or []
+
+    visibles = [(n, (r, g, b)) for n, (r, g, b, a) in colores if a >= 128]
+    if not visibles:
+        return []
+
+    clusters: list[list[float]] = []  # [peso, L, a, b]
+    for n, rgb in sorted(visibles, key=lambda t: -t[0]):
+        lab = rgb_a_lab(rgb)
+        peso = n * (PESO_OSCURO if lab[0] < 25 else 1.0)
+        cerca = None
+        for cl in clusters:
+            if dist(lab, cl[1:]) < UMBRAL_CLUSTER:
+                cerca = cl
+                break
+        if cerca is None and len(clusters) < MAX_CLUSTERS:
+            clusters.append([peso, *lab])
+            continue
+        if cerca is None:
+            cerca = min(clusters, key=lambda c: dist(lab, c[1:]))
+        total = cerca[0] + peso
+        for i in (1, 2, 3):
+            cerca[i] = (cerca[i] * cerca[0] + lab[i - 1] * peso) / total
+        cerca[0] = total
+
+    suma = sum(c[0] for c in clusters) or 1.0
+    return [(c[1], c[2], c[3], c[0] / suma) for c in clusters]
+
+
+def leer_indice() -> dict[str, list[tuple[float, float, float, float]]]:
+    fuera: dict[str, list[tuple[float, float, float, float]]] = {}
+    if not INDEX.exists():
+        return fuera
+    for linea in INDEX.read_text().splitlines():
+        if not linea or linea.startswith("#"):
+            continue
+        try:
+            clave, cuerpo = linea.split("\t", 1)
+            pal = []
+            for trozo in cuerpo.split(";"):
+                L, a, b, w = (float(x) for x in trozo.split(","))
+                pal.append((L, a, b, w))
+            fuera[clave] = pal
+        except ValueError:
+            continue  # linea a medias de un index interrumpido: se reconstruye
+    return fuera
+
+
+def cmd_index(args) -> int:
+    CACHE.mkdir(parents=True, exist_ok=True)
+    ya = {} if args.force else leer_indice()
+
+    tareas: list[tuple[str, Path]] = []
+    for tipo, carpeta, patron in (("gif", DIR_GIF, "*.gif"), ("png", DIR_PNG, "*.png")):
+        for ruta in sorted(carpeta.glob(patron), key=lambda p: p.name):
+            clave = f"{tipo}:{ruta.stem}"
+            if clave not in ya:
+                tareas.append((clave, ruta))
+
+    if not tareas:
+        print(f"indice al dia: {len(ya)} sprites")
+        return 0
+
+    nuevos: dict[str, list] = {}
+    fallos = 0
+    for i, (clave, ruta) in enumerate(tareas, 1):
+        try:
+            pal = paleta(ruta)
+        except Exception:
+            pal = []
+        if pal:
+            nuevos[clave] = pal
+        else:
+            fallos += 1
+        if not args.quiet and (i % 100 == 0 or i == len(tareas)):
+            print(f"  {i}/{len(tareas)}", file=sys.stderr)
+
+    ya.update(nuevos)
+    tmp = INDEX.with_suffix(".tsv.tmp")
+    with tmp.open("w") as fh:
+        fh.write("# clave\tL,a,b,peso;...  (poke-theme index)\n")
+        for clave in sorted(ya, key=lambda k: (k.split(":")[0], int(k.split(":")[1]) if k.split(":")[1].isdigit() else 0)):
+            cuerpo = ";".join(
+                f"{L:.1f},{a:.1f},{b:.1f},{w:.4f}" for L, a, b, w in ya[clave]
+            )
+            fh.write(f"{clave}\t{cuerpo}\n")
+    tmp.replace(INDEX)
+    print(f"indexados {len(nuevos)} nuevos ({fallos} ilegibles), total {len(ya)} -> {INDEX}")
+    return 0
+
+
+# --- ranking contra el tema --------------------------------------------------
+def objetivos_tema() -> tuple[list, tuple[float, float, float], float]:
+    """Colores a los que queremos parecernos, el fondo (del que hay que despegarse)
+    y cuanto color tiene el tema. Cada objetivo lleva su lastre: el texto pesa
+    menos porque suele ser casi neutro y si no se lleva a todos los grises."""
+    datos = json.loads(WAL.read_text())
+    fondo = rgb_a_lab(hex_a_rgb(datos["special"]["background"]))
+    texto = datos["special"].get("foreground", "#ffffff")
+
+    crudos = [(texto, LASTRE_TEXTO)]
+    colores = datos.get("colors", {})
+    crudos += [(colores[f"color{i}"], 0.0) for i in range(1, 16) if f"color{i}" in colores]
+
+    objetivos: list[tuple[tuple[float, float, float], float]] = []
+    for h, lastre in crudos:
+        lab = rgb_a_lab(hex_a_rgb(h))
+        if dist(lab, fondo) < 12:      # es practicamente el fondo, no sirve de guia
+            continue
+        if any(dist(lab, o) < 6 for o, _ in objetivos):  # pywal repite color1..6 en 9..14
+            continue
+        objetivos.append((lab, lastre))
+    if not objetivos:                  # tema degenerado: al menos apunta al texto
+        objetivos = [(rgb_a_lab(hex_a_rgb(texto)), 0.0)]
+
+    # croma tipico de los acentos (sin el texto): la vara para medir "descolorido"
+    acentos = [math.hypot(o[1], o[2]) for o, lastre in objetivos if lastre == 0.0]
+    croma = sorted(acentos)[len(acentos) // 2] if acentos else 0.0
+    return objetivos, fondo, croma
+
+
+def puntuar(pal, objetivos, fondo, croma_tema) -> float:
+    """Menor = pega mejor. Distancia media al color del tema mas cercano, mas un
+    castigo por camuflarse con el fondo y otro por ser mas soso que el tema."""
+    total = 0.0
+    for L, a, b, w in pal:
+        lab = (L, a, b)
+        d = min(dist(lab, o) + lastre for o, lastre in objetivos)
+        soso = croma_tema - math.hypot(a, b)
+        if soso > 0:
+            d += soso * PESO_CROMA
+        d_fondo = dist(lab, fondo)
+        if d_fondo < UMBRAL_FONDO:
+            d += (UMBRAL_FONDO - d_fondo) * CASTIGO_FONDO
+        total += w * d
+    return total
+
+
+def ranking() -> dict[str, list[tuple[float, Path]]]:
+    indice = leer_indice()
+    if not indice:
+        raise SystemExit("no hay indice todavia: ejecuta 'poke-theme index'")
+    objetivos, fondo, croma = objetivos_tema()
+
+    fuera: dict[str, list[tuple[float, Path]]] = {"gif": [], "png": []}
+    for clave, pal in indice.items():
+        tipo, num = clave.split(":", 1)
+        ruta = (DIR_GIF / f"{num}.gif") if tipo == "gif" else (DIR_PNG / f"{num}.png")
+        if not ruta.exists():
+            continue
+        fuera.setdefault(tipo, []).append((puntuar(pal, objetivos, fondo, croma), ruta))
+    for tipo in fuera:
+        fuera[tipo].sort(key=lambda t: t[0])
+    return fuera
+
+
+def activado() -> bool:
+    try:
+        return ESTADO.read_text().strip() != "off"
+    except OSError:
+        return True  # sin fichero (o ilegible) = activado, que es el defecto
+
+
+def cmd_rank(args) -> int:
+    if not activado():
+        return 0  # apagado: no gastamos en ordenar lo que nadie va a mirar
+    CACHE.mkdir(parents=True, exist_ok=True)
+    # un solo rankeo a la vez: varias terminales abriendose a la vez no se pisan
+    with (CACHE / ".rank.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return 0  # ya lo esta haciendo otro
+        orden = ranking()
+        for tipo, filas in orden.items():
+            if not filas:
+                continue
+            destino = CACHE / f"rank-{tipo}.txt"
+            tmp = destino.with_suffix(".txt.tmp")
+            tmp.write_text("".join(f"{ruta}\n" for _, ruta in filas))
+            tmp.replace(destino)  # atomico: zsh nunca lee un fichero a medias
+            if not args.quiet:
+                print(f"{destino}: {len(filas)} sprites")
+    return 0
+
+
+def cmd_top(args) -> int:
+    orden = ranking()[args.tipo]
+    filas = orden[-args.n:][::-1] if args.peores else orden[: args.n]
+    for i, (score, ruta) in enumerate(filas, 1):
+        print(f"{i:3d}. {score:6.2f}  #{ruta.stem:>4}  {ruta}")
+    return 0
+
+
+def cmd_pick(args) -> int:
+    destino = CACHE / f"rank-{args.tipo}.txt"
+    if not destino.exists():
+        return 1
+    lineas = [l for l in destino.read_text().splitlines() if l]
+    if not lineas:
+        return 1
+    n = min(args.entre, len(lineas))
+    i = min(random.randrange(n), random.randrange(n))  # sesgo hacia la cabeza
+    print(lineas[i])
+    return 0
+
+
+def cmd_estado(args) -> int:
+    if args.cmd == "is-on":
+        print("on" if activado() else "off")
+        return 0
+
+    nuevo = {"on": True, "off": False}.get(args.cmd, not activado())
+    ESTADO.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ESTADO.with_suffix(".tmp")
+    tmp.write_text("on\n" if nuevo else "off\n")
+    tmp.replace(ESTADO)
+    if nuevo:
+        # Al reactivar, el ranking puede ser de otro tema (mientras estaba
+        # apagado no se regeneraba): lo ponemos al dia ya, cuesta 0.1 s.
+        try:
+            cmd_rank(argparse.Namespace(quiet=True))
+        except SystemExit:
+            pass  # sin indice todavia: pokefetch se queda con el azar
+    print("on" if nuevo else "off")
+    return 0
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pi = sub.add_parser("index", help="extrae la paleta de cada sprite (lento, 1 vez)")
+    pi.add_argument("--force", action="store_true", help="reindexa todo desde cero")
+    pi.add_argument("-q", "--quiet", action="store_true")
+    pi.set_defaults(func=cmd_index)
+
+    pr = sub.add_parser("rank", help="ordena los sprites para el tema actual")
+    pr.add_argument("-q", "--quiet", action="store_true")
+    pr.set_defaults(func=cmd_rank)
+
+    pt = sub.add_parser("top", help="enseña el ranking")
+    pt.add_argument("-n", type=int, default=20)
+    pt.add_argument("--tipo", choices=("gif", "png"), default="gif")
+    pt.add_argument("--peores", action="store_true", help="los que menos pegan")
+    pt.set_defaults(func=cmd_top)
+
+    pp = sub.add_parser("pick", help="escupe un sprite sesgado por tema")
+    pp.add_argument("tipo", nargs="?", choices=("gif", "png"), default="gif")
+    pp.add_argument("--entre", type=int, default=40, help="de cuantos mejores elegir")
+    pp.set_defaults(func=cmd_pick)
+
+    for nombre, ayuda in (("on", "activa el sesgo por tema"),
+                          ("off", "vuelve al pokemon al azar de siempre"),
+                          ("toggle", "conmuta (lo que usa la pokeball del notch)"),
+                          ("is-on", "imprime on/off")):
+        pe = sub.add_parser(nombre, help=ayuda)
+        pe.set_defaults(func=cmd_estado)
+
+    args = p.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (BrokenPipeError, KeyboardInterrupt):
+        os._exit(1)

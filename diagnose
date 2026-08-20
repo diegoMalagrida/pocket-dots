@@ -1,0 +1,706 @@
+#!/usr/bin/env bash
+#
+# diagnose -- says why something will not start, or what is missing, without
+#             touching anything.
+#
+#     ./diagnose
+#
+# Read-only. It does not install, does not fix, does not write. Meant for
+# pasting the whole output somewhere when things go wrong.
+
+set -uo pipefail
+
+REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ]; then
+    C_TIT=$'\033[1;34m'; C_OK=$'\033[32m'; C_WARN=$'\033[33m'
+    C_BAD=$'\033[31m';   C_DIM=$'\033[2m'; C_OFF=$'\033[0m'
+else
+    C_TIT=; C_OK=; C_WARN=; C_BAD=; C_DIM=; C_OFF=
+fi
+
+FAILURES=0
+WARNINGS=0
+
+# Set in the System section below. Everything from Hyprland downwards is a
+# CONSEQUENCE of this and not a cause, and the script says so out loud: the
+# night the tower would not boot into graphical.target, this thing reported
+# "qs is NOT running" as the failure and sent the search off in the wrong
+# direction for hours.
+SESSION_UP=0
+
+heading() { printf '\n%s== %s ==%s\n' "$C_TIT" "$*" "$C_OFF"; }
+good()    { printf '  %sOK  %s %s\n' "$C_OK" "$C_OFF" "$*"; }
+bad()     { printf '  %sBAD %s %s\n' "$C_BAD" "$C_OFF" "$*"; FAILURES=$((FAILURES+1)); }
+eye()     { printf '  %sHUH %s %s\n' "$C_WARN" "$C_OFF" "$*"; WARNINGS=$((WARNINGS+1)); }
+note()    { printf '      %s%s%s\n' "$C_DIM" "$*" "$C_OFF"; }
+
+# --------------------------------------------------------------- the basics
+
+heading "System"
+
+if [ -r /etc/os-release ]; then
+    note "$(. /etc/os-release && echo "$PRETTY_NAME")"
+fi
+note "kernel $(uname -r)"
+note "session: ${XDG_SESSION_TYPE:-?} / ${XDG_CURRENT_DESKTOP:-?}"
+
+if pgrep -x Hyprland >/dev/null 2>&1; then
+    SESSION_UP=1
+fi
+
+# A kernel update that has not been rebooted into takes /usr/lib/modules/<the
+# running kernel> away with it, and from that moment NOTHING can load a module:
+# no i915, no nvidia, no wifi. It looks exactly like a broken video driver and
+# it is not one -- it is a pending reboot.
+if [ -d "/usr/lib/modules/$(uname -r)" ]; then
+    good "the running kernel still has its modules directory"
+else
+    bad "there is no /usr/lib/modules/$(uname -r)"
+    note "the kernel was updated and this machine has not been rebooted into it;"
+    note "until it is, no module can load at all -- video drivers included"
+    note "fix:  reboot"
+fi
+
+# ------------------------------------------------------------------ login
+
+heading "Login (display manager)"
+
+# This is the first thing to check and it used to be missing: if the machine
+# does not boot into graphical.target, sddm never starts no matter how enabled
+# it is, you land on a TTY, and every user service below looks broken as a
+# consequence rather than as a cause.
+boot_target="$(systemctl get-default 2>/dev/null || echo '?')"
+if [ "$boot_target" = graphical.target ]; then
+    good "boot target is graphical.target"
+else
+    bad "boot target is $boot_target, not graphical.target"
+    note "sddm hangs off graphical.target, so it will never start"
+    note "fix:  sudo systemctl set-default graphical.target"
+fi
+
+if ! systemctl list-unit-files --no-legend sddm.service 2>/dev/null | grep -q .; then
+    eye "sddm is not installed"
+else
+    dm_en="$(systemctl is-enabled sddm.service 2>/dev/null || echo unknown)"
+    dm_ac="$(systemctl is-active sddm.service 2>/dev/null || echo unknown)"
+    if [ "$dm_en" = enabled ] && [ "$dm_ac" = active ]; then
+        good "sddm: enabled / active"
+    elif [ "$dm_en" = enabled ]; then
+        bad "sddm is enabled but $dm_ac -- nothing is drawing a login screen"
+        note "start it now:  sudo systemctl start sddm"
+        note "why it died:   journalctl -b -u sddm --no-pager | tail -40"
+    else
+        eye "sddm: $dm_en / $dm_ac"
+    fi
+fi
+
+# ---- which sessions you could actually log into ---------------------------
+#
+# The other half of the lockout of 2026-08-20. sddm was up and the theme logged
+# straight into the last session used, with no selector: when Hyprland would not
+# start, a machine with a perfectly good Plasma on it had to be rescued by
+# editing the kernel line in the boot loader. So: how many sessions are there,
+# and does each of them point at a program that exists?
+n_sessions=0
+seen_sessions=""
+dead_sessions=""
+for f in /usr/local/share/wayland-sessions/*.desktop /usr/share/wayland-sessions/*.desktop \
+         /usr/local/share/xsessions/*.desktop       /usr/share/xsessions/*.desktop; do
+    [ -f "$f" ] || continue
+    b="${f##*/}"
+    # /usr/local wins over /usr/share for the same file name, exactly as sddm
+    # resolves it, so the same session is never counted twice.
+    case " $seen_sessions " in *" $b "*) continue ;; esac
+    seen_sessions="$seen_sessions $b"
+    n_sessions=$((n_sessions + 1))
+
+    # TryExec is the field meant for this; Exec's first word is the fallback.
+    prog="$(sed -n 's/^TryExec=//p' "$f" | head -1)"
+    [ -n "$prog" ] || prog="$(sed -n 's/^Exec=//p' "$f" | head -1 | cut -d' ' -f1)"
+    case "$prog" in
+        '') ;;
+        /*) [ -x "$prog" ] || dead_sessions="$dead_sessions $b" ;;
+        *)  command -v "$prog" >/dev/null 2>&1 || dead_sessions="$dead_sessions $b" ;;
+    esac
+done
+
+if [ "$n_sessions" -eq 0 ]; then
+    bad "there is not a single session file: sddm will log you into nothing"
+    note "fix:  sudo pacman -S hyprland    (and check /usr/share/wayland-sessions)"
+elif [ "$n_sessions" -eq 1 ]; then
+    eye "only one session to log into ($seen_sessions )"
+    note "if it stops starting there is nothing to fall back to. A second desktop"
+    note "is the cheapest insurance there is:  sudo pacman -S plasma-desktop"
+else
+    good "$n_sessions sessions to choose from:$seen_sessions"
+fi
+
+if [ -n "$dead_sessions" ]; then
+    bad "session files whose program is not installed:$dead_sessions"
+    note "pick one of those at the login screen and you get a black screen and a"
+    note "bounce straight back to sddm. Remove the file or install the program."
+fi
+
+# uwsm is how this repo starts Hyprland (that is the session install.sh selects).
+if [ -f /usr/share/wayland-sessions/hyprland-uwsm.desktop ] \
+   || [ -f /usr/local/share/wayland-sessions/hyprland-uwsm.desktop ]; then
+    good "the uwsm session file is in place"
+else
+    eye "no hyprland-uwsm.desktop: this repo's session entry is missing"
+    note "fix:  sudo pacman -S uwsm hyprland"
+fi
+
+# ---- the greeter theme -----------------------------------------------------
+#
+# sddm merges its config in this order, later wins: /usr/lib/sddm/sddm.conf.d,
+# then /etc/sddm.conf, then /etc/sddm.conf.d. Reading it in that same order is
+# the only way to know which theme will actually be drawn.
+sddm_theme=""
+for c in /usr/lib/sddm/sddm.conf.d/*.conf /etc/sddm.conf /etc/sddm.conf.d/*.conf; do
+    [ -r "$c" ] || continue
+    t="$(sed -n 's/^[[:space:]]*Current=[[:space:]]*//p' "$c" | tail -1)"
+    [ -n "$t" ] && sddm_theme="$t"
+done
+
+if [ -z "$sddm_theme" ]; then
+    note "no theme configured: sddm draws its own built-in greeter"
+elif [ -f "/usr/share/sddm/themes/$sddm_theme/Main.qml" ]; then
+    good "greeter theme '$sddm_theme' is installed"
+
+    # A theme that will not load does not say so: sddm quietly falls back to the
+    # embedded greeter. And editing ~/.config/sddm-hyprisland changes NOTHING on
+    # its own, because the theme lives in /usr/share and has to be copied there
+    # -- which is a very easy hour to lose.
+    # The source lives in ~/.config/<theme> or, the way this repo names it,
+    # ~/.config/sddm-<theme>.
+    src=""
+    for cand in "$HOME/.config/$sddm_theme" "$HOME/.config/sddm-$sddm_theme"; do
+        [ -f "$cand/Main.qml" ] && src="$cand"
+    done
+    if [ -n "$src" ]; then
+        if cmp -s "$src/Main.qml" "/usr/share/sddm/themes/$sddm_theme/Main.qml"; then
+            good "the installed theme matches ${src#"$HOME"/}"
+        else
+            eye "${src#"$HOME"/}/Main.qml differs from the installed theme"
+            note "the login screen is still drawing the OLD file"
+            note "publish it:  sudo $src/install.sh"
+        fi
+    fi
+
+    # QML_XHR_ALLOW_FILE_READ=1 is not optional for hyprisland: without it Qt 6
+    # blocks local file reads from QML in complete silence and the battery
+    # indicator stays empty forever.
+    if [ "$sddm_theme" = hyprisland ]; then
+        if grep -rqs 'QML_XHR_ALLOW_FILE_READ=1' /etc/sddm.conf /etc/sddm.conf.d/; then
+            good "GreeterEnvironment carries QML_XHR_ALLOW_FILE_READ=1"
+        else
+            eye "QML_XHR_ALLOW_FILE_READ=1 is not in the sddm config"
+            note "Qt 6 will block the theme's file reads without a word"
+            note "fix:  sudo ~/.config/sddm-hyprisland/install.sh"
+        fi
+
+        # The greeter runs as the `sddm` user, which cannot walk into a 0700
+        # $HOME, so the wallpaper it shows lives in a shared directory instead.
+        # Your user has to be able to write there -- if it cannot, the login
+        # simply stops following the wallpaper, quietly.
+        shared=/var/lib/sddm-hyprisland
+        if [ ! -d "$shared" ]; then
+            eye "$shared is missing: the login will not follow the wallpaper"
+            note "fix:  sudo ~/.config/sddm-hyprisland/install.sh"
+        elif [ ! -w "$shared" ]; then
+            eye "$shared is not writable by $USER"
+            note "the login keeps whatever background it was installed with"
+            note "fix:  sudo chown root:$(id -gn) $shared && sudo chmod 2775 $shared"
+        elif [ -f "$shared/current.jpg" ]; then
+            good "login background is in sync ($(date -r "$shared/current.jpg" '+%d %b %H:%M'))"
+        else
+            note "no login background yet: it lands on the next wallpaper change"
+        fi
+
+        # This one is a leftover, not a missing piece. Older installs synced the
+        # login from a root service that read a path out of ~/.cache/wal --
+        # root opening a file chosen by an unprivileged process. It was replaced
+        # by login-sync.sh, which runs as you. If the old unit is still around,
+        # this machine has not run the new theme installer yet.
+        if [ -e /etc/systemd/system/sddm-wallpaper-sync.path ]; then
+            eye "the old root-owned wallpaper sync is still installed"
+            note "it was replaced because root should not open paths you control"
+            note "fix:  sudo ~/.config/sddm-hyprisland/install.sh   (retires it)"
+        fi
+    fi
+else
+    bad "sddm is set to theme '$sddm_theme' and it is not installed"
+    note "it falls back to the built-in greeter, so the island never appears"
+    note "reinstall it:  sudo ~/.config/$sddm_theme/install.sh"
+    note "or go back to the stock theme:  sudo rm /etc/sddm.conf.d/99-hyprisland.conf"
+fi
+
+# --------------------------------------------------------------- graphics
+
+heading "Graphics (video drivers)"
+
+# The tower, 2026-08-20: an RTX 5070 running on nouveau, because pacman.txt was
+# a snapshot of a laptop and only ever carried Intel packages. nouveau could not
+# bring the outputs up, Hyprland died on startup, and what you saw was a BLACK
+# SCREEN with no error message anywhere. One line here would have said it.
+#
+# The cards are read out of /sys/bus/pci and not out of lspci, for the same
+# reasons install.sh does it that way: pciutils is not part of `base` and may
+# not be installed, and sysfs hands over the very numbers the kernel matched its
+# own drivers on. lspci is used only to put a human name on the card, if it is
+# there.
+
+gpu_vendors=" common "
+gpu_count=0
+nvidia_modern=0
+
+for dev in /sys/bus/pci/devices/*; do
+    [ -r "$dev/class" ] || continue
+    # 0300 VGA, 0302 "3D controller" (how a laptop's discrete card almost always
+    # shows up) and 0380 display controller. Looking at 0300 alone is the
+    # classic way to miss a dGPU entirely.
+    case "$(cat "$dev/class" 2>/dev/null)" in 0x0300*|0x0302*|0x0380*) ;; *) continue ;; esac
+
+    gpu_count=$((gpu_count + 1))
+    addr="${dev##*/}"
+    devid="$(cat "$dev/device" 2>/dev/null)"
+    drv=none
+    [ -e "$dev/driver" ] && drv="$(basename "$(readlink -f "$dev/driver")")"
+    case "$(cat "$dev/vendor" 2>/dev/null)" in
+        0x8086)        vend=intel  ;;
+        0x1002|0x1022) vend=amd    ;;
+        0x10de)        vend=nvidia ;;
+        *)             vend=other  ;;
+    esac
+    label="$(lspci -s "$addr" 2>/dev/null | cut -d' ' -f2- | head -1)"
+    [ -n "$label" ] || label="$vend $devid"
+    note "$addr  $label"
+
+    # Cleared for a pre-Turing NVIDIA below: install.sh refuses to install
+    # nvidia-open on those cards, so demanding the package here would be asking
+    # for the exact thing the installer decided not to give it.
+    claim_vendor=1
+
+    if [ "$vend" = nvidia ]; then
+        # Same heuristic as install.sh, and labelled as one: NVIDIA hands device
+        # ids out roughly in chronological order, and Turing -- the oldest thing
+        # nvidia-open supports -- opens at 0x1e00.
+        if [ "$((devid))" -ge "$((0x1e00))" ]; then
+            nvidia_modern=1
+            case "$drv" in
+                nvidia)
+                    good "NVIDIA $devid is on the nvidia driver" ;;
+                nouveau)
+                    bad "NVIDIA $devid is running on NOUVEAU"
+                    note "this is exactly what left the tower black: nouveau cannot bring a"
+                    note "modern card up, and Hyprland dies without printing a reason"
+                    note "fix:  ./install.sh graphics    (nvidia-open, nvidia-utils, egl-wayland)" ;;
+                *)
+                    bad "NVIDIA $devid has no kernel driver bound (driver=$drv)"
+                    note "fix:  ./install.sh graphics" ;;
+            esac
+        else
+            claim_vendor=0
+            note "  older than Turing: nouveau is the expected driver for it, and"
+            note "  install.sh will not put nvidia-open on it either"
+            note "  the closed driver for these is in the AUR now: yay -S nvidia-580xx-dkms"
+        fi
+    elif [ "$drv" = none ]; then
+        eye "$vend $devid has no kernel driver bound"
+        note "nothing will render on this card"
+    else
+        good "$vend $devid is on $drv"
+    fi
+
+    if [ "$claim_vendor" = 1 ]; then
+        case "$gpu_vendors" in *" $vend "*) ;; *) gpu_vendors="$gpu_vendors$vend " ;; esac
+    fi
+done
+
+if [ "$gpu_count" -eq 0 ]; then
+    eye "no graphics card found in /sys/bus/pci (a VM without passthrough?)"
+fi
+
+# What userspace sees. No /dev/dri/card* at all is what a missing or unloaded
+# video driver looks like from up here, and it is a black screen every time.
+dri_nodes=0
+for c in /dev/dri/card*; do
+    [ -e "$c" ] && dri_nodes=$((dri_nodes + 1))
+done
+if [ "$dri_nodes" -gt 0 ]; then
+    good "$dri_nodes DRM node(s) in /dev/dri"
+else
+    bad "no /dev/dri/card*: no driver is driving a screen"
+    note "nothing graphical can start, sddm included"
+fi
+
+# The two checks below only mean something once the driver is actually
+# installed. With no nvidia-utils on the machine, "modeset is off" and "no
+# module for this kernel" are both true, both obvious and both noise -- the
+# missing-packages check further down is the one that says something.
+nvidia_installed=0
+if command -v pacman >/dev/null 2>&1; then
+    pacman -Qq nvidia-utils >/dev/null 2>&1 && nvidia_installed=1
+elif modinfo -n nvidia >/dev/null 2>&1; then
+    nvidia_installed=1
+fi
+
+if [ "$nvidia_modern" = 1 ] && [ "$nvidia_installed" = 1 ]; then
+    # Stored first and grepped from a variable on purpose: `modprobe -c | grep -q`
+    # makes grep close the pipe, modprobe takes a SIGPIPE, and `set -o pipefail`
+    # keeps that status -- so the test would fail precisely when it matched.
+    modprobe_conf="$(modprobe -c 2>/dev/null)"
+    if grep -qE '^options[[:space:]]+nvidia[-_]drm\b.*modeset=1' <<<"$modprobe_conf" \
+       || [ "$(cat /sys/module/nvidia_drm/parameters/modeset 2>/dev/null)" = Y ] \
+       || grep -qE '(^| )nvidia[-_]drm\.modeset=1( |$)' /proc/cmdline 2>/dev/null; then
+        good "nvidia_drm.modeset=1 is in effect"
+    else
+        bad "nvidia_drm.modeset=1 is NOT in effect"
+        note "without it the NVIDIA driver exposes no real KMS and Wayland has nothing to"
+        note "draw on. Reinstalling nvidia-utils drops the modprobe.d file that sets it:"
+        note "fix:  sudo pacman -S nvidia-utils    (then reboot)"
+    fi
+
+    # Installed but not built for the kernel you are running is worse than not
+    # installed: everything looks right and the module never loads.
+    if ! modinfo -n nvidia >/dev/null 2>&1; then
+        bad "there is no nvidia module for kernel $(uname -r)"
+        note "on linux-lts/zen/etc. it has to be the dkms build:"
+        note "fix:  sudo pacman -S nvidia-open-dkms <your-kernel>-headers"
+    fi
+fi
+
+# Which card Hyprland is told to render on. A stale path here (a card that moved
+# or a driver that changed) stops the compositor dead before it draws anything.
+aq="$(grep -h '^AQ_DRM_DEVICES=' /etc/environment 2>/dev/null | tail -1)"
+aq="${aq#AQ_DRM_DEVICES=}"
+if [ -n "$aq" ]; then
+    aq_first="${aq%%:*}"
+    if [ -e "$aq_first" ]; then
+        good "AQ_DRM_DEVICES renders on $aq_first"
+    else
+        bad "AQ_DRM_DEVICES points at $aq_first, which does not exist"
+        note "Hyprland will not start. Delete the dotfiles-graphics block in"
+        note "/etc/environment and let it choose for itself, or re-run:"
+        note "fix:  ./install.sh graphics"
+    fi
+fi
+
+# And now the packages, compared against packages/gpu.txt -- the file that
+# exists precisely so an NVIDIA machine stops being handed Intel drivers.
+case "$(grep -m1 '^vendor_id' /proc/cpuinfo 2>/dev/null)" in
+    *GenuineIntel*) gpu_vendors="${gpu_vendors}intel-cpu " ;;
+    *AuthenticAMD*) gpu_vendors="${gpu_vendors}amd-cpu "   ;;
+esac
+
+gpu_manifest="$REPO/packages/gpu.txt"
+if [ ! -f "$gpu_manifest" ]; then
+    note "no packages/gpu.txt to compare against"
+elif ! command -v pacman >/dev/null 2>&1; then
+    note "no pacman here, skipping the package comparison"
+else
+    gpu_missing=""
+    while read -r m_vendor m_arch m_pkg; do
+        case "$m_vendor" in ''|'#'*) continue ;; esac
+        # The 32-bit halves live in [multilib] and only matter for games, so a
+        # missing one is not a desktop that will not start. Left out on purpose.
+        [ "$m_arch" = 64 ] || continue
+        case "$gpu_vendors" in *" $m_vendor "*) ;; *) continue ;; esac
+        pacman -Qq "$m_pkg" >/dev/null 2>&1 || gpu_missing="$gpu_missing $m_pkg"
+    done < "$gpu_manifest"
+
+    if [ -z "$gpu_missing" ]; then
+        good "every packages/gpu.txt package for this hardware is installed"
+        note "vendors matched:${gpu_vendors% }"
+    else
+        bad "missing for this hardware:$gpu_missing"
+        note "this is the failure the tower had, in package form"
+        note "fix:  ./install.sh graphics"
+    fi
+fi
+
+# --------------------------------------------------------------- hyprland
+
+heading "Hyprland"
+
+if ! command -v Hyprland >/dev/null 2>&1; then
+    bad "Hyprland is not installed"
+else
+    version="$(Hyprland --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    note "version $version"
+
+    # The config is in Lua, and that only exists from 0.56 onwards.
+    major="${version%%.*}"; rest="${version#*.}"; minor="${rest%%.*}"
+    if [ -n "$version" ] && { [ "$major" -gt 0 ] || [ "$minor" -ge 56 ]; }; then
+        good "version is new enough for the Lua config (0.56+ required)"
+    else
+        bad "this config is hyprland.lua and needs Hyprland 0.56 or newer"
+        note "on anything older Hyprland ignores the .lua and boots the .conf next to it"
+    fi
+
+    if pgrep -x Hyprland >/dev/null; then
+        good "Hyprland is running"
+        if command -v hyprctl >/dev/null; then
+            # Count by '^Monitor ' rather than by '"name"' in the JSON: every
+            # monitor carries that field three times (its own, activeWorkspace's
+            # and specialWorkspace's), so the JSON tripled the count.
+            note "monitors: $(hyprctl monitors 2>/dev/null | grep -c '^Monitor ') "
+        fi
+    else
+        eye "Hyprland is not running right now"
+    fi
+fi
+
+if [ -f "$HOME/.config/hypr/hyprland.lua" ]; then
+    good "hyprland.lua is in place"
+else
+    bad "~/.config/hypr/hyprland.lua is missing"
+fi
+
+# --------------------------------------------------------------- quickshell
+
+heading "Quickshell (the bar and the notch)"
+
+if ! command -v qs >/dev/null 2>&1; then
+    bad "quickshell is not installed (the binary is called 'qs')"
+else
+    note "$(qs --version 2>&1 | head -1)"
+    if pgrep -x qs >/dev/null; then
+        good "qs running (PID $(pgrep -x qs | tr '\n' ' '))"
+    elif [ "$SESSION_UP" = 0 ]; then
+        # This is the line that cost an evening. With no Hyprland session there
+        # is no Wayland socket for qs to attach to, so "qs is not running" is a
+        # symptom of the section above and not a failure of its own. Calling it
+        # BAD sent the search straight at the bar while the real problem was
+        # that the machine never reached graphical.target.
+        note "qs is not running, and it should not be: there is no Hyprland session"
+        note "this is a consequence. The cause is in one of the sections above."
+    else
+        bad "qs is NOT running"
+        note "look at: journalctl --user -u quickshell -b --no-pager | tail -40"
+    fi
+fi
+
+qs_enabled="$(systemctl --user is-enabled quickshell.service 2>/dev/null || echo unknown)"
+qs_active="$(systemctl --user is-active quickshell.service 2>/dev/null || echo unknown)"
+note "quickshell.service unit: $qs_enabled / $qs_active"
+
+if [ -f "$HOME/.config/quickshell/shell.qml" ]; then
+    good "shell.qml is in place"
+else
+    bad "~/.config/quickshell/shell.qml is missing"
+fi
+
+# --------------------------------------------------------------- wallpaper
+
+heading "Wallpaper"
+
+# The first boot on the tower came up with the right colours everywhere and a
+# BLACK desktop. The chain, all of it documented in awww-start.sh: install.sh
+# generates the palette with `wal -i -n`, and the -n means "palette yes,
+# wallpaper no"; then awww-start.sh called `awww restore`, which restores the
+# last wallpaper SHOWN, and on a new machine there has never been one.
+#
+# And the reason nobody noticed: `awww restore` EXITS 0 even when it restored
+# nothing. So the only honest question is not "did the command work" but "what
+# is awww showing right now", which is what `awww query` answers -- one line per
+# output, saying either "image: <path>" or "color: ...".
+if ! command -v awww >/dev/null 2>&1; then
+    bad "awww is not installed: nothing can put a wallpaper up"
+    note "fix:  ./install.sh repos"
+elif ! pgrep -x awww-daemon >/dev/null; then
+    if [ "$SESSION_UP" = 0 ]; then
+        note "awww-daemon is down, and there is no session for it to draw on"
+    else
+        bad "awww-daemon is NOT running: the desktop is a flat colour"
+        note "fix:  ~/.config/hypr/awww-start.sh"
+    fi
+elif [ "$SESSION_UP" = 0 ]; then
+    note "no Hyprland session, so there is nothing to draw a wallpaper on"
+else
+    awww_q="$(awww query 2>/dev/null)"
+    if [ -z "$awww_q" ]; then
+        eye "awww query answered nothing (daemon up but no output attached?)"
+    else
+        # Counted per line so a second monitor without a wallpaper is caught
+        # too, instead of only looking at the first one.
+        awww_outs="$(printf '%s\n' "$awww_q" | wc -l)"
+        awww_img="$(printf '%s\n' "$awww_q" | grep -c 'currently displaying: image:')"
+        if [ "$awww_img" -ge "$awww_outs" ]; then
+            good "a wallpaper on all $awww_outs output(s)"
+            awww_shown="$(printf '%s\n' "$awww_q" | sed -n 's/.*image: //p' | head -2 | tr '\n' ' ')"
+            note "${awww_shown% }"
+        else
+            bad "$awww_img of $awww_outs outputs have a wallpaper; the rest are flat colour"
+            note 'awww restore exits 0 even when it restores nothing: nothing warned you'
+            note "fix:  ~/.config/hypr/set-wallpaper.sh ~/Pictures/wallpapers/<image>"
+        fi
+    fi
+fi
+
+# Nothing to fall back on is its own failure: awww-start.sh picks the first
+# image in here when the restore comes up empty.
+wp_count=0
+for w in "$HOME"/Pictures/wallpapers/*.jpg "$HOME"/Pictures/wallpapers/*.jpeg \
+         "$HOME"/Pictures/wallpapers/*.png; do
+    [ -f "$w" ] && wp_count=$((wp_count + 1))
+done
+if [ "$wp_count" -gt 0 ]; then
+    good "$wp_count images in ~/Pictures/wallpapers"
+else
+    eye "no images in ~/Pictures/wallpapers"
+    note "the first-boot fallback in awww-start.sh has nothing to pick from"
+fi
+
+# --------------------------------------------------------------- pywal
+
+heading "Colours (pywal)"
+
+if ! command -v wal >/dev/null 2>&1; then
+    bad "python-pywal is missing: without it everything comes up grey"
+else
+    good "wal installed"
+fi
+
+if [ -f "$HOME/.cache/wal/colors.json" ]; then
+    good "a palette has been generated"
+    note "current wallpaper: $(head -c 200 "$HOME/.cache/wal/wal" 2>/dev/null || echo '?')"
+else
+    bad "no palette in ~/.cache/wal/colors.json"
+    note "generate one:  wal -i ~/Pictures/wallpapers/<something>.jpg"
+fi
+
+# The symlinks in the pywal chain are born broken until wal has run once. Only
+# the directories the repo manages are looked at: Chrome and Discord leave
+# broken symlinks behind (SingletonLock, SingletonCookie...) which are normal
+# and have nothing to do with this.
+broken=0
+broken_list=""
+while IFS= read -r link; do
+    [ -e "$link" ] && continue
+    broken=$((broken+1))
+    broken_list="$broken_list      ${link#"$HOME"/} -> $(readlink "$link")"$'\n'
+done < <(find "$HOME/.config/hypr" "$HOME/.config/quickshell" "$HOME/.config/btop" \
+              "$HOME/.config/yazi" "$HOME/.config/cava" \
+              -type l 2>/dev/null)
+if [ "$broken" -eq 0 ]; then
+    good "no broken symlinks in the rice configs"
+else
+    eye "$broken broken symlinks (normal if pywal has not run yet; 'wal -i' fixes them)"
+    printf '%s' "$broken_list"
+fi
+
+# --------------------------------------------------------------- fonts
+
+heading "Fonts"
+
+# fc-list is stored once on purpose: with `set -o pipefail`, an
+# `fc-list | grep -q` exits non-zero ALWAYS, because grep -q closes the pipe,
+# fc-list takes a SIGPIPE and pipefail keeps that status. That made this check
+# claim no fonts were installed at all.
+font_list="$(fc-list : family 2>/dev/null | tr ',' '\n' | tr -d ' ' | tr '[:upper:]' '[:lower:]' | sort -u)"
+
+# Names are compared WITHOUT spaces because the real families do not match how
+# the configs spell them: fontconfig resolves them anyway, but a literal grep
+# for "JetBrains Mono Nerd Font" will not find "JetBrainsMono Nerd Font".
+has_font() {
+    local needle; needle="$(tr -d ' ' <<<"$1" | tr '[:upper:]' '[:lower:]')"
+    grep -q -- "$needle" <<<"$font_list"
+}
+
+# These are the ones the configs actually name (kitty, Appearance.qml,
+# Config.qml). The fallback-chain ones are marked as such.
+for f in "JetBrainsMono Nerd Font" "Symbols Nerd Font" "Adwaita Sans"; do
+    if has_font "$f"; then good "$f"
+    else eye "'$f' missing: the UI will show boxes where the icons go"; fi
+done
+
+for f in "Google Sans Flex" "Rubik"; do
+    if has_font "$f"; then good "$f  (fallback)"
+    else note "no '$f' -- fallback only, no harm done"; fi
+done
+
+# --------------------------------------------------------------- services
+
+heading "User services"
+
+# Half of these need a Wayland session to be up. Saying it once here is cheaper
+# than six warnings that all mean "you are on a TTY".
+if [ "$SESSION_UP" = 0 ]; then
+    note "no graphical session: the ones below that need one are expected to be down"
+fi
+
+for u in hypridle.service hyprpolkitagent.service ydotool.service \
+         pipewire.socket wireplumber.service bt-agent.service; do
+    if ! systemctl --user list-unit-files --no-legend "$u" 2>/dev/null | grep -q .; then
+        eye "$u does not exist (is its package missing?)"
+        continue
+    fi
+    active="$(systemctl --user is-active "$u" 2>/dev/null)"
+    case "$active" in
+        active) good "$u" ;;
+        *)      eye "$u: $active" ;;
+    esac
+done
+
+heading "Failed units"
+failed="$(systemctl --user --failed --no-legend --no-pager 2>/dev/null | wc -l)"
+if [ "$failed" -eq 0 ]; then
+    good "no failed user units"
+else
+    bad "$failed failed user units"
+    systemctl --user --failed --no-legend --no-pager 2>/dev/null | sed 's/^/      /'
+fi
+
+# --------------------------------------------------------------- the repo
+
+heading "Repo status"
+
+note "repo at $REPO"
+
+if [ -d "$REPO/.git" ]; then
+    branch="$(git -C "$REPO" branch --show-current 2>/dev/null || echo '?')"
+    dirty="$(git -C "$REPO" status --porcelain 2>/dev/null | wc -l)"
+    note "branch $branch, $dirty files with unsaved changes"
+fi
+
+# How many ~/.config entries genuinely point at the repo
+linked=0; own=0
+for e in "$REPO"/home/.config/*; do
+    [ -e "$e" ] || continue
+    dest="$HOME/.config/$(basename "$e")"
+    if [ -L "$dest" ] && [ "$(readlink -f "$dest")" = "$(readlink -f "$e")" ]; then
+        linked=$((linked+1))
+    elif [ -e "$dest" ]; then
+        own=$((own+1))
+    fi
+done
+note "of ~/.config: $linked entries linked to the repo, $own standalone copies"
+if [ "$linked" -eq 0 ] && [ "$own" -gt 0 ]; then
+    eye "nothing is linked: either you installed with --copy, or the repo is not deployed"
+fi
+
+# --------------------------------------------------------------- summary
+
+heading "Summary"
+
+# Said before the counts, because it changes how you read them: with no session
+# running, most of what is below the Hyprland heading is describing the same
+# problem over and over rather than several problems.
+if [ "$SESSION_UP" = 0 ]; then
+    note "there is no Hyprland session running right now, so read this from the top:"
+    note "boot target -> sddm -> video drivers -> Hyprland. The first BAD is the cause;"
+    note "everything after it is that same failure seen from further down the chain."
+fi
+
+if [ "$FAILURES" -eq 0 ] && [ "$WARNINGS" -eq 0 ]; then
+    printf '  %sAll good.%s\n\n' "$C_OK" "$C_OFF"
+elif [ "$FAILURES" -eq 0 ]; then
+    printf '  %s%d warnings, no failures.%s It will probably work.\n\n' "$C_WARN" "$WARNINGS" "$C_OFF"
+else
+    printf '  %s%d failures%s and %d warnings. Start with the BAD lines above.\n\n' \
+           "$C_BAD" "$FAILURES" "$C_OFF" "$WARNINGS"
+fi
+
+exit $(( FAILURES > 0 ? 1 : 0 ))

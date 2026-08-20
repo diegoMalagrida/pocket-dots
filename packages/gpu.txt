@@ -1,0 +1,86 @@
+# Video (and microcode) packages, picked at install time by the `graphics` phase
+# of install.sh. This file is NOT installed wholesale: only the lines whose
+# vendor matches the hardware actually found in the machine.
+#
+# WHY THIS FILE EXISTS. pacman.txt is a snapshot of the laptop the repo was born
+# on, and that laptop has an Intel Iris Xe. So the list carried `vulkan-intel`,
+# `intel-media-driver`, `intel-compute-runtime`, `level-zero-loader` and
+# `intel-ucode` with no condition attached. Installed on a tower with an RTX
+# 5070 that adds up to nothing usable: not one of those packages touches an
+# NVIDIA card, nouveau alone could not bring the outputs up, and Hyprland died
+# on startup. What you see is a BLACK SCREEN with no error message anywhere,
+# which is the worst possible way for a driver to be missing. Happened for real
+# on 2026-08-20; it was fixed by hand with `nvidia-open nvidia-utils
+# egl-wayland`, and this file is so it never has to be fixed by hand again.
+#
+# Format:  <vendor>  <arch>  <package>
+#
+#   vendor = common | intel | amd | nvidia | intel-cpu | amd-cpu
+#   arch   = 64  ->  always
+#            32  ->  lives in [multilib]; only installed if [multilib] is
+#                    enabled, which is something the `system` phase does. The
+#                    `graphics` phase runs after `system` precisely so that by
+#                    the time these are needed the repo is switched on.
+#
+# Several vendors can match at once, and that is the whole point: the tower has
+# an NVIDIA card AND the Ryzen's integrated Radeon, and both need their driver.
+
+# --------------------------------------------------------------- any machine
+# mesa is not optional even on NVIDIA: it is what provides the software
+# fallback (llvmpipe) when nothing else loads, and hyprland links against it
+# anyway. It also *provides* libva-mesa-driver, which stopped being a package of
+# its own in mesa 24.2 -- asking for it by name today gets you "target not
+# found" and takes the whole pacman transaction down with it.
+common      64  mesa
+# Without the loader, an installed vulkan-* ICD is a file nobody reads.
+common      64  vulkan-icd-loader
+common      32  lib32-mesa
+common      32  lib32-vulkan-icd-loader
+
+# --------------------------------------------------------------- Intel (i915 / xe)
+intel       64  vulkan-intel
+# VA-API. intel-media-driver is the one for Broadwell (2014) and newer, which is
+# every Intel GPU this rice is likely to meet. The older i965 chips want
+# `libva-intel-driver` instead; add it by hand if you ever run this on one.
+intel       64  intel-media-driver
+# OpenCL and oneAPI. Not needed by the desktop, but they were on the original
+# laptop and things like darktable or ffmpeg filters look for them.
+intel       64  intel-compute-runtime
+intel       64  level-zero-loader
+intel       32  lib32-vulkan-intel
+
+# --------------------------------------------------------------- AMD (amdgpu)
+amd         64  vulkan-radeon
+amd         32  lib32-vulkan-radeon
+# No VA-API line here on purpose: on AMD the decoder lives inside mesa
+# (radeonsi), which the `common` block already installs. There is nothing else
+# to add, and `libva-mesa-driver` no longer exists to be added.
+
+# --------------------------------------------------------------- NVIDIA
+# ONLY for Turing (RTX 20xx, 2018) and newer. install.sh checks the PCI device
+# id and refuses to install these on an older card, because the open modules
+# simply do not support it and a driver that will not load is worse than
+# nouveau: nouveau at least paints something.
+#
+# `nvidia` (the old closed kernel module package) NO LONGER EXISTS in the Arch
+# repos -- nvidia-open replaces it outright. Do not put it back in this file.
+# nvidia-open is built against the plain `linux` kernel; on linux-lts/zen/etc.
+# install.sh swaps it for `nvidia-open-dkms` plus the matching headers.
+nvidia      64  nvidia-open
+nvidia      64  nvidia-utils
+# The EGL platform for Wayland. Hyprland and Xwayland both go through it on
+# NVIDIA; without it you get EGL initialisation failures at compositor startup.
+nvidia      64  egl-wayland
+# VA-API on top of NVDEC, so mpv/Firefox get hardware video decode instead of
+# chewing a core.
+nvidia      64  libva-nvidia-driver
+nvidia      32  lib32-nvidia-utils
+
+# --------------------------------------------------------------- CPU microcode
+# Nothing to do with the GPU, same class of bug: intel-ucode was in pacman.txt
+# unconditionally, so an AMD machine got a package that does nothing and missed
+# the one it needs. Note that microcode only takes effect once the bootloader
+# loads it as an initrd, and this installer never writes to /boot -- it installs
+# the right package and tells you the command to regenerate grub.cfg yourself.
+intel-cpu   64  intel-ucode
+amd-cpu     64  amd-ucode

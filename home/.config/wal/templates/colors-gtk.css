@@ -1,0 +1,34 @@
+/* Named colors de libadwaita/GTK desde pywal.
+   Tematiza apps GTK4/libadwaita (Nautilus = Super+E) con el fondo entero. */
+
+/* Acento */
+@define-color accent_color {color4};
+@define-color accent_bg_color {color4};
+@define-color accent_fg_color {background};
+
+/* Ventanas y vistas */
+@define-color window_bg_color {background};
+@define-color window_fg_color {foreground};
+@define-color view_bg_color {background};
+@define-color view_fg_color {foreground};
+
+/* Cabecera y barra lateral */
+@define-color headerbar_bg_color {background};
+@define-color headerbar_fg_color {foreground};
+@define-color sidebar_bg_color {background};
+@define-color sidebar_fg_color {foreground};
+
+/* Tarjetas / popovers / diálogos */
+@define-color card_bg_color {color0};
+@define-color card_fg_color {foreground};
+@define-color popover_bg_color {color0};
+@define-color popover_fg_color {foreground};
+@define-color dialog_bg_color {background};
+@define-color dialog_fg_color {foreground};
+
+/* Selección y semánticos */
+@define-color theme_selected_bg_color {color4};
+@define-color theme_selected_fg_color {background};
+@define-color destructive_color {color1};
+@define-color success_color {color2};
+@define-color warning_color {color3};

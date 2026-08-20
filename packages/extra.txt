@@ -1,0 +1,27 @@
+# Packages that on the original laptop arrived as a DEPENDENCY of something else
+# (so they do not show up in `pacman -Qqen`) but that the rice or the installer
+# itself calls by name. If they are not installed deliberately, on a new machine
+# they might never turn up at all.
+
+# --- fonts the configs ask for by name ---
+ttf-jetbrains-mono-nerd
+ttf-nerd-fonts-symbols-common
+
+# --- used by install.sh / diagnose, and NOT present in a minimal Arch ---
+# cmp (comparing the /etc files before overwriting them)
+diffutils
+# fc-cache and fc-list (registering the fonts, and checking them in diagnose)
+fontconfig
+
+# --- services from services.txt that only ever arrived by accident ---
+# These two DO get installed anyway as a dependency of something else, so they
+# fix no bug today. They are listed explicitly because a package that exists
+# only as a dependency becomes an orphan the moment whatever pulled it in goes
+# away, and a `pacman -Rns $(pacman -Qtdq)` would take it out without warning:
+#   nftables      -> needed by nftables.service, and without it /etc/nftables.conf
+#                    (the firewall that ships in system/etc) is dead weight
+#   xdg-user-dirs -> needed by xdg-user-dirs.service, which is what creates
+#                    ~/Pictures; without that folder there is nowhere to put the
+#                    wallpapers
+nftables
+xdg-user-dirs

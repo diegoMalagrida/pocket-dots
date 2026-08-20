@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Desactiva RGB de marca: onefetch usa los indices ANSI que pywal controla.
+exec /usr/bin/onefetch --true-color never "$@"

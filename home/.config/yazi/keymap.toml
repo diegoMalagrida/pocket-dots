@@ -1,0 +1,12 @@
+[[mgr.append_keymap]]
+on   = [ "c", "y" ]
+run  = '''
+    shell '
+        paths=""
+        for file in "$@"; do
+            paths="${paths}file://$(realpath "$file")\n"
+        done
+        printf "$paths" | sed "/^$/d" | wl-copy -t text/uri-list
+    '
+'''
+desc = "Copy the file to clipboard"

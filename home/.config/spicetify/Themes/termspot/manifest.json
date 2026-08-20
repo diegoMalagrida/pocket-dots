@@ -1,0 +1,13 @@
+[
+  {
+    "name": "termspot",
+    "description": "CRT phosphor terminal theme: scanlines, vignette, glow, tmux-style pane chips, statusline playbar, terminal control glyphs and 18 color schemes from green phosphor to synthwave.",
+    "preview": "screenshots/scheme-Fdeox.jpg",
+    "readme": "README.md",
+    "usercss": "user.css",
+    "schemes": "color.ini",
+    "include": ["https://cdn.jsdelivr.net/gh/fdeox/termspot@main/theme.js"],
+    "authors": [{ "name": "fdeox", "url": "https://github.com/fdeox" }],
+    "tags": ["terminal", "tui", "crt", "phosphor", "retro"]
+  }
+]

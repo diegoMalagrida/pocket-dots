@@ -1,0 +1,37 @@
+[mgr]
+ratio          = [2, 4, 3]
+sort_by        = "alphabetical"
+sort_sensitive = false
+sort_reverse   = false
+sort_dir_first = true
+linemode       = "none"
+show_hidden    = true
+show_symlink   = true
+scrolloff      = 5
+mouse_events   = ["click", "scroll"]
+title_format   = "Yazi: {cwd}"
+
+[preview]
+wrap          = "no"
+tab_size      = 2
+max_width     = 700
+max_height    = 1000
+image_delay   = 30
+image_filter  = "triangle"
+image_quality = 75
+
+[input]
+cursor_blink = false
+
+[opener]
+browser = [
+	{ run = 'xdg-open "$@"', desc = "Abrir en el navegador", orphan = true, for = "unix" },
+]
+
+[open]
+prepend_rules = [
+	# HTML: Enter lo abre en el navegador; con O se elige (editar, revelar...)
+	{ mime = "text/html", use = [ "browser", "edit", "reveal" ] },
+	{ url = "*.htm", use = [ "browser", "edit", "reveal" ] },
+	{ url = "*.xhtml", use = [ "browser", "edit", "reveal" ] },
+]

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+export ELECTRON_ENABLE_WAYLAND=1
+exec /usr/bin/code --ozone-platform=wayland "$@"

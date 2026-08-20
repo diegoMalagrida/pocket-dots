@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# =============================================================================
+# poke-sprites — fills the pokemon sprite cache that pokefetch, pokeanim and
+# pokemon-popup (Super+O) all read from.
+#
+# THEY ARE NOT IN THE REPO ON PURPOSE: about 270 MB. They are pulled from
+# PokeAPI's sprite repo by number, which is where they came from originally.
+#   animated gen5   -> ~/.cache/pokeanim/<n>.gif   (what pokefetch prefers)
+#   official art    -> ~/.cache/pokeart/<n>.png    (the chafa fallback, -trim'd)
+#
+# Without this, none of it fails out loud: pokefetch just falls through to a
+# plain fastfetch with no sprite, and you never find out why.
+#
+# Resumable and idempotent: anything already downloaded is skipped, and a failed
+# download is deleted rather than left as a truncated file. Needs the network.
+#
+#   poke-sprites               everything (649 animated, 1025 artwork)
+#   poke-sprites 151 151       just the first generation, to try it out
+# =============================================================================
+set -uo pipefail
+
+BASE="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
+ANIM_DIR="$HOME/.cache/pokeanim"
+ART_DIR="$HOME/.cache/pokeart"
+MAX_ANIM="${1:-649}"   # the animated gen5 set runs roughly 1..649
+MAX_ART="${2:-1025}"
+
+command -v curl >/dev/null 2>&1 || { echo "poke-sprites: curl is missing."; exit 1; }
+mkdir -p "$ANIM_DIR" "$ART_DIR"
+
+# Skips what is already there; deletes a partial file instead of keeping it.
+# That last part matters: pokefetch checks PNGs end in IEND precisely because a
+# truncated sprite used to render as garbage.
+fetch() {
+    [ -s "$2" ] && return 0
+    curl -fsSL --retry 2 -o "$2" "$1" 2>/dev/null && [ -s "$2" ] || { rm -f "$2"; return 1; }
+}
+
+echo ">> animated gen5 (1..$MAX_ANIM) -> $ANIM_DIR"
+ok=0
+for n in $(seq 1 "$MAX_ANIM"); do
+    fetch "$BASE/versions/generation-v/black-white/animated/$n.gif" "$ANIM_DIR/$n.gif" && ok=$((ok + 1))
+    [ $((n % 50)) -eq 0 ] && printf '   ...%d/%d  (%d ok)\n' "$n" "$MAX_ANIM" "$ok"
+done
+echo "   animated present: $ok"
+
+echo ">> official artwork (1..$MAX_ART) -> $ART_DIR"
+# -trim crops the transparent border. Without it the sprite reads tiny, because
+# chafa scales the whole canvas and most of it is empty.
+trim=0
+command -v magick >/dev/null 2>&1 && trim=1
+ok=0
+for n in $(seq 1 "$MAX_ART"); do
+    if fetch "$BASE/other/official-artwork/$n.png" "$ART_DIR/$n.png"; then
+        [ "$trim" = 1 ] && magick "$ART_DIR/$n.png" -trim +repage "$ART_DIR/$n.png" 2>/dev/null
+        ok=$((ok + 1))
+    fi
+    [ $((n % 50)) -eq 0 ] && printf '   ...%d/%d  (%d ok)\n' "$n" "$MAX_ART" "$ok"
+done
+echo "   artwork present: $ok"
+
+echo ">> done. Open a new terminal and a pokemon shows up; Super+O for the popup."

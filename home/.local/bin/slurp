@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# slurp con overlay pywal para hyprshot, OCR y grabacion de pantalla.
+set -u
+
+REAL=/usr/bin/slurp
+PALETTE="$HOME/.cache/wal/colors.json"
+
+if [ "${SLURP_NO_PYWAL:-0}" != 1 ] && [ -r "$PALETTE" ] && command -v jq >/dev/null 2>&1; then
+  bg=$(jq -r '.special.background // empty' "$PALETTE")
+  accent=$(jq -r '.colors.color4 // empty' "$PALETTE")
+  if [[ $bg =~ ^#[0-9A-Fa-f]{6}$ && $accent =~ ^#[0-9A-Fa-f]{6}$ ]]; then
+    exec "$REAL" \
+      -b "${bg}99" \
+      -c "${accent}ff" \
+      -s "${accent}33" \
+      -B "${bg}dd" \
+      -w 2 \
+      "$@"
+  fi
+fi
+
+exec "$REAL" "$@"

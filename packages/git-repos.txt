@@ -1,0 +1,11 @@
+# Repos that have to be cloned separately: they are neither pacman nor AUR
+# packages.
+# Format:  <destination relative to $HOME>  <url>  [--depth1]
+#
+# The shell does not come up properly without these four: .zshrc does
+# `source $ZSH/oh-my-zsh.sh`, uses the powerlevel10k theme and loads the
+# zsh-autosuggestions and zsh-syntax-highlighting plugins.
+.oh-my-zsh	https://github.com/ohmyzsh/ohmyzsh.git	--depth1
+.oh-my-zsh/custom/themes/powerlevel10k	https://github.com/romkatv/powerlevel10k.git	--depth1
+.oh-my-zsh/custom/plugins/zsh-autosuggestions	https://github.com/zsh-users/zsh-autosuggestions.git	--depth1
+.oh-my-zsh/custom/plugins/zsh-syntax-highlighting	https://github.com/zsh-users/zsh-syntax-highlighting.git	--depth1

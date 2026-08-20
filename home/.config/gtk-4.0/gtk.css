@@ -1,0 +1,6 @@
+/* adw-gtk3 base + acento pywal */
+@import url("file:///usr/share/themes/adw-gtk3-dark/gtk-4.0/gtk.css");
+@import url("file:///home/diego/.cache/wal/colors-gtk.css");
+/* Solo GTK4: el acento por :root, que en libadwaita >= 1.6 es lo unico que
+   pisa al acento azul del sistema. GTK3 no importa este fichero. */
+@import url("file:///home/diego/.cache/wal/colors-gtk4-accent.css");

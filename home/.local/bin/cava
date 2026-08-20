@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Ejecuta cava con el config generado en cache para no mutar los dotfiles.
+set -u
+
+BASE="$HOME/.config/cava/config"
+CACHED="$HOME/.cache/wal/cava.conf"
+HELPER="$HOME/.config/hypr/scripts/cava-pywal.sh"
+
+if [ ! -s "$CACHED" ] || [ "$BASE" -nt "$CACHED" ]; then
+  "$HELPER" >/dev/null 2>&1 || true
+fi
+
+if [ -s "$CACHED" ]; then
+  exec /usr/bin/cava -p "$CACHED" "$@"
+fi
+
+exec /usr/bin/cava "$@"

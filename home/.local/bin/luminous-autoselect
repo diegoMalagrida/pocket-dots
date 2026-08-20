@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Responde automaticamente al selector de pantalla de xdg-desktop-portal-luminous.
+
+Por que existe: luminous pregunta que monitor compartir cada vez que una app
+pide captura. RustDesk NO implementa persist_mode/restore_token, asi que no hay
+forma de que "recuerde" la autorizacion: preguntaria siempre. Estando fuera de
+casa no hay nadie para contestar, y la conexion muere.
+
+Con LUMIOUS_HEADLESS=1, luminous no dibuja ningun dialogo: se conecta a este
+socket y espera la respuesta. Este proceso hace de servidor y contesta siempre
+el monitor 0.
+
+Protocolo (de stream_message/src/lib.rs del propio proyecto):
+  socket  $XDG_RUNTIME_DIR/luminus_selector.sock
+  marco   u32 nativo con la longitud + payload JSON
+  peticion {"type":"screen_share","monitors":[...]}
+  respuesta {"type":"success","index":0} | {"type":"cancel"} | {"type":"busy"}
+
+OJO (seguridad): con esto, cualquier aplicacion que pida capturar la pantalla
+la obtiene sin preguntar. Es el precio inevitable del acceso desatendido.
+"""
+import json
+import os
+import socket
+import struct
+import sys
+import threading
+
+SOCK = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "luminus_selector.sock"
+)
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def read_msg(conn):
+    head = b""
+    while len(head) < 4:
+        chunk = conn.recv(4 - len(head))
+        if not chunk:
+            return None
+        head += chunk
+    (length,) = struct.unpack("=I", head)          # u32 nativo
+    if length == 0 or length > 1 << 20:
+        log(f"longitud disparatada ({length}), descarto")
+        return None
+    body = b""
+    while len(body) < length:
+        chunk = conn.recv(length - len(body))
+        if not chunk:
+            return None
+        body += chunk
+    return body
+
+
+def write_msg(conn, obj):
+    payload = json.dumps(obj).encode()
+    conn.sendall(struct.pack("=I", len(payload)) + payload)
+
+
+def handle(conn):
+    with conn:
+        raw = read_msg(conn)
+        if raw is None:
+            return
+        log(f"peticion: {raw.decode('utf-8', 'replace')}")
+        try:
+            req = json.loads(raw)
+        except json.JSONDecodeError:
+            log("  no es JSON valido, respondo cancel")
+            write_msg(conn, {"type": "cancel"})
+            return
+
+        monitors = req.get("monitors") or []
+        log(f"  monitores ofrecidos: {monitors} -> elijo indice 0")
+        write_msg(conn, {"type": "success", "index": 0})
+
+
+def main():
+    if os.path.exists(SOCK):
+        os.unlink(SOCK)
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(SOCK)
+    os.chmod(SOCK, 0o600)          # solo el propietario
+    srv.listen(8)
+    log(f"escuchando en {SOCK}")
+
+    try:
+        while True:
+            conn, _ = srv.accept()
+            threading.Thread(target=handle, args=(conn,), daemon=True).start()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.close()
+        if os.path.exists(SOCK):
+            os.unlink(SOCK)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

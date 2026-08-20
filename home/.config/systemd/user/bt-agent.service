@@ -1,0 +1,29 @@
+[Unit]
+# Agente de emparejamiento Bluetooth del notch.
+#
+# Contesta a lo que BlueZ pregunta a mitad de un emparejamiento ("¿coincide este
+# codigo?", "teclea estos seis digitos"). Sin esto los auriculares emparejan
+# igual, porque no preguntan nada, pero un teclado o un mando falla EN SILENCIO:
+# QML no puede exportar un objeto D-Bus y la API de Bluetooth de Quickshell no
+# tiene ningun callback de agente. El porque completo, en la cabecera del script.
+#
+# No depende de quickshell.service a proposito: si el shell no esta, el agente
+# sigue emparejando (a ciegas, sin cara en el notch) en vez de no emparejar.
+Description=Agente de emparejamiento Bluetooth (notch)
+Documentation=file:///home/diego/.config/quickshell/scripts/bt-agent.py
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.config/quickshell/scripts/bt-agent.py
+Restart=on-failure
+RestartSec=2s
+Slice=session.slice
+
+[Install]
+WantedBy=graphical-session.target

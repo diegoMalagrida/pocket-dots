@@ -1,0 +1,19 @@
+/* Interfaz de Satty; los colores de las anotaciones siguen siendo contrastados. */
+.outer_box,
+.toolbar {{
+    color: {foreground};
+    background-color: {background}e6;
+}}
+
+.toolbar button {{
+    color: {foreground};
+}}
+
+.toolbar button:hover {{
+    background-color: {color4}44;
+}}
+
+.toolbar button:checked {{
+    color: {background};
+    background-color: {color4};
+}}

@@ -1,0 +1,27 @@
+{
+    "bandH": 32,
+    "clockSize": 17,
+    "favApps": [
+        "google-chrome",
+        "code",
+        "spotify",
+        "discord"
+    ],
+    "flare": 13,
+    "fontUI": "Adwaita Sans",
+    "hoverDelay": 135,
+    "idleW": 140,
+    "islandGap": 4,
+    "notchColor": "#000000",
+    "notchStyle": "notch",
+    "reserveSpace": true,
+    "roundMax": 30,
+    "scrimAlpha": 0,
+    "showAppName": false,
+    "showArch": false,
+    "showBattery": false,
+    "showDate": false,
+    "showTray": true,
+    "showWorkspaces": true,
+    "sideMargin": 16
+}

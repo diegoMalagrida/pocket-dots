@@ -1,0 +1,5 @@
+# Wireless regulatory domain. Without this the kernel stays on the "world"
+# domain, which is the conservative intersection of every country: fewer
+# 5 GHz channels and lower transmit power than Spain actually allows.
+# Read by the wireless-regdb package at boot. Change it if you are not in ES.
+WIRELESS_REGDOM="ES"

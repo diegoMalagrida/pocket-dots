@@ -1,0 +1,29 @@
+# Deliberately WITHOUT a [user] block.
+#
+# install.sh symlinks this file to ~/.gitconfig, so whatever identity is written
+# here becomes the identity of whoever installs these dotfiles: their commits
+# would go out signed with someone else's name and address. Same reasoning for
+# the credential helper — how you store your tokens is your business, and
+# `store` writes them to disk in the clear.
+#
+# Both live in ~/.gitconfig.local, which is never in the repo. install.sh
+# creates it with placeholders the first time. If the file is not there, git
+# just ignores the include.
+
+[core]
+	pager = delta
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+	line-numbers = true
+	true-color = always
+[merge]
+	conflictStyle = zdiff3
+[diff]
+	colorMoved = default
+
+# Last on purpose: git takes the last value it reads, so anything you put in
+# your own file wins over anything set above.
+[include]
+	path = ~/.gitconfig.local

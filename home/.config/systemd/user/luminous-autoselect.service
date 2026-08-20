@@ -1,0 +1,16 @@
+[Unit]
+Description=Auto-responde al selector de pantalla de xdg-desktop-portal-luminous
+Documentation=https://github.com/waycrate/xdg-desktop-portal-luminous
+PartOf=graphical-session.target
+After=graphical-session.target
+# Tiene que estar escuchando ANTES de que luminous intente conectarse.
+Before=xdg-desktop-portal-luminous.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/diego/.local/bin/luminous-autoselect
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
