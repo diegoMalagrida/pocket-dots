@@ -203,10 +203,12 @@ unfolding just because the mouse went past it.
 
 #### The calendar (`CalendarPanel.qml`)
 
-One month, and nothing else. It opens by **clicking the clock** in the notch:
-you hover, you see the date, you click and the month unfolds. It deliberately
-has no keyboard shortcut — the place you were already looking at the date is
-where you expect to find the calendar, and `Super+C` is already `killactive`.
+One month, and nothing else. It opens from the **control centre**, with a tile
+of its own in the grid, like Network or Bluetooth. Opening it by clicking the
+notch clock — the macOS gesture — was tried first and **taken back out**: that
+click had always opened the control centre, and taking a gesture people already
+have in their fingers in exchange for a new feature is a bad trade. There is no
+keyboard shortcut either.
 
 The grid is **always six rows**, even when the month fits in five, so the height
 of the notch does not jump as you move between months. Month names and weekday

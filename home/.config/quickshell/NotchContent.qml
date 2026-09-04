@@ -202,17 +202,6 @@ Item {
         anchors.fill: parent
         active: root.mode === "peek"
 
-        // Pasas el ratón, ves la fecha, clicas y se abre el mes (como en macOS).
-        // Ignoramos el botón derecho y la rueda para que sigan llegando a TopShell
-        // (play/pause de MPRIS y volumen/escritorio).
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            acceptedButtons: Qt.LeftButton
-            onClicked: ShellState.togglePanel("calendar")
-            onWheel: function (wheel) { wheel.accepted = false; }
-        }
-
         // Centrada igual que en reposo: al pasar el ratón el grupo crece y se
         // recentra, en vez de saltar de un anclaje a otro.
         Row {
@@ -783,11 +772,10 @@ Item {
     }
 
     // ─────────────── calendar: calendario del mes ───────────────
-    // Nace en el centro (origin 0), que es donde está el reloj del que sale.
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "calendar"
-        origin: 0
+        origin: 1   // se abre desde el centro de control, a la derecha
         CalendarPanel { anchors.fill: parent }
     }
 }

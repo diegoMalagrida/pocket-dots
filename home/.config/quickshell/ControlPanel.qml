@@ -177,6 +177,15 @@ Item {
                     on: ShellState.pokeTheme
                     onActivated: ShellState.togglePokeTheme()
                 }
+                // `on` va siempre a false a propósito: los demás cuadros encienden
+                // algo y el color dice si está encendido, pero este es una puerta,
+                // no un interruptor. Pintarlo encendido prometería un estado que no
+                // existe.
+                Toggle {
+                    icon: Icons.calendar; label: I18n.tr("Calendario"); idx: 7
+                    on: false
+                    panel: "calendar"
+                }
             }
 
             Item { Layout.fillHeight: true }

@@ -95,6 +95,7 @@ var en = {
     "Café: la pantalla no se apaga": "Caffeine: the screen stays on",
     "Cafeína": "Caffeine",
     "calculando…": "calculating…",
+    "Calendario": "Calendar",
     "Caliente": "Hot",
     "Cambia la barra, el notch, los paneles y esta ventana. No toca el idioma del sistema ni el de las aplicaciones: es solo el shell. El cambio es inmediato, no hay que reiniciar nada.": "Changes the bar, the notch, the panels and this window. It does not touch the system language or the applications': it is only the shell. The change is immediate, nothing needs restarting.",
     "cambiar el split": "change the split",

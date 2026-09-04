@@ -197,10 +197,11 @@ un panel nuevo son tres pasos**: un valor más en `panel`, su tamaño en
 
 #### El calendario (`CalendarPanel.qml`)
 
-Un mes, y nada más. Se abre **pinchando el reloj** del notch: pasas el ratón, ves
-la fecha, clicas y se despliega el mes. No tiene atajo de teclado a propósito —
-el sitio donde ya estabas mirando la fecha es el sitio donde esperas encontrar el
-calendario, y `Super+C` ya es `killactive`.
+Un mes, y nada más. Se abre desde el **centro de control**, con su propio cuadro
+en la rejilla, igual que Red o Bluetooth. Se probó antes a abrirlo pinchando el
+reloj del notch —el gesto de macOS— y **se retiró**: ese clic ya abría el centro
+de control desde siempre, y robarle un gesto que la gente tiene en los dedos a
+cambio de una función nueva es un mal trato. Tampoco tiene atajo de teclado.
 
 La rejilla es **siempre de 6 filas**, aunque el mes quepa en 5: así la altura del
 notch no pega un salto al cambiar de mes. Los nombres de mes y las iniciales de
