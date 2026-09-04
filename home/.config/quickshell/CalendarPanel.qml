@@ -14,15 +14,22 @@ Item {
 
     readonly property bool active: ShellState.panel === "calendar"
 
-    property int viewYear: ShellState.now.getFullYear()
-    property int viewMonth: ShellState.now.getMonth()
+    // SOLO la fecha, no la hora. El reloj del shell late cada segundo, y colgar
+    // de él la rejilla hacía que se reconstruyeran 42 objetos Date y sus 42
+    // delegados UNA VEZ POR SEGUNDO, para siempre, con el panel cerrado y por
+    // cada monitor. Una cadena "yyyy-MM-dd" solo emite cambio cuando cambia el
+    // día, que es exactamente cuando la rejilla tiene algo nuevo que decir.
+    readonly property string todayKey: Qt.formatDate(ShellState.now, "yyyy-MM-dd")
 
-    readonly property bool isCurrentMonth: root.viewYear === ShellState.now.getFullYear()
-        && root.viewMonth === ShellState.now.getMonth()
+    property int viewYear: parseInt(root.todayKey.slice(0, 4))
+    property int viewMonth: parseInt(root.todayKey.slice(5, 7)) - 1
+
+    readonly property bool isCurrentMonth: root.viewYear === parseInt(root.todayKey.slice(0, 4))
+        && root.viewMonth === parseInt(root.todayKey.slice(5, 7)) - 1
 
     function goToToday() {
-        root.viewYear = ShellState.now.getFullYear();
-        root.viewMonth = ShellState.now.getMonth();
+        root.viewYear = parseInt(root.todayKey.slice(0, 4));
+        root.viewMonth = parseInt(root.todayKey.slice(5, 7)) - 1;
     }
 
     function prevMonth() {
@@ -80,17 +87,22 @@ Item {
         const y = root.viewYear;
         const m = root.viewMonth;
         const firstDow = ShellState.loc.firstDayOfWeek;
-        const now = ShellState.now;
-        const todayY = now.getFullYear();
-        const todayM = now.getMonth();
-        const todayD = now.getDate();
+        const todayY = parseInt(root.todayKey.slice(0, 4));
+        const todayM = parseInt(root.todayKey.slice(5, 7)) - 1;
+        const todayD = parseInt(root.todayKey.slice(8, 10));
 
-        const firstOfMonth = new Date(y, m, 1).getDay();
+        // Las 12:00 y no las 00:00, en TODAS las fechas que se construyen aquí.
+        // Donde el cambio de hora de primavera salta a medianoche -Santiago,
+        // Beirut, La Habana- las 00:00 de ese día NO EXISTEN, y el motor las
+        // resuelve como las 23:00 del día anterior: el día del cambio se cae de
+        // la rejilla y el anterior sale dos veces. En Madrid el salto es a las
+        // 02:00 y no se nota, pero este repo es público.
+        const firstOfMonth = new Date(y, m, 1, 12).getDay();
         const leadDays = (firstOfMonth - firstDow + 7) % 7;
 
         const cells = [];
         for (let i = 0; i < 42; i++) {
-            const d = new Date(y, m, 1 - leadDays + i);
+            const d = new Date(y, m, 1 - leadDays + i, 12);
             const cellY = d.getFullYear();
             const cellM = d.getMonth();
             const cellD = d.getDate();
@@ -121,7 +133,7 @@ Item {
 
             // Al pinchar en el título cuando estás en otro mes, vuelve a hoy
             Text {
-                text: ShellState.capitalize(new Date(root.viewYear, root.viewMonth, 1).toLocaleDateString(ShellState.loc, "MMMM yyyy"))
+                text: ShellState.capitalize(new Date(root.viewYear, root.viewMonth, 1, 12).toLocaleDateString(ShellState.loc, "MMMM yyyy"))
                 color: "#ffffff"
                 font.family: Appearance.fontUI
                 font.pixelSize: 15

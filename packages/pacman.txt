@@ -53,6 +53,7 @@ impala
 iwd
 java-hamcrest
 jdk-openjdk
+jq
 junit
 kitty
 lazygit

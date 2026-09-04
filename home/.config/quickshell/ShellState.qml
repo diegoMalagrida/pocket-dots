@@ -222,7 +222,11 @@ Singleton {
         : mode === "system" ? 420
         : mode === "network" || mode === "bluetooth" ? 412
         : mode === "power" ? 158
-        : mode === "calendar" ? 320
+        // +notchTopGap por lo mismo que el lanzador unas lineas mas arriba: en
+        // modo isla TopShell despega la pildora con `height: nh - gap`, asi que
+        // sin sumarlo se recortan los ultimos pixeles y la fila de abajo pierde
+        // el borde. Diego usa el notch en modo isla, o sea que esto se veia.
+        : mode === "calendar" ? 320 + root.notchTopGap
         : mode === "notif" ? 66
         : mode === "toast" ? 44
         : mode === "ws" ? 44

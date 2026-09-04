@@ -103,7 +103,11 @@ ask_lang() {
     read -r -p "  language for the desktop, es or en? [$DEFAULT_LANG] " answer
     case "$answer" in
         en|EN) UI_LANG=en ;;
-        ''|es|ES) ;;
+        es|ES) UI_LANG=es ;;
+        # Enter a secas = lo que ya hablaba el escritorio. Y 'es' tecleado a mano
+        # tiene que ASIGNAR: cuando el defecto pasó a ser lo que hay instalado, un
+        # caso vacío aquí dejaba UI_LANG en 'en' y se ignoraba lo que pedías.
+        '') ;;
         *) warn "'$answer' is neither es nor en; keeping $DEFAULT_LANG" ;;
     esac
 }
@@ -1498,7 +1502,13 @@ phase_restore() {
 
     local backup_root="$HOME/.dotfiles-backup"
     local which=""
-    [ -d "$backup_root" ] && which="$(find "$backup_root" -maxdepth 1 -mindepth 1 -type d | sort | tail -1)"
+    [ -d "$backup_root" ] && # La MÁS RECIENTE por fecha de modificación, no la última alfabéticamente.
+    # Con `sort | tail -1` cualquier carpeta que empiece por letra -las que dejan
+    # los despliegues a mano, tipo `i18n-...` o `pre-deploy-...`- se ordenaba
+    # después de las fechadas `2026...` y tapaba a la buena. Restaurar es la red
+    # de seguridad: no puede depender de cómo se llame la carpeta.
+    which="$(find "$backup_root" -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' \
+        | sort -rn | head -1 | cut -d' ' -f2-)"
 
     # How many symlinks to the repo exist right now, to know if there is
     # anything to do at all.

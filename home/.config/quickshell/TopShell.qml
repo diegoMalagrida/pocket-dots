@@ -213,7 +213,8 @@ Scope {
             // cancela y el panel se cierra.
             WlrLayershell.keyboardFocus: win.primary && (ShellState.panel === "launcher" || ShellState.panel === "power"
                                           || ShellState.panel === "network" || ShellState.panel === "bluetooth"
-                                          || ShellState.panel === "overview" || ShellState.panel === "system")
+                                          || ShellState.panel === "overview" || ShellState.panel === "system"
+                                          || ShellState.panel === "calendar")
                 ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
             // La máscara cubre SOLO el notch y los dos grupos de glifos. El resto de

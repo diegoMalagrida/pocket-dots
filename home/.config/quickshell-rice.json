@@ -12,6 +12,7 @@
     "hoverDelay": 135,
     "idleW": 140,
     "islandGap": 4,
+    "language": "es",
     "notchColor": "#000000",
     "notchStyle": "notch",
     "reserveSpace": true,
