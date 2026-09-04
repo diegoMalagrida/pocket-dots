@@ -24,7 +24,7 @@ import QtQuick.Layouts
 Flickable {
     id: root
 
-    property string note: "Se leen de ~/.config/hypr/hyprland.conf. Super+K abre esta misma lista."
+    property string note: I18n.tr("Se leen de ~/.config/hypr/hyprland.conf. Super+K abre esta misma lista.")
     property var binds: []
     readonly property int matchCount: cShell.visibleRows + cWin.visibleRows + cWs.visibleRows
         + cApps.visibleRows + cSys.visibleRows
@@ -41,6 +41,18 @@ Flickable {
         watchChanges: true
         onFileChanged: reload()
         onLoaded: root.binds = root.parseConf(text())
+    }
+
+    // La lista se construye UNA vez, al leer el fichero: no es un binding.
+    // Como los rótulos de tecla y de dispatcher SÍ están traducidos, al
+    // cambiar de idioma hay que volver a parsear o se quedarían en el
+    // idioma anterior hasta que alguien tocara hyprland.conf.
+    Connections {
+        target: I18n
+        function onLangChanged() {
+            const t = conf.text();
+            if (t && t.length > 0) root.binds = root.parseConf(t);
+        }
     }
 
     // ─────────── parseo ───────────
@@ -71,7 +83,11 @@ Flickable {
 
             out.push({
                 combo: root.comboLabel(mods, key),
-                what: comment.length > 0 ? comment : root.dispLabel(disp, args),
+                // El comentario viene del propio hyprland.conf, en castellano, y
+                // se traduce aqui: asi la config de Hyprland -que es de Diego y
+                // esta en castellano a proposito- no hay que tocarla para cambiar
+                // de idioma. La clave del diccionario es el comentario literal.
+                what: comment.length > 0 ? I18n.tr(comment) : root.dispLabel(disp, args),
                 group: root.groupOf(disp, args)
             });
         }
@@ -82,17 +98,17 @@ Flickable {
         "SUPER": "Super", "SHIFT": "Shift", "CTRL": "Ctrl", "CONTROL": "Ctrl", "ALT": "Alt"
     })
     readonly property var keyNames: ({
-        "comma": ",", "period": ".", "slash": "/", "space": "Espacio", "TAB": "Tab",
-        "Print": "Impr Pant", "return": "Intro", "escape": "Esc",
+        "comma": ",", "period": ".", "slash": "/", "space": I18n.tr("Espacio"), "TAB": "Tab",
+        "Print": I18n.tr("Impr Pant"), "return": I18n.tr("Intro"), "escape": "Esc",
         "left": "←", "right": "→", "up": "↑", "down": "↓",
-        "mouse_down": "rueda ↓", "mouse_up": "rueda ↑",
-        "mouse:272": "clic izq.", "mouse:273": "clic der.",
-        "XF86AudioRaiseVolume": "Subir volumen", "XF86AudioLowerVolume": "Bajar volumen",
-        "XF86AudioMute": "Silenciar", "XF86AudioMicMute": "Silenciar micro",
-        "XF86AudioNext": "Siguiente", "XF86AudioPrev": "Anterior",
-        "XF86AudioPlay": "Reproducir", "XF86AudioPause": "Pausa",
-        "XF86MonBrightnessUp": "Subir brillo", "XF86MonBrightnessDown": "Bajar brillo",
-        "XF86PowerOff": "Botón de encendido"
+        "mouse_down": I18n.tr("rueda ↓"), "mouse_up": I18n.tr("rueda ↑"),
+        "mouse:272": I18n.tr("clic izq."), "mouse:273": I18n.tr("clic der."),
+        "XF86AudioRaiseVolume": I18n.tr("Subir volumen"), "XF86AudioLowerVolume": I18n.tr("Bajar volumen"),
+        "XF86AudioMute": I18n.tr("Silenciar"), "XF86AudioMicMute": I18n.tr("Silenciar micro"),
+        "XF86AudioNext": I18n.tr("Siguiente"), "XF86AudioPrev": I18n.tr("Anterior"),
+        "XF86AudioPlay": I18n.tr("Reproducir"), "XF86AudioPause": I18n.tr("Pausa"),
+        "XF86MonBrightnessUp": I18n.tr("Subir brillo"), "XF86MonBrightnessDown": I18n.tr("Bajar brillo"),
+        "XF86PowerOff": I18n.tr("Botón de encendido")
     })
 
     function comboLabel(mods, key) {
@@ -110,13 +126,13 @@ Flickable {
     }
 
     readonly property var dispNames: ({
-        "killactive": "cerrar la ventana", "exit": "salir de Hyprland",
-        "togglefloating": "flotante sí/no", "fullscreen": "pantalla completa",
-        "pseudo": "pseudo-tile", "togglesplit": "cambiar el split",
-        "movefocus": "mover el foco", "movewindow": "mover la ventana",
-        "resizeactive": "redimensionar", "workspace": "ir al escritorio",
-        "movetoworkspace": "llevar al escritorio", "layoutmsg": "layout",
-        "togglespecialworkspace": "escritorio especial"
+        "killactive": I18n.tr("cerrar la ventana"), "exit": I18n.tr("salir de Hyprland"),
+        "togglefloating": I18n.tr("flotante sí/no"), "fullscreen": I18n.tr("pantalla completa"),
+        "pseudo": "pseudo-tile", "togglesplit": I18n.tr("cambiar el split"),
+        "movefocus": I18n.tr("mover el foco"), "movewindow": I18n.tr("mover la ventana"),
+        "resizeactive": I18n.tr("redimensionar"), "workspace": I18n.tr("ir al escritorio"),
+        "movetoworkspace": I18n.tr("llevar al escritorio"), "layoutmsg": "layout",
+        "togglespecialworkspace": I18n.tr("escritorio especial")
     })
 
     function dispLabel(disp, args) {
@@ -152,7 +168,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cShell
-            title: "EL SHELL"
+            title: I18n.tr("EL SHELL")
             Repeater {
                 model: root.ofGroup("shell")
                 onItemAdded: cShell.recount()
@@ -163,7 +179,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cWin
-            title: "VENTANAS"
+            title: I18n.tr("VENTANAS")
             Repeater {
                 model: root.ofGroup("win")
                 onItemAdded: cWin.recount()
@@ -174,7 +190,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cWs
-            title: "ESCRITORIOS"
+            title: I18n.tr("ESCRITORIOS")
             Repeater {
                 model: root.ofGroup("ws")
                 onItemAdded: cWs.recount()
@@ -185,7 +201,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cApps
-            title: "APPS Y SCRIPTS"
+            title: I18n.tr("APPS Y SCRIPTS")
             Repeater {
                 model: root.ofGroup("apps")
                 onItemAdded: cApps.recount()
@@ -196,7 +212,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cSys
-            title: "SISTEMA"
+            title: I18n.tr("SISTEMA")
             Repeater {
                 model: root.ofGroup("sys")
                 onItemAdded: cSys.recount()
@@ -208,14 +224,14 @@ Flickable {
         SettingsControls.Note_ {
             Layout.topMargin: 10
             visible: root.binds.length === 0
-            text: "No se ha podido leer ningún atajo de hyprland.conf."
+            text: I18n.tr("No se ha podido leer ningún atajo de hyprland.conf.")
         }
 
         SettingsControls.Note_ {
             Layout.topMargin: 10
             visible: root.binds.length > 0 && ShellState.settingsQuery.length > 0
                      && !cShell.visible && !cWin.visible && !cWs.visible && !cApps.visible && !cSys.visible
-            text: "Ningún atajo coincide con «" + ShellState.settingsQuery + "»."
+            text: I18n.tr("Ningún atajo coincide con «{0}».", ShellState.settingsQuery)
         }
     }
 

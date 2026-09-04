@@ -19,16 +19,16 @@ Item {
     property int current: 0
 
     readonly property var items: [
-        { icon: "󰌾", label: "Bloquear",  cmd: "hyprlock",              danger: false },
-        { icon: "󰤄", label: "Suspender", cmd: "systemctl suspend",     danger: false },
+        { icon: "󰌾", label: I18n.tr("Bloquear"),  cmd: "hyprlock",              danger: false },
+        { icon: "󰤄", label: I18n.tr("Suspender"), cmd: "systemctl suspend",     danger: false },
         // `exit` a secas ya no vale: desde Hyprland 0.55 el argumento de
         // `dispatch` es una expresion Lua, y un nombre suelto se queda en nil
         // ("expected a dispatcher"). Las comillas simples son necesarias para
         // que los parentesis lleguen enteros a hyprctl; el cmd se ejecuta con
         // `bash -lc`, asi que no se las come nadie por el camino.
-        { icon: "󰗽", label: "Salir",     cmd: "hyprctl dispatch 'hl.dsp.exit()'", danger: false, confirm: true  },
-        { icon: "󰜉", label: "Reiniciar", cmd: "systemctl reboot",      danger: true,  confirm: true  },
-        { icon: "󰐥", label: "Apagar",    cmd: "systemctl poweroff",    danger: true,  confirm: true  }
+        { icon: "󰗽", label: I18n.tr("Salir"),     cmd: "hyprctl dispatch 'hl.dsp.exit()'", danger: false, confirm: true  },
+        { icon: "󰜉", label: I18n.tr("Reiniciar"), cmd: "systemctl reboot",      danger: true,  confirm: true  },
+        { icon: "󰐥", label: I18n.tr("Apagar"),    cmd: "systemctl poweroff",    danger: true,  confirm: true  }
     ]
 
     // Indice del boton armado, o -1. Solo lo usan las acciones con
@@ -127,7 +127,7 @@ Item {
                         }
                         Text {
                             Layout.alignment: Qt.AlignHCenter
-                            text: btn.isArmed ? "¿Seguro?" : btn.modelData.label
+                            text: btn.isArmed ? I18n.tr("¿Seguro?") : btn.modelData.label
                             color: btn.sel ? "#ffffff" : "#8a8a8a"
                             font.family: Appearance.fontUI; font.pixelSize: 11
                             font.weight: btn.sel ? Font.Medium : Font.Normal

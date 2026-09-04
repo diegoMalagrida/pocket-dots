@@ -143,37 +143,37 @@ Item {
                 }
 
                 Toggle {
-                    icon: ShellState.netIcon; label: "Red"; idx: 0
+                    icon: ShellState.netIcon; label: I18n.tr("Red"); idx: 0
                     on: ShellState.online
                     panel: "network"
                 }
                 Toggle {
-                    icon: ShellState.btIcon; label: "Bluetooth"; idx: 1
+                    icon: ShellState.btIcon; label: I18n.tr("Bluetooth"); idx: 1
                     on: ShellState.btOn
                     panel: "bluetooth"
                 }
                 Toggle {
-                    icon: ShellState.dnd ? "󰂛" : "󰂚"; label: "No molestar"; idx: 2
+                    icon: ShellState.dnd ? "󰂛" : "󰂚"; label: I18n.tr("No molestar"); idx: 2
                     on: ShellState.dnd
                     onActivated: ShellState.dnd = !ShellState.dnd
                 }
                 Toggle {
-                    icon: Icons.coffee; label: "Cafeína"; idx: 3
+                    icon: Icons.coffee; label: I18n.tr("Cafeína"); idx: 3
                     on: ShellState.caffeine
                     onActivated: ShellState.caffeine = !ShellState.caffeine
                 }
                 Toggle {
-                    icon: Icons.moon; label: "Luz noct."; idx: 4
+                    icon: Icons.moon; label: I18n.tr("Luz noct."); idx: 4
                     on: ShellState.nightLight
                     onActivated: ShellState.toggleNightLight()
                 }
                 Toggle {
-                    icon: Icons.remote; label: "Remoto"; idx: 5
+                    icon: Icons.remote; label: I18n.tr("Remoto"); idx: 5
                     on: ShellState.remoteMode
                     onActivated: ShellState.toggleRemoteMode()
                 }
                 Toggle {
-                    icon: Icons.pokeball; label: "Pokémon"; idx: 6
+                    icon: Icons.pokeball; label: I18n.tr("Pokémon"); idx: 6
                     on: ShellState.pokeTheme
                     onActivated: ShellState.togglePokeTheme()
                 }
@@ -222,13 +222,14 @@ Item {
                             Layout.fillWidth: true
                             spacing: 0
                             Text {
-                                text: "Tu equipo"
+                                text: I18n.tr("Tu equipo")
                                 color: performanceMa.containsMouse ? Colors.accent : "#cfcfcf"
                                 font.family: Appearance.fontUI; font.pixelSize: 10
                                 font.weight: Font.DemiBold
                             }
                             Text {
-                                text: "CPU " + ShellState.cpu + "%  ·  RAM " + ShellState.mem + "%  ·  SSD " + ShellState.disk + "%"
+                                text: I18n.tr("CPU {0}%  ·  RAM {1}%  ·  SSD {2}%",
+                                              ShellState.cpu, ShellState.mem, ShellState.disk)
                                 color: "#747474"
                                 font.family: Appearance.fontUI; font.pixelSize: 8
                                 font.features: ({ "tnum": 1 })
@@ -264,7 +265,7 @@ Item {
                 Layout.fillWidth: true
                 spacing: 8
                 Text {
-                    text: "Notificaciones"
+                    text: I18n.tr("Notificaciones")
                     color: "#ffffff"
                     font.family: Appearance.fontUI; font.pixelSize: 12; font.weight: Font.DemiBold
                 }
@@ -297,7 +298,7 @@ Item {
                 }
                 Text {
                     visible: ShellState.notifCount > 0
-                    text: "Limpiar"
+                    text: I18n.tr("Limpiar")
                     color: clearMa.containsMouse ? Colors.accent : "#7d7d7d"
                     font.family: Appearance.fontUI; font.pixelSize: 11
                     Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
@@ -494,7 +495,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 visible: ShellState.notifCount === 0
-                text: "Sin notificaciones"
+                text: I18n.tr("Sin notificaciones")
                 color: "#5e5e5e"
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter

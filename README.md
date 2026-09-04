@@ -19,6 +19,9 @@ cd dotfiles
 
 Needs **Hyprland 0.56+** — the config is `hyprland.lua`, not `hyprland.conf`.
 
+- `./install.sh --lang en` — bring the desktop up in English. It speaks Spanish
+  by default, and you can switch either way at any time in Settings → Appearance,
+  without restarting anything
 - `./install.sh --dry-run` — see the plan, change nothing
 - `./install.sh restore` — undo it
 - `./diagnose` — what is missing or will not start

@@ -30,6 +30,13 @@ Item {
     // mientras entra la isla. El resto es fijo, igual que en el notch: la
     // superficie es negra y pywal solo aporta el acento.
     property color accent:              config.accent || "#8cd8c2"
+
+    // Idioma del login. Sale de theme.conf porque aqui no hay sesion de
+    // usuario todavia y no se puede leer el JSON del rice: SDDM corre antes
+    // de que exista el $HOME de nadie. Lo escribe el instalador.
+    // Si la clave no esta, castellano, que es lo que habia siempre.
+    readonly property string uiLang:    config.language || "es"
+    readonly property bool english:     uiLang === "en"
     readonly property color surface:    Qt.rgba(0, 0, 0, 0.941)   // rgba(000000f0)
     readonly property color surfaceAlt: "#181818"
     readonly property color outline:    Qt.rgba(1, 1, 1, 0.094)   // rgba(ffffff18)
@@ -251,7 +258,7 @@ Item {
             font.family: "Adwaita Sans"
             font.pixelSize: 15
             color: root.muted
-            text: root.spanishDate()
+            text: root.localDate()
         }
 
         // ---- Campo-pildora --------------------------------------------------
@@ -322,9 +329,9 @@ Item {
                 color: root.checking ? root.okColor
                      : root.failed ? root.failColor
                      : Qt.rgba(1, 1, 1, 0.55)         // placeholder alpha 55 %
-                text: root.checking ? "Comprobando…"
-                    : root.failed ? "No coincide · intento " + root.attempts
-                    : password.text.length === 0 ? "Escribe tu contraseña"
+                text: root.checking ? (root.english ? "Checking…" : "Comprobando…")
+                    : root.failed ? (root.english ? "No match · attempt " : "No coincide · intento ") + root.attempts
+                    : password.text.length === 0 ? (root.english ? "Enter your password" : "Escribe tu contraseña")
                     : ""
             }
 
@@ -441,7 +448,7 @@ Item {
         triggeredOnStart: true
         onTriggered: {
             clock.text = Qt.formatDateTime(new Date(), "HH:mm");
-            dateLabel.text = root.spanishDate();
+            dateLabel.text = root.localDate();
         }
     }
 
@@ -454,13 +461,21 @@ Item {
 
     // Mismo formato que ~/.config/hypr/scripts/lock-info.sh, y por el mismo
     // motivo: la sesion corre con LC_TIME=C pero la interfaz habla espanol.
-    function spanishDate() {
+    //
+    // En ingles NO se reusa esa tabla ni se confia en el locale de la sesion:
+    // se pide a Qt el locale en_GB explicito. Depender de LC_TIME=C daria el
+    // mismo resultado hoy, pero el dia que alguien toque el entorno de SDDM la
+    // fecha cambiaria de idioma sin que nadie hubiera tocado el tema.
+    function localDate() {
+        var d = new Date();
+        if (root.english)
+            return d.toLocaleDateString(Qt.locale("en_GB"), "dddd") + " · " +
+                   d.toLocaleDateString(Qt.locale("en_GB"), "d MMMM");
         var days = ["Domingo", "Lunes", "Martes", "Miércoles",
                     "Jueves", "Viernes", "Sábado"];
         var months = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
                       "julio", "agosto", "septiembre", "octubre",
                       "noviembre", "diciembre"];
-        var d = new Date();
         return days[d.getDay()] + " · " + d.getDate() +
                " de " + months[d.getMonth()];
     }

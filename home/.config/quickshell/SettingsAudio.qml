@@ -12,7 +12,7 @@
 //   1) si el nodo trae `nickname` (node.nick: "Speaker", "HDMI 1"), se usa ese;
 //   2) si no, se le quita el prefijo común a todos los dispositivos, calculado
 //      en vivo — así funciona con cualquier tarjeta, no solo con esta;
-//   3) y se traducen los cuatro términos de siempre al castellano.
+//   3) y se traducen los cuatro términos de siempre al idioma del shell.
 // El nombre completo no se pierde: sale en la franja del pie al pasar por
 // encima de la fila.
 import Quickshell
@@ -24,7 +24,7 @@ import QtQuick.Layouts
 Flickable {
     id: root
 
-    property string note: "El dispositivo marcado es el predeterminado; pincha otro para cambiarlo."
+    property string note: I18n.tr("El dispositivo marcado es el predeterminado; pincha otro para cambiarlo.")
     readonly property int matchCount: cVol.visibleRows + cSinks.visibleRows + cSources.visibleRows
 
     contentHeight: col.implicitHeight + 34
@@ -87,17 +87,19 @@ Flickable {
     }
 
     // Los nombres de ALSA vienen en inglés y siempre son los mismos cuatro.
+    // El nombre del dispositivo es un dato y se respeta; lo que se traduce son
+    // estos términos genéricos, al idioma del shell.
     function toES(s) {
         return s
             .replace(/HDMI \/ DisplayPort (\d+) Output/i, "HDMI $1")
-            .replace(/\bDigital Microphone\b/i, "Micrófono digital")
-            .replace(/\bStereo Microphone\b/i, "Micrófono estéreo")
-            .replace(/\bInternal Microphone\b/i, "Micrófono interno")
-            .replace(/\bMicrophone\b/i, "Micrófono")
-            .replace(/\bSpeakers?\b/i, "Altavoces")
-            .replace(/\bHeadphones\b/i, "Auriculares")
-            .replace(/\bHeadset\b/i, "Auriculares")
-            .replace(/\bBuilt-?in\b/i, "Integrado")
+            .replace(/\bDigital Microphone\b/i, I18n.tr("Micrófono digital"))
+            .replace(/\bStereo Microphone\b/i, I18n.tr("Micrófono estéreo"))
+            .replace(/\bInternal Microphone\b/i, I18n.tr("Micrófono interno"))
+            .replace(/\bMicrophone\b/i, I18n.tr("Micrófono"))
+            .replace(/\bSpeakers?\b/i, I18n.tr("Altavoces"))
+            .replace(/\bHeadphones\b/i, I18n.tr("Auriculares"))
+            .replace(/\bHeadset\b/i, I18n.tr("Auriculares"))
+            .replace(/\bBuilt-?in\b/i, I18n.tr("Integrado"))
             .replace(/\s+(Output|Input)\b/i, "")
             .trim();
     }
@@ -112,11 +114,11 @@ Flickable {
         // ─────────────────── volumen ───────────────────
         SettingsControls.Card_ {
             id: cVol
-            title: "SALIDA"
+            title: I18n.tr("SALIDA")
 
             SettingsControls.Row_ {
-                label: "Volumen"
-                hint: "El del dispositivo predeterminado. Es el mismo que mueven las teclas de volumen."
+                label: I18n.tr("Volumen")
+                hint: I18n.tr("El del dispositivo predeterminado. Es el mismo que mueven las teclas de volumen.")
                 SettingsControls.Slider_ {
                     value: ShellState.muted ? 0 : ShellState.vol
                     from: 0; to: 100; suffix: " %"
@@ -124,8 +126,8 @@ Flickable {
                 }
             }
             SettingsControls.Row_ {
-                label: "Silenciar"
-                hint: "Silencia la salida sin perder el nivel al que la tenías."
+                label: I18n.tr("Silenciar")
+                hint: I18n.tr("Silencia la salida sin perder el nivel al que la tenías.")
                 SettingsControls.Switch_ {
                     checked: ShellState.muted
                     onToggled: ShellState.toggleMute()
@@ -136,7 +138,7 @@ Flickable {
         // ─────────────────── dispositivos de salida ───────────────────
         SettingsControls.Card_ {
             id: cSinks
-            title: "DISPOSITIVO DE SALIDA"
+            title: I18n.tr("DISPOSITIVO DE SALIDA")
 
             Repeater {
                 model: root.sinks
@@ -149,7 +151,7 @@ Flickable {
         // ─────────────────── dispositivos de entrada ───────────────────
         SettingsControls.Card_ {
             id: cSources
-            title: "DISPOSITIVO DE ENTRADA"
+            title: I18n.tr("DISPOSITIVO DE ENTRADA")
 
             Repeater {
                 model: root.sources
@@ -164,15 +166,15 @@ Flickable {
             visible: ShellState.settingsQuery.length === 0
                 && root.sinks.length === 0 && root.sources.length === 0
             icon: "󰕾"
-            title: "No se ven dispositivos de audio"
-            body: "Comprueba que PipeWire esté activo o vuelve a conectar el dispositivo."
+            title: I18n.tr("No se ven dispositivos de audio")
+            body: I18n.tr("Comprueba que PipeWire esté activo o vuelve a conectar el dispositivo.")
         }
 
         SettingsControls.Note_ {
             Layout.topMargin: 10
             visible: ShellState.settingsQuery.length > 0
                      && !cVol.visible && !cSinks.visible && !cSources.visible
-            text: "Nada de Sonido coincide con «" + ShellState.settingsQuery + "»."
+            text: I18n.tr("Nada de Sonido coincide con «{0}».", ShellState.settingsQuery)
         }
     }
 
@@ -227,7 +229,7 @@ Flickable {
             }
             Text {
                 visible: dev.isDefault
-                text: "predeterminado"
+                text: I18n.tr("predeterminado")
                 color: Colors.accent
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsXS

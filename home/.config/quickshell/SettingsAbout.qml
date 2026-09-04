@@ -14,7 +14,7 @@ import QtQuick.Layouts
 Flickable {
     id: root
 
-    property string note: "Una sola pasada al entrar en la sección; nada de sondeos en bucle."
+    property string note: I18n.tr("Una sola pasada al entrar en la sección; nada de sondeos en bucle.")
     readonly property int matchCount: cSw.visibleRows + cHw.visibleRows + cRice.visibleRows
 
     contentHeight: col.implicitHeight + 34
@@ -38,13 +38,13 @@ Flickable {
             printf 'wm\\t%s\\n'     "Hyprland $(hyprctl version 2>/dev/null | head -1 | grep -oP '\\d+\\.\\d+\\.\\d+' | head -1)"
             printf 'shell\\t%s\\n'  "Quickshell $(quickshell --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' | head -1)"
             printf 'cpu\\t%s\\n'    "$(awk -F': ' '/model name/{print $2; exit}' /proc/cpuinfo)"
-            printf 'ram\\t%s\\n'    "$(free -h --si | awk '/^Mem:/{print $3" de "$2}')"
-            printf 'disk\\t%s\\n'   "$(df -h --output=used,size,pcent / | tail -1 | awk '{print $1" de "$2" ("$3")"}')"
+            printf 'ram\\t%s\\n'    "$(free -h --si | awk '/^Mem:/{print $3" ${I18n.tr("de")} "$2}')"
+            printf 'disk\\t%s\\n'   "$(df -h --output=used,size,pcent / | tail -1 | awk '{print $1" ${I18n.tr("de")} "$2" ("$3")"}')"
             printf 'up\\t%s\\n'     "$(awk '{s=int($1); d=int(s/86400); h=int(s%86400/3600); m=int(s%3600/60);
                                           if(d>0) printf "%d d %d h %d min", d, h, m;
                                           else if(h>0) printf "%d h %d min", h, m;
                                           else printf "%d min", m}' /proc/uptime)"
-            printf 'pkgs\\t%s\\n'   "$(pacman -Qq 2>/dev/null | wc -l) paquetes"
+            printf 'pkgs\\t%s\\n'   "$(pacman -Qq 2>/dev/null | wc -l) ${I18n.tr("paquetes")}"
         `]
         stdout: SplitParser {
             onRead: function (line) {
@@ -59,18 +59,18 @@ Flickable {
     }
 
     readonly property var hw: [
-        { k: "kernel", label: "Kernel" },
-        { k: "cpu",    label: "Procesador" },
-        { k: "ram",    label: "Memoria" },
-        { k: "disk",   label: "Disco raíz" },
-        { k: "up",     label: "Encendido desde hace" },
-        { k: "pkgs",   label: "Paquetes instalados" }
+        { k: "kernel", label: I18n.tr("Kernel") },
+        { k: "cpu",    label: I18n.tr("Procesador") },
+        { k: "ram",    label: I18n.tr("Memoria") },
+        { k: "disk",   label: I18n.tr("Disco raíz") },
+        { k: "up",     label: I18n.tr("Encendido desde hace") },
+        { k: "pkgs",   label: I18n.tr("Paquetes instalados") }
     ]
 
     readonly property var sw: [
-        { k: "distro", label: "Sistema" },
-        { k: "wm",     label: "Compositor" },
-        { k: "shell",  label: "Shell" }
+        { k: "distro", label: I18n.tr("Sistema") },
+        { k: "wm",     label: I18n.tr("Compositor") },
+        { k: "shell",  label: I18n.tr("Shell") }
     ]
 
     ColumnLayout {
@@ -113,7 +113,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cSw
-            title: "SOFTWARE"
+            title: I18n.tr("SOFTWARE")
             Repeater {
                 model: root.sw
                 onItemAdded: cSw.recount()
@@ -128,7 +128,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cHw
-            title: "EQUIPO"
+            title: I18n.tr("EQUIPO")
             Repeater {
                 model: root.hw
                 onItemAdded: cHw.recount()
@@ -143,21 +143,21 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cRice
-            title: "ESTE RICE"
+            title: I18n.tr("ESTE RICE")
 
             SettingsControls.Row_ {
-                label: "Ajustes guardados en"
-                hint: "El JSON que escribe la sección Apariencia. Bórralo y todo vuelve a los valores de fábrica."
+                label: I18n.tr("Ajustes guardados en")
+                hint: I18n.tr("El JSON que escribe la sección Apariencia. Bórralo y todo vuelve a los valores de fábrica.")
                 SettingsControls.Val_ { text: "~/.config/quickshell-rice.json" }
             }
             SettingsControls.Row_ {
-                label: "Código del shell"
-                hint: "Barra, notch, paneles, lanzador, selector de fondos y esta misma ventana."
+                label: I18n.tr("Código del shell")
+                hint: I18n.tr("Barra, notch, paneles, lanzador, selector de fondos y esta misma ventana.")
                 SettingsControls.Val_ { text: "~/.config/quickshell/" }
             }
             SettingsControls.Row_ {
-                label: "Lenguaje de movimiento"
-                hint: "La spec de duraciones, curvas y forma que siguen Hyprland y Quickshell."
+                label: I18n.tr("Lenguaje de movimiento")
+                hint: I18n.tr("La spec de duraciones, curvas y forma que siguen Hyprland y Quickshell.")
                 SettingsControls.Val_ { text: "~/.config/motion-language.md" }
             }
         }
@@ -165,7 +165,7 @@ Flickable {
         SettingsControls.Note_ {
             Layout.topMargin: 10
             visible: ShellState.settingsQuery.length > 0 && !cSw.visible && !cHw.visible && !cRice.visible
-            text: "Nada de Acerca de coincide con «" + ShellState.settingsQuery + "»."
+            text: I18n.tr("Nada de Acerca de coincide con «{0}».", ShellState.settingsQuery)
         }
     }
 }

@@ -1,5 +1,7 @@
 # Sistema Quickshell (rice de diego)
 
+> 🇬🇧 [In English](README.en.md)
+
 Hyprland + **pywal en vivo** (`Colors.qml` vigila `~/.cache/wal/colors.json` →
 todo se recolorea al cambiar de fondo, sin recargar nada).
 
@@ -508,6 +510,115 @@ color inválido ni un proceso externo de paleta.
 
 Ojo también con `font.capitalization: Font.Capitalize`: capitaliza TODAS las
 palabras y en español deja "Martes, 4 De Agosto". Usa `ShellState.capitalize()`.
+
+## El idioma (castellano e inglés)
+
+El shell habla castellano e inglés. La capa son tres ficheros: `I18n.qml` (el
+singleton con `I18n.tr(...)`), `translations-en.js` (el diccionario inglés, 402
+entradas) y `tools/i18n-check.py` (el repaso).
+
+**El castellano es el código.** Las cadenas siguen escritas en español dentro de
+cada `.qml`, envueltas en `I18n.tr(...)`, y **la clave del diccionario es esa
+misma cadena castellana, literal**:
+
+```qml
+label: I18n.tr("Brillo")
+hint: I18n.tr("El mismo brillo que las teclas de función.")
+```
+
+No hay claves simbólicas (`settings.brightness.label`) a propósito: así el
+código se lee solo, un `grep` de la frase que ves en pantalla te lleva a su
+sitio, y **lo que falte en el diccionario sale en castellano en vez de salir
+vacío**. Un fallo visible, pero inofensivo.
+
+Los huecos son `{0}`, `{1}` y `{2}`, y las frases **no se concatenan**:
+
+```qml
+// mal: en otro idioma las piezas van en otro orden
+text: "Quedan " + n + " minutos"
+// bien
+text: I18n.tr("Quedan {0} minutos", n)
+```
+
+`tr()` acepta hasta tres argumentos y los sustituye en el sitio, así que la
+traducción puede poner los huecos en el orden que le pida su idioma.
+
+**Por qué no `qsTr()` con ficheros `.ts`**: el flujo de Qt Linguist obliga a
+compilar los `.ts` a `.qm` y a reiniciar la aplicación para cambiar de idioma.
+Aquí `I18n.lang` es una propiedad, y como cada `text: I18n.tr(...)` es un
+binding que depende de ella, cambiar de idioma repinta la interfaz entera en el
+sitio, sin reiniciar nada.
+
+**Y por qué un `.js` y no otro singleton QML**: se probó con un
+`Translations.qml` que exponía `readonly property var en: ({…})` con las 402
+entradas dentro y en caliente llegaba **sin definir** —
+`TypeError: Cannot read property '...' of undefined`; antes de eso, sin un
+`import` explícito, `ReferenceError: Translations is not defined`. Un fichero JS
+con `.pragma library`, importado explícitamente
+(`import "translations-en.js" as Dict`), funciona, aguanta el tamaño y además se
+diffea mejor. No lo devuelvas a QML.
+
+### Elegir idioma
+
+`Config.language` vale `"es"` (por defecto) o `"en"`, y se guarda en
+`~/.config/quickshell-rice.json` con el resto de los ajustes. Se elige de tres
+maneras:
+
+- al instalar, con `./install.sh --lang en` (sin la opción, el instalador
+  pregunta);
+- en caliente, en **Ajustes › Apariencia › Idioma del shell** — el cambio es
+  inmediato y no toca el idioma del sistema ni el de las aplicaciones, solo el
+  del shell;
+- a mano, escribiendo `"language": "en"` en el JSON.
+
+`ShellState.loc` sigue a `Config.language` (`es_ES` / `en_GB`), así que las
+fechas y los números del shell cambian de formato con él. `Config.reset()` no
+toca `language` a propósito: restablecer los valores de fábrica no debería
+dejarte el escritorio en un idioma que no lees.
+
+### Añadir un idioma
+
+1. Añade el código y el rótulo a la lista `languages` de `I18n.qml`. **El rótulo
+   va en su propio idioma** (`Français`, no `Francés`): quien abra el shell en
+   un idioma que no lee tiene que poder encontrar el suyo en la lista.
+2. Copia `translations-en.js` en `translations-XX.js` (mismo `.pragma library`,
+   las mismas claves castellanas) y traduce los valores.
+3. Impórtalo en `I18n.qml` al lado del otro
+   (`import "translations-fr.js" as DictFr`) y haz que `tr()` lo mire. Hoy la
+   línea es binaria (`root.english && Dict.en[s]`); con tres idiomas se resuelve
+   eligiendo el diccionario por código y dejando el castellano como respaldo
+   cuando no hay entrada.
+4. Si el idioma escribe las fechas de otra manera, traduce también las claves de
+   formato (`d 'de' MMMM`, `d 'de' MMMM 'de' yyyy`) y añade su locale a
+   `ShellState.loc`.
+5. Pásale `tools/i18n-check.py` y añade el código nuevo a `install.sh`
+   (`--lang`), que hoy solo acepta `es` y `en`.
+
+### Los atajos de Hyprland
+
+`SettingsShortcuts.qml` lee las líneas `bind =` de
+`~/.config/hypr/hyprland.conf` y **pasa el comentario de cada una por
+`I18n.tr(comment)`**. O sea que el comentario castellano del `.conf` es la clave
+del diccionario, la lista de atajos sale en inglés y **la configuración de
+Hyprland no hay que tocarla**: es de diego y sigue en castellano a propósito.
+
+Esas claves no aparecen nunca como `I18n.tr("literal")` en ningún `.qml`, así
+que `tools/i18n-check.py` las recoge aparte leyendo el propio `hyprland.conf`;
+si no, las daría por entradas muertas y alguien acabaría borrándolas.
+
+### El repaso
+
+```bash
+cd ~/.config/quickshell && python3 tools/i18n-check.py
+```
+
+Comprueba las cuatro formas de romper esto: cadenas envueltas que no están en el
+diccionario (saldrían en castellano), entradas del diccionario que ya no usa
+nadie, huecos `{0}` que se pierden o se inventan en la traducción, y literales
+visibles (`text:`, `label:`, `hint:`…) que siguen sin envolver. Sale 0 si está
+todo bien y 1 si hay algo que mirar. Las excepciones a propósito —el título de
+ventana «Ajustes», que es con el que casa la `windowrule`, o los rótulos de
+idioma— van listadas dentro del script con su motivo.
 
 ## Salud de batería
 

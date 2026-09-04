@@ -32,19 +32,19 @@ Scope {
     id: root
 
     readonly property var sections: [
-        { id: "look",   icon: "󰸌", label: "Apariencia", desc: "Forma, barra, tipografía y fondo" },
-        { id: "system", icon: "󰒓", label: "Sistema", desc: "Pantalla, energía, red y notificaciones" },
-        { id: "audio",  icon: "󰕾", label: "Sonido", desc: "Volumen y dispositivos PipeWire" },
-        { id: "bt",     icon: "󰂯", label: "Bluetooth", desc: "Radio, equipos guardados y descubrimiento" },
-        { id: "keys",   icon: "󰌌", label: "Atajos", desc: "Mapa vivo de teclas de Hyprland" },
-        { id: "about",  icon: "󰋼", label: "Acerca de", desc: "Hardware, software y rutas del rice" }
+        { id: "look",   icon: "󰸌", label: I18n.tr("Apariencia"), desc: I18n.tr("Forma, barra, tipografía y fondo") },
+        { id: "system", icon: "󰒓", label: I18n.tr("Sistema"), desc: I18n.tr("Pantalla, energía, red y notificaciones") },
+        { id: "audio",  icon: "󰕾", label: I18n.tr("Sonido"), desc: I18n.tr("Volumen y dispositivos PipeWire") },
+        { id: "bt",     icon: "󰂯", label: I18n.tr("Bluetooth"), desc: I18n.tr("Radio, equipos guardados y descubrimiento") },
+        { id: "keys",   icon: "󰌌", label: I18n.tr("Atajos"), desc: I18n.tr("Mapa vivo de teclas de Hyprland") },
+        { id: "about",  icon: "󰋼", label: I18n.tr("Acerca de"), desc: I18n.tr("Hardware, software y rutas del rice") }
     ]
     property string section: "look"
     property bool actionArmed: false
     readonly property bool searching: ShellState.settingsQuery.trim().length > 0
     readonly property int totalHits: look.matchCount + system.matchCount + audio.matchCount
         + bt.matchCount + keys.matchCount + about.matchCount
-    readonly property string actionConfirmHint: "Vuelve a pulsar «Confirmar» para restablecer todos los ajustes de Apariencia."
+    readonly property string actionConfirmHint: I18n.tr("Vuelve a pulsar «Confirmar» para restablecer todos los ajustes de Apariencia.")
 
     function sectionInfo(id) {
         for (let i = 0; i < root.sections.length; i++)
@@ -111,12 +111,12 @@ Scope {
         ShellState.settingsOpen = true;
     }
 
-    GlobalShortcut { name: "settings"; description: "Ajustes del sistema"; onPressed: ShellState.toggleSettings() }
+    GlobalShortcut { name: "settings"; description: I18n.tr("Ajustes del sistema"); onPressed: ShellState.toggleSettings() }
     // Super+K. Antes abría ~/.config/hypr/list_keybinds.sh: un menú de rofi que
     // parseaba el mismo hyprland.conf que parsea SettingsShortcuts.qml, o sea
     // dos listas de atajos que solo se parecían mientras nadie tocara ninguna.
     // Ahora la tecla entra en la sección «Atajos» y no hay segunda lista.
-    GlobalShortcut { name: "keybinds"; description: "Mapa de atajos de teclado"; onPressed: root.openAt("keys") }
+    GlobalShortcut { name: "keybinds"; description: I18n.tr("Mapa de atajos de teclado"); onPressed: root.openAt("keys") }
 
     // La misma puerta, pero para quien no tiene el id de esta ventana: el menú
     // de comandos (ShellState.runAction) y `qs ipc call notch keys`.
@@ -244,7 +244,7 @@ Scope {
 
                         Text {
                             Layout.leftMargin: 8
-                            text: "Ajustes"
+                            text: I18n.tr("Ajustes")
                             color: "#ffffff"
                             font.family: Appearance.fontUI
                             font.pixelSize: 19
@@ -311,7 +311,7 @@ Scope {
                                         // se pegue a la B y parezca parte de ella
                                         x: 2
                                         visible: search.text.length === 0
-                                        text: "Buscar en Ajustes"
+                                        text: I18n.tr("Buscar en Ajustes")
                                         color: "#707070"
                                         font.family: Appearance.fontUI
                                         font.pixelSize: Appearance.fsS
@@ -340,8 +340,9 @@ Scope {
                             Layout.leftMargin: 9
                             Layout.bottomMargin: 4
                             visible: root.searching
-                            text: root.totalHits === 0 ? "Sin coincidencias"
-                                : root.totalHits + (root.totalHits === 1 ? " resultado" : " resultados")
+                            text: root.totalHits === 0 ? I18n.tr("Sin coincidencias")
+                                : (root.totalHits === 1 ? I18n.tr("{0} resultado", root.totalHits)
+                                                        : I18n.tr("{0} resultados", root.totalHits))
                             color: root.totalHits === 0 ? Colors.warn : "#777777"
                             font.family: Appearance.fontUI
                             font.pixelSize: Appearance.fsXS
@@ -418,13 +419,13 @@ Scope {
                             Layout.bottomMargin: 16
                             spacing: 3
                             Text {
-                                text: "Ctrl+F  buscar  ·  Esc  cerrar"
+                                text: I18n.tr("Ctrl+F  buscar  ·  Esc  cerrar")
                                 color: "#666666"
                                 font.family: Appearance.fontUI
                                 font.pixelSize: 10
                             }
                             Text {
-                                text: "Quickshell · rice de diego"
+                                text: I18n.tr("Quickshell · rice de diego")
                                 color: "#454545"
                                 font.family: Appearance.fontUI
                                 font.pixelSize: 10
@@ -478,8 +479,9 @@ Scope {
                                     Layout.fillWidth: true
                                     readonly property int hits: root.sectionHits(root.section)
                                     text: root.searching
-                                        ? (root.totalHits === 0 ? "Sin coincidencias en todos los ajustes"
-                                            : hits + (hits === 1 ? " resultado en esta sección" : " resultados en esta sección"))
+                                        ? (root.totalHits === 0 ? I18n.tr("Sin coincidencias en todos los ajustes")
+                                            : (hits === 1 ? I18n.tr("{0} resultado en esta sección", hits)
+                                                          : I18n.tr("{0} resultados en esta sección", hits)))
                                         : root.sectionInfo(root.section).desc
                                     color: root.totalHits === 0 && root.searching ? Colors.warn : "#7f7f7f"
                                     elide: Text.ElideRight
@@ -493,7 +495,7 @@ Scope {
                                 readonly property var sec: content.current
                                 visible: !root.searching && sec
                                     && sec.actionText !== undefined && sec.actionText.length > 0
-                                text: visible ? (root.actionArmed ? "Confirmar" : sec.actionText) : ""
+                                text: visible ? (root.actionArmed ? I18n.tr("Confirmar") : sec.actionText) : ""
                                 danger: visible && sec.actionDanger === true
                                 onClicked: root.runSectionAction(sec)
                             }
@@ -516,8 +518,8 @@ Scope {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onEntered: ShellState.settingsHint = "Cerrar Ajustes · Ctrl+W"
-                                    onExited: if (ShellState.settingsHint === "Cerrar Ajustes · Ctrl+W") ShellState.settingsHint = ""
+                                    onEntered: ShellState.settingsHint = I18n.tr("Cerrar Ajustes · Ctrl+W")
+                                    onExited: if (ShellState.settingsHint === I18n.tr("Cerrar Ajustes · Ctrl+W")) ShellState.settingsHint = ""
                                     onClicked: ShellState.settingsOpen = false
                                 }
                             }
@@ -579,7 +581,7 @@ Scope {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: "No hay ajustes para «" + ShellState.settingsQuery.trim() + "»"
+                                text: I18n.tr("No hay ajustes para «{0}»", ShellState.settingsQuery.trim())
                                 color: "#d2d2d2"
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.Wrap
@@ -589,7 +591,7 @@ Scope {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: "Prueba otra palabra o pulsa Esc para limpiar la búsqueda."
+                                text: I18n.tr("Prueba otra palabra o pulsa Esc para limpiar la búsqueda.")
                                 color: "#777777"
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.Wrap

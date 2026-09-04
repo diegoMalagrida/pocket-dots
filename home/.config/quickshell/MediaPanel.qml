@@ -113,8 +113,8 @@ Item {
             Text {
                 Layout.fillWidth: true
                 text: ShellState.player
-                    ? (ShellState.player.trackTitle || "Sin reproducción")
-                    : "Sin reproducción"
+                    ? (ShellState.player.trackTitle || I18n.tr("Sin reproducción"))
+                    : I18n.tr("Sin reproducción")
                 color: "#ffffff"
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap

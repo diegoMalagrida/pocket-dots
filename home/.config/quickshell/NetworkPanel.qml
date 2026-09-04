@@ -61,7 +61,7 @@ Item {
             ColumnLayout {
                 spacing: 0
                 Text {
-                    text: "Red"
+                    text: I18n.tr("Red")
                     color: "#ffffff"
                     font.family: Appearance.fontUI; font.pixelSize: 13; font.weight: Font.DemiBold
                 }
@@ -69,9 +69,9 @@ Item {
                     // "Wi-Fi apagado" solo cuando hay una radio que ENCENDER.
                     // En un equipo sin adaptador esa frase invita a buscar el
                     // interruptor que la arregle, y no existe.
-                    text: ShellState.wiredDev ? "Cable conectado"
+                    text: ShellState.wiredDev ? I18n.tr("Cable conectado")
                         : ShellState.wifiNet ? ShellState.wifiNet.name
-                        : (ShellState.wifiOn || !ShellState.hasWifi) ? "Sin conexión" : "Wi-Fi apagado"
+                        : (ShellState.wifiOn || !ShellState.hasWifi) ? I18n.tr("Sin conexión") : I18n.tr("Wi-Fi apagado")
                     color: "#8a8a8a"
                     font.family: Appearance.fontUI; font.pixelSize: 11
                 }
@@ -185,11 +185,11 @@ Item {
                                 Layout.fillWidth: true
                                 visible: text.length > 0
                                 text: root.errorFor === netRow.ssid
-                                    ? (netRow.enterprise ? "Revisa el perfil empresarial" : "Contraseña incorrecta")
-                                    : netRow.modelData.stateChanging ? "Conectando…"
-                                    : netRow.modelData.connected ? (netRow.enterprise ? "Conectado · Empresa" : "Conectado")
-                                    : netRow.modelData.known ? (netRow.enterprise ? "Empresa · Guardada" : "Guardada")
-                                    : netRow.enterprise ? "Empresa · EAP" : ""
+                                    ? (netRow.enterprise ? I18n.tr("Revisa el perfil empresarial") : I18n.tr("Contraseña incorrecta"))
+                                    : netRow.modelData.stateChanging ? I18n.tr("Conectando…")
+                                    : netRow.modelData.connected ? (netRow.enterprise ? I18n.tr("Conectado · Empresa") : I18n.tr("Conectado"))
+                                    : netRow.modelData.known ? (netRow.enterprise ? I18n.tr("Empresa · Guardada") : I18n.tr("Guardada"))
+                                    : netRow.enterprise ? I18n.tr("Empresa · EAP") : ""
                                 color: root.errorFor === netRow.ssid ? Colors.crit
                                      : netRow.modelData.connected ? Colors.accent : "#7d7d7d"
                                 elide: Text.ElideRight
@@ -254,7 +254,7 @@ Item {
                                 id: pskField
                                 anchors { fill: parent; leftMargin: 11; rightMargin: 11 }
                                 echoMode: TextInput.Password
-                                placeholderText: "Contraseña"
+                                placeholderText: I18n.tr("Contraseña")
                                 color: "#ffffff"
                                 placeholderTextColor: "#5e5e5e"
                                 selectionColor: Colors.accent
@@ -277,7 +277,7 @@ Item {
                             Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
                             Text {
                                 anchors.centerIn: parent
-                                text: "Conectar"
+                                text: I18n.tr("Conectar")
                                 color: okMa.containsMouse ? "#000000" : "#ffffff"
                                 font.family: Appearance.fontUI; font.pixelSize: 11; font.weight: Font.Medium
                             }
@@ -325,8 +325,8 @@ Item {
             visible: !ShellState.wifiOn || ShellState.wifiNetworks.length === 0
             // Sin adaptador la lista está vacía PARA SIEMPRE, así que decir
             // "Buscando redes…" sería una espera que no termina nunca.
-            text: !ShellState.hasWifi ? (ShellState.wiredDev ? "Este equipo va por cable" : "Este equipo no tiene Wi-Fi")
-                : !ShellState.wifiOn ? "Wi-Fi apagado" : "Buscando redes…"
+            text: !ShellState.hasWifi ? (ShellState.wiredDev ? I18n.tr("Este equipo va por cable") : I18n.tr("Este equipo no tiene Wi-Fi"))
+                : !ShellState.wifiOn ? I18n.tr("Wi-Fi apagado") : I18n.tr("Buscando redes…")
             color: "#5e5e5e"
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter

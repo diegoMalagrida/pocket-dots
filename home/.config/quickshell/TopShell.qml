@@ -63,25 +63,25 @@ Scope {
     }
 
     // ═══════════════════════ atajos e IPC ═══════════════════════
-    GlobalShortcut { name: "notch"; description: "Centro de control"; onPressed: ShellState.togglePanel("control") }
-    GlobalShortcut { name: "launcher"; description: "Lanzador de aplicaciones"; onPressed: ShellState.togglePanel("launcher") }
+    GlobalShortcut { name: "notch"; description: I18n.tr("Centro de control"); onPressed: ShellState.togglePanel("control") }
+    GlobalShortcut { name: "launcher"; description: I18n.tr("Lanzador de aplicaciones"); onPressed: ShellState.togglePanel("launcher") }
     // El lanzador abierto directamente en un modo. Tienen atajo propio los dos
     // que YA lo tenían cuando eran menús de rofi —Super+Shift+V para el
     // portapapeles y Super+Alt+Space para el menú de comandos—: cambiar por
     // dentro cómo se pintan no es motivo para quitarle a nadie una tecla que ya
     // tiene aprendida. Las ventanas no estrenan atajo: se llega escribiendo "@",
     // que es la costumbre nueva que interesa enseñar.
-    GlobalShortcut { name: "clipboard"; description: "Historial del portapapeles"; onPressed: ShellState.openLauncher("clip") }
-    GlobalShortcut { name: "actions"; description: "Acciones del sistema"; onPressed: ShellState.openLauncher("cmd") }
-    GlobalShortcut { name: "power"; description: "Menú de encendido"; onPressed: ShellState.togglePanel("power") }
-    GlobalShortcut { name: "overview"; description: "Mapa de escritorios"; onPressed: ShellState.togglePanel("overview") }
-    GlobalShortcut { name: "network"; description: "Selector de red"; onPressed: ShellState.togglePanel("network") }
-    GlobalShortcut { name: "bluetooth"; description: "Dispositivos bluetooth"; onPressed: ShellState.togglePanel("bluetooth") }
-    GlobalShortcut { name: "system"; description: "Estado del equipo"; onPressed: ShellState.togglePanel("system") }
-    GlobalShortcut { name: "bar"; description: "Ocultar/mostrar la barra y el notch"; onPressed: root.shown = !root.shown }
+    GlobalShortcut { name: "clipboard"; description: I18n.tr("Historial del portapapeles"); onPressed: ShellState.openLauncher("clip") }
+    GlobalShortcut { name: "actions"; description: I18n.tr("Acciones del sistema"); onPressed: ShellState.openLauncher("cmd") }
+    GlobalShortcut { name: "power"; description: I18n.tr("Menú de encendido"); onPressed: ShellState.togglePanel("power") }
+    GlobalShortcut { name: "overview"; description: I18n.tr("Mapa de escritorios"); onPressed: ShellState.togglePanel("overview") }
+    GlobalShortcut { name: "network"; description: I18n.tr("Selector de red"); onPressed: ShellState.togglePanel("network") }
+    GlobalShortcut { name: "bluetooth"; description: I18n.tr("Dispositivos bluetooth"); onPressed: ShellState.togglePanel("bluetooth") }
+    GlobalShortcut { name: "system"; description: I18n.tr("Estado del equipo"); onPressed: ShellState.togglePanel("system") }
+    GlobalShortcut { name: "bar"; description: I18n.tr("Ocultar/mostrar la barra y el notch"); onPressed: root.shown = !root.shown }
     GlobalShortcut {
         name: "notchstyle"
-        description: "Alternar notch / isla"
+        description: I18n.tr("Alternar notch / isla")
         // Sin aviso de texto: que el notch cambie de forma ya es la confirmación.
         onPressed: Config.notchStyle = Config.island ? "notch" : "island"
     }
@@ -641,7 +641,7 @@ Scope {
 
                     BarItem {
                         visible: ShellState.caffeine
-                        icon: ""
+                        icon: Icons.coffee
                         iconColor: Colors.accent
                         onClicked: ShellState.caffeine = false
                     }

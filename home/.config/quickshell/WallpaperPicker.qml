@@ -202,7 +202,7 @@ Scope {
             StyledText {
                 anchors.centerIn: parent
                 visible: wallModel.count === 0
-                text: "No hay wallpapers en ~/Pictures/wallpapers"
+                text: I18n.tr("No hay wallpapers en {0}", "~/Pictures/wallpapers")
                 color: "#fafafa"
                 font.pixelSize: Appearance.fsL
                 opacity: 0.85

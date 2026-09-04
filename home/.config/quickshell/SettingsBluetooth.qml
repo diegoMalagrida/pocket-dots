@@ -17,7 +17,7 @@ import QtQuick.Layouts
 Flickable {
     id: root
 
-    property string note: "Solo busca dispositivos mientras esta sección está abierta."
+    property string note: I18n.tr("Solo busca dispositivos mientras esta sección está abierta.")
     readonly property int matchCount: cAdapter.visibleRows + cPaired.visibleRows + cNearby.visibleRows
 
     contentHeight: col.implicitHeight + 34
@@ -44,14 +44,14 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cAdapter
-            title: "ADAPTADOR"
+            title: I18n.tr("ADAPTADOR")
 
             SettingsControls.Row_ {
-                label: "Bluetooth"
+                label: I18n.tr("Bluetooth")
                 active: !root.blocked && root.adapter !== null
                 hint: root.blocked
-                    ? "No se puede encender: la radio está bloqueada por rfkill (soft-block). Desbloquéala abajo."
-                    : "Enciende o apaga el adaptador."
+                    ? I18n.tr("No se puede encender: la radio está bloqueada por rfkill (soft-block). Desbloquéala abajo.")
+                    : I18n.tr("Enciende o apaga el adaptador.")
                 SettingsControls.Switch_ {
                     checked: root.on_
                     live: !root.blocked && root.adapter !== null
@@ -61,8 +61,8 @@ Flickable {
 
             SettingsControls.Action_ {
                 shown: root.blocked
-                label: "Desbloquear la radio"
-                hint: "Ejecuta «rfkill unblock bluetooth». Suele estar bloqueada a propósito para ahorrar batería."
+                label: I18n.tr("Desbloquear la radio")
+                hint: I18n.tr("Ejecuta «rfkill unblock bluetooth». Suele estar bloqueada a propósito para ahorrar batería.")
                 icon: "󰂲"
                 value: "rfkill"
                 onTriggered: Quickshell.execDetached(["rfkill", "unblock", "bluetooth"])
@@ -72,7 +72,7 @@ Flickable {
         SettingsControls.Note_ {
             Layout.topMargin: 4
             visible: !root.adapter
-            text: "No hay ningún adaptador bluetooth en este equipo."
+            text: I18n.tr("No hay ningún adaptador bluetooth en este equipo.")
         }
 
         // Este estado hay que explicarlo sin tener que pasar el ratón: un
@@ -80,13 +80,12 @@ Flickable {
         SettingsControls.Note_ {
             Layout.topMargin: 4
             visible: root.blocked
-            text: "La radio está bloqueada por rfkill (soft-block), así que Bluez ignora el interruptor. "
-                + "Suele estar así a propósito para ahorrar batería."
+            text: I18n.tr("La radio está bloqueada por rfkill (soft-block), así que Bluez ignora el interruptor. Suele estar así a propósito para ahorrar batería.")
         }
 
         SettingsControls.Card_ {
             id: cPaired
-            title: "MIS DISPOSITIVOS"
+            title: I18n.tr("MIS DISPOSITIVOS")
 
             Repeater {
                 model: ShellState.btPaired
@@ -98,7 +97,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cNearby
-            title: "DISPONIBLES"
+            title: I18n.tr("DISPONIBLES")
 
             Repeater {
                 model: root.on_ ? ShellState.btNearby : []
@@ -113,8 +112,8 @@ Flickable {
             visible: ShellState.settingsQuery.length === 0
                 && root.on_ && ShellState.btNearby.length === 0
             icon: "󰂯"
-            title: "Buscando dispositivos"
-            body: "Pon el equipo cerca y activa su modo de emparejamiento. Aparecerá aquí en cuanto Bluez lo encuentre."
+            title: I18n.tr("Buscando dispositivos")
+            body: I18n.tr("Pon el equipo cerca y activa su modo de emparejamiento. Aparecerá aquí en cuanto Bluez lo encuentre.")
         }
 
         SettingsControls.Empty_ {
@@ -122,8 +121,8 @@ Flickable {
             visible: ShellState.settingsQuery.length === 0 && !root.on_ && !root.blocked
                 && root.adapter !== null && ShellState.btPaired.length === 0
             icon: "󰂲"
-            title: "Bluetooth está apagado"
-            body: "Enciéndelo arriba para buscar y emparejar dispositivos cercanos."
+            title: I18n.tr("Bluetooth está apagado")
+            body: I18n.tr("Enciéndelo arriba para buscar y emparejar dispositivos cercanos.")
         }
     }
 
@@ -133,10 +132,12 @@ Flickable {
         required property var modelData
 
         readonly property string name_: ShellState.btLabel(dev.modelData)
-        readonly property string state_: dev.modelData.pairing ? "Emparejando…"
+        readonly property string state_: dev.modelData.pairing ? I18n.tr("Emparejando…")
             : dev.modelData.connected
-                ? (dev.modelData.batteryAvailable ? "Conectado · " + Math.round(dev.modelData.battery * 100) + " %" : "Conectado")
-            : (dev.modelData.paired || dev.modelData.bonded) ? "Emparejado" : ""
+                ? (dev.modelData.batteryAvailable
+                    ? I18n.tr("Conectado · {0} %", Math.round(dev.modelData.battery * 100))
+                    : I18n.tr("Conectado"))
+            : (dev.modelData.paired || dev.modelData.bonded) ? I18n.tr("Emparejado") : ""
 
         readonly property bool isSettingsRow: true
         readonly property bool matches: ShellState.settingsMatch(dev.name_, dev.modelData.address || "")
@@ -197,7 +198,7 @@ Flickable {
                     anchors.margins: -6
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onEntered: ShellState.settingsHint = "Olvidar «" + dev.name_ + "»: borra el emparejamiento."
+                    onEntered: ShellState.settingsHint = I18n.tr("Olvidar «{0}»: borra el emparejamiento.", dev.name_)
                     onClicked: dev.modelData.forget()
                 }
             }

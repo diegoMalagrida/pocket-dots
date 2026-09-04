@@ -17,6 +17,11 @@ import QtQuick
 Singleton {
     id: root
 
+    // ───────── idioma ─────────
+    // "es" | "en". Lo lee I18n y de ahí cuelga toda la interfaz. El instalador
+    // lo deja escrito según lo que elijas al instalar (./install.sh --lang en).
+    property alias language: opts.language
+
     // ───────── notch ─────────
     // "notch" = isla pegada al borde con esquinas invertidas (MacBook).
     // "island" = píldora flotante despegada del borde (Dynamic Island).
@@ -68,8 +73,9 @@ Singleton {
         opts.showArch = true; opts.showWorkspaces = true;
         opts.showAppName = true; opts.showTray = true;
         opts.fontUI = "Adwaita Sans"; opts.clockSize = 17;
-        // favApps NO se toca a propósito: "restaurar valores" es para la
-        // apariencia, y los favoritos son trabajo tuyo, no un ajuste por defecto.
+        // favApps y language NO se tocan a propósito: "restaurar valores" es
+        // para la apariencia, y ni los favoritos ni el idioma en el que lees la
+        // pantalla son un ajuste por defecto que convenga devolver.
         root.save();
     }
 
@@ -86,6 +92,8 @@ Singleton {
 
         JsonAdapter {
             id: opts
+
+            property string language: "es"
 
             property string notchStyle: "notch"
             property int islandGap: 4

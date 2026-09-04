@@ -21,6 +21,8 @@ BACKUP="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)"
 DRY=0
 ASSUME_YES=0
 MODE=link            # link | copy
+UI_LANG=             # es | en; empty means "ask, or take the default"
+DEFAULT_LANG=es      # what the desktop has always come up in
 REQUESTED_PHASES=()
 
 ALL_PHASES=(base aur packages repos config system graphics services sddm spicetify final)
@@ -72,6 +74,34 @@ ask() {
     [[ "$answer" =~ ^[sSyY]$ ]]
 }
 
+# The language question. It is not a yes/no, so it cannot go through ask(), but
+# it plays by the same rules: --lang settles it, -y and --dry-run do not ask,
+# and what nobody chooses is the Spanish the desktop has always come up in.
+ask_lang() {
+    [ -n "$UI_LANG" ] && return 0
+    UI_LANG="$DEFAULT_LANG"
+    [ "$ASSUME_YES" = 1 ] && return 0
+    [ "$DRY" = 1 ] && return 0
+    [ -t 0 ] || return 0          # no keyboard (a pipe, a cron job): the default
+    local answer
+    read -r -p "  language for the desktop, es or en? [$DEFAULT_LANG] " answer
+    case "$answer" in
+        en|EN) UI_LANG=en ;;
+        ''|es|ES) ;;
+        *) warn "'$answer' is neither es nor en; keeping $DEFAULT_LANG" ;;
+    esac
+}
+
+# --lang, validated where it is read. Not a subshell helper on purpose: die()
+# inside $(...) only kills the subshell and the run would carry on with nothing
+# set.
+set_lang() {
+    case "$1" in
+        es|en) UI_LANG="$1" ;;
+        *) die "unknown language: $1  (only 'es' or 'en')" ;;
+    esac
+}
+
 # ----------------------------------------------------------------- arguments
 
 usage() {
@@ -83,6 +113,8 @@ Options:
   -y, --yes         never ask (for unattended runs)
       --copy        copy the configs instead of symlinking them
       --link        symlink the configs into the repo (default)
+      --lang es|en  what the desktop speaks (default es; it asks if you do not
+                    say, and Settings changes it later anyway)
   -h, --help        this
 
 Phases (if you name none, all of them run in this order):
@@ -104,6 +136,7 @@ Separate phase, only if you name it:
 
 Examples:
   ./install.sh -n                 see the whole plan without running it
+  ./install.sh --lang en          bring the desktop up in English
   ./install.sh config             just lay the dotfiles down again
   ./install.sh packages services  only packages and services
   ./install.sh restore            go back to how things were
@@ -119,6 +152,10 @@ while [ $# -gt 0 ]; do
         -y|--yes|--si) ASSUME_YES=1 ;;
         --copy|--copiar) MODE=copy ;;
         --link|--enlazar) MODE=link ;;
+        --lang|--idioma)
+            shift; [ $# -gt 0 ] || die "--lang needs a value: es or en"
+            set_lang "$1" ;;
+        --lang=*|--idioma=*) set_lang "${1#*=}" ;;
         -h|--help|--ayuda) usage; exit 0 ;;
         -*) die "unknown option: $1  (try --help)" ;;
         *)  REQUESTED_PHASES+=("$(canonical_phase "$1")") ;;
@@ -263,6 +300,169 @@ place() {
         run cp -a "$src" "$dest"
         ok "$label -> copy"
     fi
+}
+
+# ----------------------------------------------------------------- language
+
+# The desktop speaks Spanish or English. That is ONE setting living in three
+# files, because three different programs read it at three different moments:
+# Quickshell reads its own JSON when the shell starts, the SDDM theme reads
+# theme.conf before you have even logged in, and hyprlock reads its language
+# file when the screen locks.
+#
+# Two rules run through all of this. First, none of the three is required: if a
+# file is not there, that one is skipped and the other two are still set, so a
+# partial checkout never stops the install. Second, NOTHING IS WRITTEN WHEN THE
+# VALUE IS ALREADY RIGHT, and "no key at all" counts as Spanish, which is the
+# default everywhere. That is what keeps the plain `./install.sh` byte-for-byte
+# what it always was: on the default run these three functions write nothing.
+
+# ~/.config/quickshell-rice.json, key "language".
+#
+# This file is the shell's own state, not repo configuration: Quickshell
+# rewrites it whole every time you touch a setting, and it already exists, full
+# of your choices, on any machine that has run the desktop once. So it is
+# edited in place and one key at a time -never replaced- and when it is not
+# there yet, the minimum that says what we mean is created instead.
+set_language_quickshell() {
+    local rice="$HOME/.config/quickshell-rice.json" current tmp
+
+    if [ ! -f "$rice" ]; then
+        [ "$UI_LANG" = "$DEFAULT_LANG" ] && return 0
+        if [ "$DRY" = 1 ]; then
+            skip "would create ~/.config/quickshell-rice.json with \"language\": \"$UI_LANG\""
+        else
+            printf '{\n    "language": "%s"\n}\n' "$UI_LANG" > "$rice" \
+                && ok "quickshell language: $UI_LANG (new quickshell-rice.json)"
+        fi
+        return 0
+    fi
+
+    if command -v jq >/dev/null 2>&1; then
+        current="$(jq -r '.language // "'"$DEFAULT_LANG"'"' "$rice" 2>/dev/null)"
+    else
+        current="$(sed -n 's/.*"language"[[:space:]]*:[[:space:]]*"\([a-z]*\)".*/\1/p' "$rice" | head -1)"
+    fi
+    [ -n "$current" ] || current="$DEFAULT_LANG"
+    if [ "$current" = "$UI_LANG" ]; then
+        skip "quickshell is already in $UI_LANG"
+        return 0
+    fi
+
+    if [ "$DRY" = 1 ]; then
+        skip "would set \"language\": \"$UI_LANG\" in ~/.config/quickshell-rice.json"
+        return 0
+    fi
+
+    if command -v jq >/dev/null 2>&1; then
+        tmp="$(mktemp)"
+        # --indent 4 is how Quickshell itself writes the file: without it every
+        # install would reindent all twenty keys for one changed line.
+        if jq --indent 4 --arg l "$UI_LANG" '.language = $l' "$rice" > "$tmp" && [ -s "$tmp" ]; then
+            # cat, and not mv: with --link this path is a SYMLINK into the repo,
+            # and mv would drop a plain file on top of it. The two would stop
+            # being the same file from here on, silently.
+            cat "$tmp" > "$rice" && ok "quickshell language: $UI_LANG"
+        else
+            warn "could not rewrite quickshell-rice.json; its language is unchanged"
+        fi
+        rm -f "$tmp"
+    elif grep -q '"language"' "$rice"; then
+        # --follow-symlinks for the same reason as the cat above.
+        sed -i --follow-symlinks \
+            "s/\(\"language\"[[:space:]]*:[[:space:]]*\)\"[a-z]*\"/\1\"$UI_LANG\"/" "$rice" \
+            && ok "quickshell language: $UI_LANG"
+    else
+        warn "jq is missing: add  \"language\": \"$UI_LANG\"  to ~/.config/quickshell-rice.json yourself"
+    fi
+}
+
+# The login theme: ~/.config/sddm-hyprisland/theme.conf, key language (lower case, like accent and background).
+#
+# It is written here and not in the 'sddm' phase on purpose: that phase runs
+# afterwards and copies this whole directory into /usr/share/sddm/themes, so by
+# then the key is already in it.
+set_language_sddm() {
+    local conf="$HOME/.config/sddm-hyprisland/theme.conf" current
+
+    if [ ! -f "$conf" ]; then
+        skip "no sddm-hyprisland/theme.conf: the login screen keeps its language"
+        return 0
+    fi
+
+    current="$(sed -n 's/^[[:space:]]*[Ll]anguage[[:space:]]*=[[:space:]]*\([A-Za-z]*\).*/\1/p' "$conf" | head -1)"
+    [ -n "$current" ] || current="$DEFAULT_LANG"
+    if [ "$current" = "$UI_LANG" ]; then
+        skip "the login theme is already in $UI_LANG"
+        return 0
+    fi
+
+    if [ "$DRY" = 1 ]; then
+        skip "would set language=$UI_LANG in ~/.config/sddm-hyprisland/theme.conf"
+        return 0
+    fi
+
+    if grep -q '^[[:space:]]*[Ll]anguage[[:space:]]*=' "$conf"; then
+        sed -i "s/^[[:space:]]*[Ll]anguage[[:space:]]*=.*/language=$UI_LANG/" "$conf" \
+            && ok "login theme language: $UI_LANG"
+    else
+        # The file is one [General] section and nothing else, so the end of it
+        # is still inside that section.
+        printf 'language=%s\n' "$UI_LANG" >> "$conf" && ok "login theme language: $UI_LANG"
+    fi
+}
+
+# hyprlock, whose strings live in a file of their own under ~/.config/hypr.
+#
+# The NAME of that file is not spelled out here: it is read out of hyprlock.conf,
+# from whatever it `source`s with 'lang' in it, so renaming it on the hyprlock
+# side does not quietly break the installer. Two shapes are understood, which
+# are the two anyone would write: either the strings ship one file per language
+# (hyprlock-lang.es.conf, hyprlock-lang.en.conf) and the chosen one is copied
+# into place, or there is a single file with a $lang variable at the top and the
+# variable is rewritten. Anything else, and the lock screen is left alone.
+set_language_hyprlock() {
+    local dir="$HOME/.config/hypr" target src current
+
+    target="$(sed -n \
+        's/^[[:space:]]*source[[:space:]]*=[[:space:]]*\(.*lang.*[^[:space:]]\)[[:space:]]*$/\1/p' \
+        "$dir/hyprlock.conf" 2>/dev/null | head -1)"
+    target="${target/#\~/$HOME}"
+    target="${target/#\$HOME/$HOME}"
+    [ -n "$target" ] || target="$dir/hyprlock-lang.conf"
+
+    src="${target%.conf}.$UI_LANG.conf"
+
+    if [ -f "$src" ]; then
+        if [ -f "$target" ] && cmp -s "$src" "$target"; then
+            skip "hyprlock is already in $UI_LANG"
+        elif [ "$DRY" = 1 ]; then
+            skip "would copy $(basename "$src") over $(basename "$target")"
+        else
+            cp -- "$src" "$target" && ok "hyprlock language: $UI_LANG"
+        fi
+    elif [ -f "$target" ] && grep -q '^[[:space:]]*\$lang' "$target"; then
+        current="$(sed -n 's/^[[:space:]]*\$lang[a-z]*[[:space:]]*=[[:space:]]*\([A-Za-z]*\).*/\1/p' "$target" | head -1)"
+        [ -n "$current" ] || current="$DEFAULT_LANG"
+        if [ "$current" = "$UI_LANG" ]; then
+            skip "hyprlock is already in $UI_LANG"
+        elif [ "$DRY" = 1 ]; then
+            skip "would set \$lang = $UI_LANG in $(basename "$target")"
+        else
+            sed -i "s/^\([[:space:]]*\$lang[a-z]*[[:space:]]*=[[:space:]]*\).*/\1$UI_LANG/" "$target" \
+                && ok "hyprlock language: $UI_LANG"
+        fi
+    else
+        skip "no hyprlock language file in ~/.config/hypr: the lock screen keeps its language"
+    fi
+}
+
+# Asks (if it has to) and then writes the three of them.
+apply_language() {
+    ask_lang
+    set_language_quickshell
+    set_language_sddm
+    set_language_hyprlock
 }
 
 # ----------------------------------------------------------------- phase: base
@@ -547,6 +747,10 @@ EOF
     if [ ! -f "$pokestate" ]; then
         run sh -c "printf 'on\n' > '$pokestate'" && ok "poke-theme state seeded"
     fi
+
+    # 8) the language. Last, because it edits files that have just been laid
+    #    down, and before the 'sddm' phase, which copies one of them into /usr.
+    apply_language
 }
 
 # ----------------------------------------------------------------- phase: system

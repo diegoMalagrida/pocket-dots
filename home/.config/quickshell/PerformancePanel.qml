@@ -146,10 +146,11 @@ Item {
     }
     function agoText(stepsBack) {
         const secs = Math.round(stepsBack * root.samplePeriod);
-        if (secs <= 0) return "ahora mismo";
-        if (secs < 60) return "hace " + secs + " s";
+        if (secs <= 0) return I18n.tr("ahora mismo");
+        if (secs < 60) return I18n.tr("hace {0} s", secs);
         const mins = Math.floor(secs / 60), rest = secs % 60;
-        return "hace " + mins + " min" + (rest > 0 ? " " + rest + " s" : "");
+        if (rest > 0) return I18n.tr("hace {0} min {1} s", mins, rest);
+        return I18n.tr("hace {0} min", mins);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -356,17 +357,18 @@ Item {
                     // El mismo nombre que la puerta por la que se entra desde el
                     // centro de control. Una puerta y una habitación con nombres
                     // distintos son dos sitios.
-                    text: "Tu equipo"
+                    text: I18n.tr("Tu equipo")
                     color: "#ffffff"
                     font.family: Appearance.fontUI; font.pixelSize: 13; font.weight: Font.DemiBold
                 }
                 Text {
-                    text: root.battLow ? "Batería baja · " + ShellState.battEstimateText
-                        : root.hot ? "El procesador está caliente · " + Math.round(ShellState.cpuTemp) + " °C"
-                        : "Encendido desde hace " + root.uptime(ShellState.uptimeSeconds)
-                            + (ShellState.batt >= 0
-                                ? "  ·  Batería " + ShellState.batt + " %" + (ShellState.ac ? ", cargando" : "")
-                                : "")
+                    text: root.battLow ? I18n.tr("Batería baja · {0}", ShellState.battEstimateText)
+                        : root.hot ? I18n.tr("El procesador está caliente · {0} °C", Math.round(ShellState.cpuTemp))
+                        : ShellState.batt >= 0
+                            ? I18n.tr("Encendido desde hace {0}  ·  Batería {1} %{2}",
+                                      root.uptime(ShellState.uptimeSeconds), ShellState.batt,
+                                      ShellState.ac ? I18n.tr(", cargando") : "")
+                            : I18n.tr("Encendido desde hace {0}", root.uptime(ShellState.uptimeSeconds))
                     color: root.battLow ? Colors.crit : root.hot ? Colors.warn : "#8a8a8a"
                     elide: Text.ElideRight
                     font.family: Appearance.fontUI; font.pixelSize: 11
@@ -399,7 +401,7 @@ Item {
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Centro de control"
+                        text: I18n.tr("Centro de control")
                         color: backMa.containsMouse ? Colors.accent : "#cfcfcf"
                         font.family: Appearance.fontUI; font.pixelSize: 11
                         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
@@ -438,10 +440,11 @@ Item {
                     Lane {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        label: "Procesador"
+                        label: I18n.tr("Procesador")
                         value: ShellState.cpu + " %"
-                        note: "carga " + root.decimal(ShellState.cpuLoad, 2) + " · " + ShellState.cpuThreads + " hilos"
-                        aside: "últimos 90 s"
+                        note: I18n.tr("carga {0} · {1} hilos",
+                                      root.decimal(ShellState.cpuLoad, 2), ShellState.cpuThreads)
+                        aside: I18n.tr("últimos 90 s")
                         tone: root.plotTone
                         series: ShellState.cpuHistory
                     }
@@ -463,10 +466,11 @@ Item {
                         Layout.minimumHeight: 96
                         Layout.preferredHeight: 96
                         Layout.maximumHeight: 96
-                        label: "Memoria"
+                        label: I18n.tr("Memoria")
                         value: ShellState.mem + " %"
                         note: ShellState.memTotalKib > 0
-                            ? root.gibFromKib(ShellState.memUsedKib) + " de " + root.gibFromKib(ShellState.memTotalKib) + " GiB"
+                            ? I18n.tr("{0} de {1} GiB", root.gibFromKib(ShellState.memUsedKib),
+                                      root.gibFromKib(ShellState.memTotalKib))
                             : ""
                         // Mismo acento que el procesador, no la tinta del
                         // wallpaper: cuando las dos series compartían carta
@@ -521,7 +525,7 @@ Item {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: "Temperatura"
+                                text: I18n.tr("Temperatura")
                                 color: "#9a9a9a"
                                 font.family: Appearance.fontUI; font.pixelSize: 11
                             }
@@ -544,10 +548,10 @@ Item {
                             Layout.leftMargin: 24
                             text: tempCard.reading
                                 ? root.agoText(ShellState.tempHistory.length - 1 - tempCard.hover)
-                                : ShellState.cpuTemp < 0 ? "Sin lectura"
-                                : ShellState.cpuTemp < 52 ? "Fresco"
-                                : ShellState.cpuTemp < 68 ? "Templado"
-                                : ShellState.cpuTemp < 80 ? "Caliente" : "Muy caliente"
+                                : ShellState.cpuTemp < 0 ? I18n.tr("Sin lectura")
+                                : ShellState.cpuTemp < 52 ? I18n.tr("Fresco")
+                                : ShellState.cpuTemp < 68 ? I18n.tr("Templado")
+                                : ShellState.cpuTemp < 80 ? I18n.tr("Caliente") : I18n.tr("Muy caliente")
                             color: "#7d7d7d"
                             font.family: Appearance.fontUI; font.pixelSize: 10
                         }
@@ -610,7 +614,7 @@ Item {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: "Almacenamiento"
+                                text: I18n.tr("Almacenamiento")
                                 color: "#9a9a9a"
                                 font.family: Appearance.fontUI; font.pixelSize: 11
                             }
@@ -644,8 +648,9 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: ShellState.diskTotalBytes > 0
-                                ? root.gibFromBytes(Math.max(0, ShellState.diskTotalBytes - ShellState.diskUsedBytes))
-                                  + " GiB libres de " + root.gibFromBytes(ShellState.diskTotalBytes)
+                                ? I18n.tr("{0} GiB libres de {1}",
+                                          root.gibFromBytes(Math.max(0, ShellState.diskTotalBytes - ShellState.diskUsedBytes)),
+                                          root.gibFromBytes(ShellState.diskTotalBytes))
                                 : ""
                             color: "#7d7d7d"; elide: Text.ElideRight
                             font.family: Appearance.fontUI; font.pixelSize: 10

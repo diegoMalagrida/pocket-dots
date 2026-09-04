@@ -109,7 +109,8 @@ Scope {
                         spacing: 4
                         StyledText {
                             Layout.fillWidth: true
-                            text: root.player ? (root.player.trackTitle || "Sin reproducción") : "Sin reproducción"
+                            text: root.player ? (root.player.trackTitle || I18n.tr("Sin reproducción"))
+                                              : I18n.tr("Sin reproducción")
                             color: Colors.fg; font.pixelSize: Appearance.fsL; font.bold: true
                             elide: Text.ElideRight
                         }
