@@ -198,7 +198,28 @@ unfolding just because the mouse went past it.
 `notchW`/`notchH`, and its layer in `NotchContent.qml`.
 
 **Current panels**: `MediaPanel.qml`, `LauncherPanel.qml`, `ControlPanel.qml`,
-`NetworkPanel.qml`, `PowerPanel.qml`, `BluetoothPanel.qml`, `OverviewPanel.qml`.
+`NetworkPanel.qml`, `PowerPanel.qml`, `BluetoothPanel.qml`, `OverviewPanel.qml`,
+`CalendarPanel.qml`.
+
+#### The calendar (`CalendarPanel.qml`)
+
+One month, and nothing else. It opens by **clicking the clock** in the notch:
+you hover, you see the date, you click and the month unfolds. It deliberately
+has no keyboard shortcut — the place you were already looking at the date is
+where you expect to find the calendar, and `Super+C` is already `killactive`.
+
+The grid is **always six rows**, even when the month fits in five, so the height
+of the notch does not jump as you move between months. Month names and weekday
+initials come from `ShellState.loc`, which follows the language, so the calendar
+translates itself and starts the week wherever the locale says. Its only string
+of its own is the “Today” button, which exists only once you have left the
+current month.
+
+It was asked for with notes alongside it (a YouTube comment). **The notes were
+deliberately dropped**: every face of the notch is a view onto something the
+system already knows, and notes would make the shell the owner of the user's
+data, with the backups, the corruption and the migrations that follow. A
+calendar, by contrast, is a view onto time.
 
 #### The workspace map (`OverviewPanel.qml` + `OverviewWindow.qml`)
 

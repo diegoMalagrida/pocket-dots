@@ -215,6 +215,7 @@ var en = {
     "Historial de copiado": "Copy history",
     "historial de portapapeles (modo # del lanzador del notch)": "clipboard history (the notch launcher's # mode)",
     "Historial del portapapeles": "Clipboard history",
+    "Hoy": "Today",
     "IA local: panel que conoce este sistema (modulo autocontenido)": "local AI: a panel that knows this system (self-contained module)",
     "IDIOMA": "LANGUAGE",
     "Idioma del shell": "Shell language",

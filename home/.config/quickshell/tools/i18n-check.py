@@ -83,10 +83,14 @@ def claves_dinamicas():
     I18n.tr(comment), con la variable dentro. Sin esto el repaso las daría por
     entradas muertas y alguien acabaría borrándolas.
     """
-    conf = os.path.expanduser("~/.config/hypr/hyprland.conf")
+    # PRIMERO el hyprland.conf que está al lado de este script, y solo si no
+    # existe el del $HOME. Al revés —que es como estaba— repasar el repo antes
+    # de instalar leía la config VIEJA del sistema vivo: los atajos que acabas
+    # de añadir salían como entradas muertas y los que quitaste no se veían.
+    conf = os.path.join(os.path.dirname(os.path.dirname(SHELL)),
+                        "hypr", "hyprland.conf")
     if not os.path.exists(conf):
-        conf = os.path.join(os.path.dirname(os.path.dirname(SHELL)),
-                            "hypr", "hyprland.conf")
+        conf = os.path.expanduser("~/.config/hypr/hyprland.conf")
     fuera = set()
     if not os.path.exists(conf):
         return fuera

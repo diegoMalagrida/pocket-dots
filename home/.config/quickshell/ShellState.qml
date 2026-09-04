@@ -36,7 +36,7 @@ Singleton {
     // El notch es el punto de entrada del escritorio: de él se despliegan
     // paneles. "" = ninguno. Añadir uno nuevo = un valor más aquí, su tamaño en
     // notchW/notchH, y su capa en NotchContent.qml.
-    property string panel: ""     // "" | "control" | "system" | "launcher" | "power" | "network" | "bluetooth" | "overview"
+    property string panel: ""     // "" | "control" | "system" | "launcher" | "power" | "network" | "bluetooth" | "overview" | "calendar"
     readonly property bool open: panel !== ""
 
     // La app de Ajustes NO es un panel del notch (ver SettingsWindow.qml), pero
@@ -152,6 +152,7 @@ Singleton {
         : mode === "system" ? 920
         : mode === "network" || mode === "bluetooth" ? 470
         : mode === "power" ? 520
+        : mode === "calendar" ? 350
         : mode === "notif" ? 430
         : mode === "toast" ? 330
         : mode === "ws" ? 220
@@ -221,6 +222,7 @@ Singleton {
         : mode === "system" ? 420
         : mode === "network" || mode === "bluetooth" ? 412
         : mode === "power" ? 158
+        : mode === "calendar" ? 320
         : mode === "notif" ? 66
         : mode === "toast" ? 44
         : mode === "ws" ? 44

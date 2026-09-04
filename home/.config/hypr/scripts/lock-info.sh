@@ -10,9 +10,12 @@ set -uo pipefail
 case "${1:-}" in
   date)
     if [[ "$RICE_LANG" == en ]]; then
-      # En ingles no hace falta tabla: la sesion ya corre con LC_TIME=C, que es
-      # exactamente ingles, asi que se lo pedimos a date y no se mantiene nada.
-      printf '%s · %d %s\n' "$(date +%A)" "$(date +%-d)" "$(date +%B)"
+      # En ingles no hace falta tabla: se le pide a date. Va con LC_ALL=C
+      # EXPLICITO y no confiando en que la sesion tenga LC_TIME=C: si alguien
+      # exporta LC_TIME o LC_ALL en espanol -cosa que pasa- el dia saldria en
+      # castellano con el shell en ingles, y nadie lo notaria hasta ver el
+      # bloqueo. Aqui no se hereda el entorno, se fija.
+      printf '%s · %d %s\n' "$(LC_ALL=C date +%A)" "$(date +%-d)" "$(LC_ALL=C date +%B)"
     else
       days=(lunes martes miércoles jueves viernes sábado domingo)
       months=(enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre)

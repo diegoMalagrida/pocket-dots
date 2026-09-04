@@ -192,7 +192,27 @@ un panel nuevo son tres pasos**: un valor más en `panel`, su tamaño en
 `notchW`/`notchH`, y su capa en `NotchContent.qml`.
 
 **Paneles actuales**: `MediaPanel.qml`, `LauncherPanel.qml`, `ControlPanel.qml`,
-`NetworkPanel.qml`, `PowerPanel.qml`, `BluetoothPanel.qml`, `OverviewPanel.qml`.
+`NetworkPanel.qml`, `PowerPanel.qml`, `BluetoothPanel.qml`, `OverviewPanel.qml`,
+`CalendarPanel.qml`.
+
+#### El calendario (`CalendarPanel.qml`)
+
+Un mes, y nada más. Se abre **pinchando el reloj** del notch: pasas el ratón, ves
+la fecha, clicas y se despliega el mes. No tiene atajo de teclado a propósito —
+el sitio donde ya estabas mirando la fecha es el sitio donde esperas encontrar el
+calendario, y `Super+C` ya es `killactive`.
+
+La rejilla es **siempre de 6 filas**, aunque el mes quepa en 5: así la altura del
+notch no pega un salto al cambiar de mes. Los nombres de mes y las iniciales de
+los días salen de `ShellState.loc`, que sigue al idioma, así que el calendario se
+traduce solo y empieza la semana por donde diga el locale. La única cadena suya
+es el botón «Hoy», que solo existe cuando te has ido del mes en curso.
+
+Se pidió con notas al lado (un comentario en YouTube). **Las notas se descartaron
+a propósito**: todas las caras del notch son vistas sobre algo que el sistema ya
+sabe, y unas notas harían del shell el dueño de datos del usuario, con su copia
+de seguridad, su corrupción y su migración detrás. Un calendario, en cambio, es
+una vista sobre el tiempo.
 
 #### El mapa de escritorios (`OverviewPanel.qml` + `OverviewWindow.qml`)
 

@@ -65,6 +65,11 @@ home/.config/yazi/flavors/pywal.yazi/
 home/.config/systemd/user/*.wants/
 
 home/.config/hypr/hypridle.conf
+# El fichero de idioma VIVO del bloqueo. Se siembra copiando encima
+# language.es.conf o language.en.conf, y esos dos si van versionados.
+# Sin esta linea, './install.sh --lang en' escribia dentro del propio
+# repo -en modo --link, ~/.config/hypr ES el repo- y dejaba git sucio.
+home/.config/hypr/language.conf
 home/.config/poke-theme/state
 home/.config/spicetify/config-xpui.ini
 

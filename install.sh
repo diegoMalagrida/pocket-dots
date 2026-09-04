@@ -77,8 +77,24 @@ ask() {
 # The language question. It is not a yes/no, so it cannot go through ask(), but
 # it plays by the same rules: --lang settles it, -y and --dry-run do not ask,
 # and what nobody chooses is the Spanish the desktop has always come up in.
+# What the desktop speaks right now. Without this, re-running the installer
+# without --lang silently undid a language picked in Settings: the default was
+# hard-wired to 'es' and set_language_quickshell dutifully wrote it back.
+current_lang() {
+    local rice="$HOME/.config/quickshell-rice.json" cur=""
+    if [ -f "$rice" ]; then
+        if command -v jq >/dev/null 2>&1; then
+            cur="$(jq -r '.language // empty' "$rice" 2>/dev/null)"
+        else
+            cur="$(sed -n 's/.*"language"[[:space:]]*:[[:space:]]*"\([a-z]*\)".*/\1/p' "$rice" | head -1)"
+        fi
+    fi
+    case "$cur" in es|en) printf '%s' "$cur" ;; *) printf 'es' ;; esac
+}
+
 ask_lang() {
     [ -n "$UI_LANG" ] && return 0
+    DEFAULT_LANG="$(current_lang)"
     UI_LANG="$DEFAULT_LANG"
     [ "$ASSUME_YES" = 1 ] && return 0
     [ "$DRY" = 1 ] && return 0
@@ -377,16 +393,22 @@ set_language_quickshell() {
     fi
 }
 
-# The login theme: ~/.config/sddm-hyprisland/theme.conf, key language (lower case, like accent and background).
+# The login theme, key language (lower case, like accent and background).
 #
-# It is written here and not in the 'sddm' phase on purpose: that phase runs
-# afterwards and copies this whole directory into /usr/share/sddm/themes, so by
-# then the key is already in it.
+# It writes the INSTALLED theme, /usr/share/sddm/themes/hyprisland/theme.conf,
+# and not the copy under ~/.config. Two reasons, both learned the hard way:
+# SDDM reads the installed one and never the copy, so writing the copy left the
+# login screen in Spanish without a word; and with the default --link mode
+# ~/.config/sddm-hyprisland IS the repo, so writing there left `git status`
+# dirty on every install.
+#
+# On a machine with no theme installed yet this does nothing and says so: the
+# 'sddm' phase runs afterwards, lays the theme down and calls this again.
 set_language_sddm() {
-    local conf="$HOME/.config/sddm-hyprisland/theme.conf" current
+    local conf=/usr/share/sddm/themes/hyprisland/theme.conf current
 
     if [ ! -f "$conf" ]; then
-        skip "no sddm-hyprisland/theme.conf: the login screen keeps its language"
+        skip "the login theme is not installed: the 'sddm' phase will set it to $UI_LANG"
         return 0
     fi
 
@@ -398,17 +420,19 @@ set_language_sddm() {
     fi
 
     if [ "$DRY" = 1 ]; then
-        skip "would set language=$UI_LANG in ~/.config/sddm-hyprisland/theme.conf"
+        skip "would set language=$UI_LANG in $conf  (needs sudo)"
         return 0
     fi
 
+    warn "the login theme lives in /usr, so this needs sudo"
     if grep -q '^[[:space:]]*[Ll]anguage[[:space:]]*=' "$conf"; then
-        sed -i "s/^[[:space:]]*[Ll]anguage[[:space:]]*=.*/language=$UI_LANG/" "$conf" \
+        sudo sed -i "s/^[[:space:]]*[Ll]anguage[[:space:]]*=.*/language=$UI_LANG/" "$conf" \
             && ok "login theme language: $UI_LANG"
     else
         # The file is one [General] section and nothing else, so the end of it
         # is still inside that section.
-        printf 'language=%s\n' "$UI_LANG" >> "$conf" && ok "login theme language: $UI_LANG"
+        printf 'language=%s\n' "$UI_LANG" | sudo tee -a "$conf" >/dev/null \
+            && ok "login theme language: $UI_LANG"
     fi
 }
 
@@ -1242,8 +1266,15 @@ phase_sddm() {
         return 0
     fi
 
+    # An already-installed theme still gets its language checked. It used to
+    # return right here, which is why './install.sh --lang en' on a machine that
+    # already had the rice updated the shell and the lock screen and left the
+    # login in Spanish, quietly: the theme installer only ever seeds theme.conf
+    # the first time, so nothing else was going to write that key.
     if [ -d /usr/share/sddm/themes/hyprisland ]; then
         skip "the theme is already installed"
+        ask_lang
+        set_language_sddm
         return 0
     fi
 
@@ -1253,6 +1284,11 @@ phase_sddm() {
     run chmod +x "$installer"
     run sudo "$installer" && ok "hyprisland theme installed" \
         || warn "the theme installer failed; login will stay on the default theme"
+
+    # The theme ships with language=es. If this run asked for English, the key
+    # has to be written now that the file exists in /usr.
+    ask_lang
+    set_language_sddm
 }
 
 # ----------------------------------------------------------------- phase: spicetify
