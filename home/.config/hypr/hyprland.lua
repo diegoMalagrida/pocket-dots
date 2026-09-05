@@ -393,6 +393,23 @@ hl.config({
 
 hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 
+-- Tres dedos hacia abajo: baja el calendario del mes desde el notch.
+-- Misma postura de mano que el gesto de arriba, otro eje. `finish` y no
+-- `update`: esto no es un arrastre continuo como el de escritorios, es una
+-- orden que se ejecuta una vez, cuando levantas los dedos.
+--
+-- No se abre pinchando el reloj, que era lo primero que se probó: ese clic ya
+-- abría el centro de control desde siempre y quitarle un gesto aprendido a
+-- cambio de una función nueva es un mal trato. El calendario también tiene su
+-- cuadro en el centro de control, que es la puerta que se ve.
+hl.gesture({
+    fingers   = 3,
+    direction = "down",
+    action    = {
+        finish = function() hl.dsp.global("quickshell:calendar") end,
+    },
+})
+
 
 ---------------------
 ---- ATAJOS ----

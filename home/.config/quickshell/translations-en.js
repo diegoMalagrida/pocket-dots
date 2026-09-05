@@ -96,6 +96,7 @@ var en = {
     "Cafeína": "Caffeine",
     "calculando…": "calculating…",
     "Calendario": "Calendar",
+    "Calendario del mes": "The month's calendar",
     "Caliente": "Hot",
     "Cambia la barra, el notch, los paneles y esta ventana. No toca el idioma del sistema ni el de las aplicaciones: es solo el shell. El cambio es inmediato, no hay que reiniciar nada.": "Changes the bar, the notch, the panels and this window. It does not touch the system language or the applications': it is only the shell. The change is immediate, nothing needs restarting.",
     "cambiar el split": "change the split",

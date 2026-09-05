@@ -78,6 +78,7 @@ Scope {
     GlobalShortcut { name: "network"; description: I18n.tr("Selector de red"); onPressed: ShellState.togglePanel("network") }
     GlobalShortcut { name: "bluetooth"; description: I18n.tr("Dispositivos bluetooth"); onPressed: ShellState.togglePanel("bluetooth") }
     GlobalShortcut { name: "system"; description: I18n.tr("Estado del equipo"); onPressed: ShellState.togglePanel("system") }
+    GlobalShortcut { name: "calendar"; description: I18n.tr("Calendario del mes"); onPressed: ShellState.togglePanel("calendar") }
     GlobalShortcut { name: "bar"; description: I18n.tr("Ocultar/mostrar la barra y el notch"); onPressed: root.shown = !root.shown }
     GlobalShortcut {
         name: "notchstyle"

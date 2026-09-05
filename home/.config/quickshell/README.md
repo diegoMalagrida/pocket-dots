@@ -197,11 +197,18 @@ un panel nuevo son tres pasos**: un valor más en `panel`, su tamaño en
 
 #### El calendario (`CalendarPanel.qml`)
 
-Un mes, y nada más. Se abre desde el **centro de control**, con su propio cuadro
-en la rejilla, igual que Red o Bluetooth. Se probó antes a abrirlo pinchando el
-reloj del notch —el gesto de macOS— y **se retiró**: ese clic ya abría el centro
-de control desde siempre, y robarle un gesto que la gente tiene en los dedos a
-cambio de una función nueva es un mal trato. Tampoco tiene atajo de teclado.
+Un mes, y nada más. Dos puertas: su **cuadro en el centro de control**, igual que
+Red o Bluetooth, y **tres dedos hacia abajo en el trackpad**, que es la misma
+postura del gesto de escritorios pero en el otro eje. El cuadro es la puerta que
+se ve; el gesto, la rápida.
+
+Se probó antes a abrirlo **pinchando el reloj** del notch —el gesto de macOS— y
+se retiró: ese clic ya abría el centro de control desde siempre, y quitarle a
+alguien un gesto que tiene en los dedos a cambio de una función nueva es un mal
+trato. El clic derecho tampoco vale: es el play/pause del reproductor.
+
+El gesto vive **solo en `hyprland.lua`**, porque usa una tabla de callbacks
+(`action = { finish = ... }`) que la sintaxis clásica de la `.conf` no tiene.
 
 La rejilla es **siempre de 6 filas**, aunque el mes quepa en 5: así la altura del
 notch no pega un salto al cambiar de mes. Los nombres de mes y las iniciales de

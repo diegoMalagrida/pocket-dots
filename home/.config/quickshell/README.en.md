@@ -203,12 +203,18 @@ unfolding just because the mouse went past it.
 
 #### The calendar (`CalendarPanel.qml`)
 
-One month, and nothing else. It opens from the **control centre**, with a tile
-of its own in the grid, like Network or Bluetooth. Opening it by clicking the
-notch clock — the macOS gesture — was tried first and **taken back out**: that
-click had always opened the control centre, and taking a gesture people already
-have in their fingers in exchange for a new feature is a bad trade. There is no
-keyboard shortcut either.
+One month, and nothing else. Two doors: its **tile in the control centre**, like
+Network or Bluetooth, and **three fingers down on the trackpad**, the same hand
+posture as the workspace gesture on the other axis. The tile is the door you can
+see; the gesture is the quick one.
+
+Opening it by clicking the notch clock — the macOS gesture — was tried first and
+taken back out: that click had always opened the control centre, and taking a
+gesture people already have in their fingers in exchange for a new feature is a
+bad trade. Right-click is no good either: it is the player's play/pause.
+
+The gesture lives **only in `hyprland.lua`**, because it uses a callback table
+(`action = { finish = ... }`) that the classic `.conf` syntax does not have.
 
 The grid is **always six rows**, even when the month fits in five, so the height
 of the notch does not jump as you move between months. Month names and weekday
