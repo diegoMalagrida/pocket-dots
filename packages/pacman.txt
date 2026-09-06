@@ -50,6 +50,7 @@ hyprpolkitagent
 hyprshot
 hyprsunset
 impala
+imv
 iwd
 java-hamcrest
 jdk-openjdk
@@ -94,8 +95,10 @@ python-matplotlib
 python-pandas
 python-pywal
 python-typing_extensions
+qt5ct
 qt6-quicktimeline
 qt6-sensors
+qt6ct
 quickshell
 reflector
 rsync
@@ -106,6 +109,7 @@ sdl3_image
 seatd
 slurp
 sof-firmware
+tailscale
 tealdeer
 tesseract-data-spa
 tmux

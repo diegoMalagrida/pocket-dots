@@ -6,6 +6,20 @@ IMG="${1:-}"
 [ -f "$IMG" ] || { echo "no existe: $IMG"; exit 1; }
 IMG="$(realpath -- "$IMG")" || exit 1
 
+# Serializa la cadena entera: el picker lanza este script con execDetached en
+# cada seleccion, y dos wal concurrentes dejan el escritorio MEZCLADO (fondo de
+# A con paleta de B, colors.json a medio escribir). Con el lock, cada seleccion
+# espera a que termine la anterior en vez de pisarla. Mismo patron que
+# pacman-updates.sh. Los trabajos en segundo plano cierran el fd 9 (9>&-) para
+# no retener el lock mas alla del propio script.
+#
+# Ojo con el `if`: un `exec 9>...` suelto que falle -por ejemplo un lock de
+# otro usuario en /tmp- mata el script entero ahi mismo y sin decir nada, y el
+# fondo no cambiaria. Asi, si el lock no se puede abrir, se sigue sin el.
+if exec 9>"${XDG_RUNTIME_DIR:-/tmp}/set-wallpaper.lock" 2>/dev/null; then
+    flock 9
+fi
+
 # --saturate 0.5: sube la saturación de la paleta para colores más vivos (0.4 suave, 0.6 fuerte, quítalo para el original)
 if ! wal -i "$IMG" --saturate 0.5 -n -q -s -t; then
   notify-send -u critical "Tema dinámico" "Pywal no pudo generar la paleta" 2>/dev/null || true
@@ -18,7 +32,7 @@ ln -sfn -- "$IMG" "$HOME/.cache/wal/lockbg"  # fondo de bloqueo sigue al wallpap
 # En segundo plano porque re-encoda la imagen y no tiene por qué retrasar la
 # transición del fondo, que es lo que se ve.
 [ -x "$HOME/.config/sddm-hyprisland/login-sync.sh" ] &&
-    "$HOME/.config/sddm-hyprisland/login-sync.sh" "$IMG" >/dev/null 2>&1 &
+    "$HOME/.config/sddm-hyprisland/login-sync.sh" "$IMG" >/dev/null 2>&1 9>&- &
 
 # Color REAL de la franja donde vive la barra. Hace falta porque la barra no
 # tiene superficie propia: sus cuerpos se pintan directamente sobre el
@@ -46,7 +60,7 @@ magick "$IMG" -gravity north -crop '100%x5%+0+0' +repage -alpha off -resize 1x1!
 # transición del fondo, y en segundo plano para no retrasarla. Así el fondo y la
 # ventana más grande de la pantalla cambian a la vez, que es como se lee que el
 # sistema entero es uno.
-~/.config/hypr/scripts/spicetify-pywal.sh >/dev/null 2>&1 &
+~/.config/hypr/scripts/spicetify-pywal.sh >/dev/null 2>&1 9>&- &
 
 # El fondo es visual; un fallo de awww no invalida la paleta recién generada.
 # apply estilo ilyamiro: transición aleatoria + desde el centro + 144fps + 1s
@@ -67,11 +81,19 @@ hyprctl reload           >/dev/null 2>&1 || true
 # de cinco colores de un fondo de pantalla. Se queda con su tema de fabrica.
 # El script esta guardado en ~/.audit-backups/2026-08-12/bak-files/.
 ~/.config/hypr/scripts/btop-pywal.sh 2>/dev/null || true
+# Aplicaciones Qt: escribe las paletas de qt5ct y qt6ct y las secciones de
+# color de kdeglobals. Las dos familias se recolorean SIN reiniciarlas, porque
+# su tema de plataforma vigila el .conf y el script lo reescribe conservando el
+# inodo -- que es justo lo que hace que el watcher se entere; con el truco
+# habitual de temporal + rename, no se entera nunca.
+~/.config/hypr/scripts/qt-pywal.py >/dev/null 2>&1 || true
+# Y las GTK/libadwaita que ya esten abiertas, por el portal de apariencia.
+~/.config/hypr/scripts/gtk-pywal.sh >/dev/null 2>&1 || true
 ~/.config/hypr/scripts/discord-pywal.sh 2>/dev/null || true
 # (spicetify ya se ha lanzado arriba, antes de la transición del fondo)
 # Re-ordena los sprites de pokemon para la paleta nueva (~0.1 s) para que la
 # proxima terminal ya saque los que pegan. Si falla, pokefetch tira del azar.
 # (ruta absoluta: hyprland no siempre hereda ~/.local/bin en el PATH)
-[ -x "$HOME/.local/bin/poke-theme" ] && "$HOME/.local/bin/poke-theme" rank -q >/dev/null 2>&1 &
+[ -x "$HOME/.local/bin/poke-theme" ] && "$HOME/.local/bin/poke-theme" rank -q >/dev/null 2>&1 9>&- &
 # (rofi, btop, wlogout, hyprlock leen sus colores al abrirse -> sin recarga)
 exit 0

@@ -59,7 +59,7 @@ without having to guess that it carries on below.
 
 | section | what it holds |
 |---|---|
-| Appearance | everything you used to have to edit in the QML: notch shape, behaviour, bar, typography, and the way into the wallpaper picker |
+| Appearance | everything you used to have to edit in the QML: notch shape, behaviour, bar, typography, compositor effects, and the way into the wallpaper picker |
 | System | brightness, night light, reading mode, battery with health/cycles/capacity/time left, caffeine, remote mode, wifi and EAP profiles, do not disturb and themed Pokémon |
 | Sound | volume, mute and the choice of output/input device (native Pipewire, no pavucontrol) |
 | Bluetooth | pair, connect, disconnect and forget (native Bluez, replaces the rofi one) |
@@ -104,6 +104,27 @@ themselves.
 **The file lives OUTSIDE `~/.config/quickshell/` on purpose**: Quickshell
 watches its configuration directory to hot reload, and saving in there would
 fire a reload for every pixel of slider.
+
+#### The settings that aren't the shell's
+`EFFECTS` (for now, motion blur) is the exception: the shell doesn't draw it, it
+commands **Hyprland**, which has no idea `quickshell-rice.json` exists. So
+`Config.applyEffects()` sends it down two paths, and both are needed:
+
+- **`hyprctl eval`** applies it live, so you notice it when you let go of the
+  switch and not when you reboot.
+- **`~/.config/hypr/efectos.lua`** writes it down. `hyprland.lua` loads that file
+  last with a `pcall(dofile, ...)`, so the setting survives a `hyprctl reload`
+  — which would re-read the config and wipe out the `eval` — and a fresh session.
+
+It's the same deal `hyprlock.conf` gives `language.conf`: defaults first in the
+versioned config, then the layer that may be missing on top. If `efectos.lua`
+isn't there — a fresh clone, or a boot without Quickshell — nothing breaks and
+`hyprland.lua`'s values win. That's also why it's in `.gitignore`: in `--link`
+mode, `~/.config/hypr` **is** the repo.
+
+The 180 ms debounce lives in `Config.qml` rather than in the UI because the
+samples slider emits on every pixel of the drag and has no "released" signal;
+without it, one drag spawns a hundred processes.
 
 ## Architecture
 - **`ShellState.qml`** (singleton) — the hub: clock, active window, MPRIS,

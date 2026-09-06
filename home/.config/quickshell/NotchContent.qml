@@ -119,6 +119,9 @@ Item {
                     anchors.fill: parent
                     source: (ShellState.player && ShellState.player.trackArtUrl) ? ShellState.player.trackArtUrl : ""
                     fillMode: Image.PreserveAspectCrop
+                    // Sin sourceSize la carátula se decodifica a su resolución
+                    // nativa (600-1000 px) para pintar 22-34 px; 64 sobra.
+                    sourceSize.width: 64
                     visible: status === Image.Ready
                 }
                 Text {
@@ -561,6 +564,9 @@ Item {
                     anchors.fill: parent
                     source: (ShellState.player && ShellState.player.trackArtUrl) ? ShellState.player.trackArtUrl : ""
                     fillMode: Image.PreserveAspectCrop
+                    // Sin sourceSize la carátula se decodifica a su resolución
+                    // nativa (600-1000 px) para pintar 22-34 px; 64 sobra.
+                    sourceSize.width: 64
                     visible: status === Image.Ready
                 }
                 Text {

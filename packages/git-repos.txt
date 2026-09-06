@@ -9,3 +9,10 @@
 .oh-my-zsh/custom/themes/powerlevel10k	https://github.com/romkatv/powerlevel10k.git	--depth1
 .oh-my-zsh/custom/plugins/zsh-autosuggestions	https://github.com/zsh-users/zsh-autosuggestions.git	--depth1
 .oh-my-zsh/custom/plugins/zsh-syntax-highlighting	https://github.com/zsh-users/zsh-syntax-highlighting.git	--depth1
+
+# Shake to find: agitar el raton agranda el cursor, como en macOS. Es un
+# plugin de Hyprland, asi que hay que COMPILARLO contra la version exacta
+# del compositor; de eso se encarga ~/.config/hypr/scripts/dynamic-cursors.sh,
+# que lo lanza hyprland.lua al arrancar. Sin clonar, ese script sale sin
+# hacer nada y el resto del escritorio funciona igual.
+.local/share/hypr-dynamic-cursors	https://github.com/VirtCode/hypr-dynamic-cursors.git	--depth1

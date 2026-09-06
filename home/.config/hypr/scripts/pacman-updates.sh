@@ -7,7 +7,7 @@ readonly stamp_file="$state_dir/pacman-updates.last-sync"
 readonly lock_file="$state_dir/pacman-updates.lock"
 readonly error_log="$state_dir/pacman-updates.error.log"
 readonly check_db="${CHECKUPDATES_DB:-${TMPDIR:-/tmp}/checkup-db-${UID}}"
-readonly sync_interval=600
+readonly sync_interval=3600  # 1 h: el dato cambia pocas veces al dia; 600 s era ~6x mas agresivo de lo necesario
 
 mkdir -p "$state_dir"
 

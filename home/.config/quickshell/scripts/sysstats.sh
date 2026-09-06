@@ -25,6 +25,19 @@ for hw in /sys/class/hwmon/hwmon*; do
       [ -r "$hw/temp1_input" ] && hwtemp="$hw/temp1_input" && break ;;
   esac
 done
+# Brillo (%): UNA sola lectura, fuera del bucle. ShellState solo consume este
+# valor la primera vez (si bright < 0); despues el brillo lo mantiene el propio
+# shell en cada pulsacion de teclas, asi que sondearlo cada 1,5 s era un fork
+# de brightnessctl tirado a la basura.
+#
+# El `-c backlight` NO es adorno. Sin clase, brightnessctl recorre las clases
+# en orden -- backlight primero, leds despues -- y se queda con la primera que
+# tenga algun dispositivo. En un equipo sin panel interno (una torre) no hay
+# ningun backlight, asi que CAE A LOS LEDS y publica como "brillo de pantalla"
+# el estado del led de bloq-mayus o del wifi: un 0 o un 100 que ademas
+# resucitaba el slider del centro de control con un valor falso. Con la clase
+# fijada, sin panel no hay lectura, `br` se queda en -1 y el slider desaparece.
+br=$(brightnessctl -c backlight -m 2>/dev/null | awk -F, 'NR==1{gsub("%","",$4); print $4}'); [ -z "$br" ] && br=-1
 while true; do
   # CPU
   read -r _ u ni sy idl io ir sq _ < /proc/stat
@@ -52,22 +65,12 @@ while true; do
   # que pinta el estado electrico exige `bat >= 0`, pero es un dato FALSO
   # esperando a que alguien lo lea. Si no hay bateria, la corriente es un hecho.
   [ "$bat" -lt 0 ] && ac=1
-  # Brillo (%)
-  #
-  # El `-c backlight` NO es adorno. Sin clase, brightnessctl recorre las clases
-  # en orden -- backlight primero, leds despues -- y se queda con la primera que
-  # tenga algun dispositivo. En un equipo sin panel interno (una torre) no hay
-  # ningun backlight, asi que CAE A LOS LEDS y publica como "brillo de pantalla"
-  # el estado del led de bloq-mayus o del wifi: un 0 o un 100 que ademas
-  # resucitaba el slider del centro de control con un valor falso. Con la clase
-  # fijada, sin panel no hay lectura, `br` se queda en -1 y el slider desaparece.
-  br=$(brightnessctl -c backlight -m 2>/dev/null | awk -F, 'NR==1{gsub("%","",$4); print $4}'); [ -z "$br" ] && br=-1
-  # Volumen + mute (wpctl)
-  vraw=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null)
-  vol=$(printf '%s' "$vraw" | awk '{print int($2*100+0.5)}'); [ -z "$vol" ] && vol=-1
-  mut=0; printf '%s' "$vraw" | grep -q MUTED && mut=1
-  # Luz nocturna
-  nl=0; pgrep -x hyprsunset >/dev/null 2>&1 && nl=1
+  # Volumen/mute y luz nocturna: placeholders fijos. Nadie los lee de aqui —
+  # el volumen y el mute salen del binding nativo de Pipewire en ShellState y
+  # la luz nocturna de su propio toggle. Se conservan las columnas para no
+  # descolocar p[8..16]. (Antes eran un wpctl + un pgrep por tick, tirados.)
+  vol=-1; mut=0
+  nl=0
   read -r du ds dsk < <(df -B1 --output=used,size,pcent / 2>/dev/null | tail -1)
   dsk=${dsk%%%}; [ -z "$du" ] && du=0; [ -z "$ds" ] && ds=0; [ -z "$dsk" ] && dsk=0
 

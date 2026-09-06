@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# VLC con la paleta del fondo de pantalla.
+#
+# Es la unica aplicacion Qt5 de la maquina y por eso necesita este rodeo. El
+# escritorio exporta QT_QPA_PLATFORMTHEME=qt6ct (ver environment.d), y ese
+# nombre Qt5 no lo puede resolver: busca un libqt6ct.so entre SUS plugins, no
+# lo encuentra y se queda sin tema de plataforma, o sea con el gris de fabrica
+# (#efefef) en medio de un escritorio de pywal. La variable no admite lista de
+# alternativas -probado: se lee literal, no cae a la siguiente-, asi que la
+# unica salida es sobrescribirla para este proceso.
+#
+# Antes de qt6ct el escritorio iba con el tema gtk3, y el sintoma era el mismo
+# por otro motivo: el plugin gtk3 de Qt5 aporta dialogos y fuentes, nunca los
+# colores. Qt5 siempre ha necesitado un tema propio.
+#
+# El esquema lo escribe ~/.config/hypr/scripts/qt-pywal.py en cada cambio de
+# fondo.
+#
+# Si qt5ct no esta instalado se sigue como antes, sin romper nada.
+if [ -e /usr/lib/qt/plugins/platformthemes/libqt5ct.so ]; then
+  export QT_QPA_PLATFORMTHEME=qt5ct
+fi
+exec /usr/bin/vlc "$@"

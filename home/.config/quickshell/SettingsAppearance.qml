@@ -21,7 +21,8 @@ Flickable {
     property bool actionConfirm: true
     property string note: I18n.tr("Se guarda solo en ~/.config/quickshell-rice.json")
     readonly property int matchCount: cLang.visibleRows + cNotch.visibleRows
-        + cBehav.visibleRows + cBar.visibleRows + cFont.visibleRows + cWall.visibleRows
+        + cBehav.visibleRows + cBar.visibleRows + cFont.visibleRows + cFx.visibleRows
+        + cWall.visibleRows
     signal actionRun
     onActionRun: Config.reset()
 
@@ -244,6 +245,35 @@ Flickable {
             }
         }
 
+        // ─────────────────── efectos del compositor ───────────────────
+        // La única tarjeta de la página que no manda sobre algo que pinte el
+        // shell: esto es de Hyprland. Por eso el ajuste sale además a
+        // ~/.config/hypr/efectos.lua y no solo al JSON que anuncia el pie —
+        // el porqué de los dos caminos está en Config.applyEffects().
+        SettingsControls.Card_ {
+            id: cFx
+            title: I18n.tr("EFECTOS")
+
+            SettingsControls.Row_ {
+                label: I18n.tr("Desenfoque de movimiento")
+                hint: I18n.tr("La ventana se desenfoca hacia donde va, mientras dura la animación. Solo en las transiciones: arrastrar con el ratón ya va 1:1 con tu mano y no deja estela. Si la batería aprieta, este es el primero que apagar.")
+                SettingsControls.Switch_ {
+                    checked: Config.motionBlur
+                    onToggled: function (v) { Config.motionBlur = v; Config.applyEffects(); }
+                }
+            }
+
+            SettingsControls.Row_ {
+                shown: Config.motionBlur
+                label: I18n.tr("Muestras")
+                hint: I18n.tr("Cuántas copias de la ventana se promedian a lo largo del recorrido. Más muestras, estela más suave y más cara de pintar. No alarga la estela: eso lo decide cuánto se ha movido la ventana.")
+                SettingsControls.Slider_ {
+                    value: Config.motionBlurSamples; from: 2; to: 24
+                    onMoved: function (v) { Config.motionBlurSamples = Math.round(v); Config.applyEffects(); }
+                }
+            }
+        }
+
         // ─────────────────── fondo de pantalla ───────────────────
         SettingsControls.Card_ {
             id: cWall
@@ -280,7 +310,8 @@ Flickable {
         SettingsControls.Note_ {
             Layout.topMargin: 10
             visible: ShellState.settingsQuery.length > 0
-                     && !cLang.visible && !cNotch.visible && !cBehav.visible && !cBar.visible && !cFont.visible && !cWall.visible
+                     && !cLang.visible && !cNotch.visible && !cBehav.visible && !cBar.visible
+                     && !cFont.visible && !cFx.visible && !cWall.visible
             text: I18n.tr("Ningún ajuste de Apariencia coincide con «{0}».", ShellState.settingsQuery)
         }
     }

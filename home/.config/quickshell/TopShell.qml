@@ -199,7 +199,7 @@ Scope {
             readonly property bool fsHidden: ShellState.fullscreen && win.primary
             visible: root.shown
             anchors { top: true; left: true; right: true }
-            implicitHeight: root.maxH + 40
+            implicitHeight: win.primary ? root.maxH + 40 : root.barH + 40
             exclusiveZone: (win.fsHidden || !Config.reserveSpace) ? 0 : root.barH
             color: "transparent"
             // Top, no Overlay: rofi, wlogout y hyprlock deben salir por encima.
@@ -625,19 +625,28 @@ Scope {
                     // Te están capturando la pantalla. Va aquí y no en el notch
                     // porque la barra derecha es donde viven las EXCEPCIONES: cosas
                     // que normalmente no pasan y que, cuando pasan, quieres ver de
-                    // un vistazo sin que nadie te las cuente. Late porque un punto
-                    // rojo quieto se confunde con un adorno.
+                    // un vistazo sin que nadie te las cuente. Guiña una vez cada
+                    // 2 s en vez de latir en bucle: el pulso infinito mantenía la
+                    // ventana entera repintándose a 60 fps justo mientras el
+                    // codificador graba, y la Ley 7 lo prohíbe (excepción
+                    // registrada en motion-language.md). El guiño de 2x130 ms
+                    // conserva la señal de vida con ~1% del coste; si el guiño se
+                    // corta a medias, las NumberAnimation terminan solas en 1.0.
                     BarItem {
                         id: castItem
                         visible: ShellState.casting
                         icon: Icons.rec
                         iconColor: Colors.crit
                         interactive: false
-                        SequentialAnimation on opacity {
+                        SequentialAnimation {
+                            id: castBlink
+                            NumberAnimation { target: castItem; property: "opacity"; to: 0.35; duration: Appearance.mQuick; easing.type: Easing.OutQuad }
+                            NumberAnimation { target: castItem; property: "opacity"; to: 1.0; duration: Appearance.mQuick; easing.type: Easing.OutQuad }
+                        }
+                        Timer {
+                            interval: 2000; repeat: true
                             running: ShellState.casting
-                            loops: Animation.Infinite
-                            NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
-                            NumberAnimation { to: 1.0;  duration: 900; easing.type: Easing.InOutSine }
+                            onTriggered: castBlink.restart()
                         }
                     }
 

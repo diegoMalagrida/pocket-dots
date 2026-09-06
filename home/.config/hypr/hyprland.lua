@@ -64,6 +64,11 @@ hl.on("hyprland.start", function()
     hl.exec_cmd(os.getenv("HOME") .. "/.config/hypr/awww-start.sh")
     hl.exec_cmd("wl-paste --type text --watch cliphist store")   -- portapapeles (texto)
     hl.exec_cmd("wl-paste --type image --watch cliphist store")  -- portapapeles (imagenes)
+    -- Shake to find (como macOS): agitar el raton agranda el cursor. El
+    -- script carga el plugin dynamic-cursors pineado a esta version de
+    -- Hyprland y lo deja SOLO con el shake (mode none); si Hyprland se
+    -- actualizo y el .so no casa, se recompila solo y avisa.
+    hl.exec_cmd(os.getenv("HOME") .. "/.config/hypr/scripts/dynamic-cursors.sh")
 end)
 
 
@@ -157,9 +162,12 @@ hl.config({
             color        = wal.shadow_color,
         },
 
-        -- A size 3 / passes 1 el desenfoque no se veia. Lo que se beneficia es
-        -- lo que tiene transparencia de verdad: kitty va a 0.95 de opacidad, y
-        -- por ahi se ve el fondo. (Aqui ponia "los menus de rofi"; ya no hay.)
+        -- A size 3 / passes 1 el desenfoque no se veia. OJO: esto NO lo paga
+        -- solo kitty (0.95 de opacidad). Con inactive_opacity = 0.90, TODA
+        -- ventana sin foco tiene alpha < 1 y Hyprland le aplica la cadena de
+        -- blur completa; en un mosaico de 2+ ventanas siempre hay media
+        -- pantalla desenfocandose. El caso caro: slide de escritorios + motion
+        -- blur + este blur, todo a la vez.
         -- SI NOTAS TIRONES: vuelve a size = 3 / passes = 1.
         blur = {
             enabled           = true,
@@ -169,6 +177,31 @@ hl.config({
             vibrancy          = 0.1696,
             vibrancy_darkness = 0.2,
             popups            = true,
+        },
+
+        -- Ley 5 -- lo que ATRAVIESA la pantalla deja rastro. Hyprland 0.56
+        -- desenfoca la ventana en la direccion en la que se mueve, y solo
+        -- mientras dura la animacion. Es la misma idea que las curvas de abajo,
+        -- pero aplicada al pixel en vez de al tiempo.
+        --
+        -- No pelea con el redondeo porque aqui rounding = 0 (ley 1). En un rice
+        -- con esquinas redondas si: los dos shaders se excluyen dentro de
+        -- Hyprland (USE_ROUNDING && !USE_MOTION_BLUR), asi que las esquinas
+        -- saldrian rectas justo mientras la ventana viaja.
+        --
+        -- Tampoco se paga al arrastrar con el raton: animate_mouse_windowdragging
+        -- ya esta en false, y sin animacion no hay rastro que calcular. El coste
+        -- vive solo en las transiciones, que es donde se ve.
+        --
+        -- 'samples' son las copias que se promedian a lo largo del trayecto: mas
+        -- muestras, estela mas suave y mas cara. NO alarga la estela; eso lo
+        -- decide cuanto se ha movido la ventana.
+        --
+        -- ESTOS SON LOS VALORES DE ARRANQUE. Manda el interruptor de
+        -- Ajustes > Apariencia > Efectos; ver el final del fichero.
+        motion_blur = {
+            enabled = true,
+            samples = 7,
         },
     },
 
@@ -351,6 +384,48 @@ hl.config({
     dwindle = { preserve_split = true },
     master  = { new_status = "master" },
 })
+
+-- Cursor: hyprcursor APAGADO a proposito (2026-09-06). Al instalar el tema
+-- SVG de Bibata (~/.local/share/icons/Bibata-Modern-Ice, para el nitido del
+-- shake-to-find) Hyprland empezo a usarlo tambien para el cursor NORMAL y
+-- Diego lo noto distinto al XCursor bitmap de siempre. Con esto el cursor
+-- normal es el de toda la vida; el agrandado del shake escala ese bitmap con
+-- filtrado suave (hyprcursor:nearest 0, abajo). El plugin usa el mismo
+-- interruptor y tema que el compositor, asi que SVG-en-el-zoom +
+-- bitmap-normal no pueden convivir: volver esto a true cambia el cursor.
+hl.config({
+    cursor = { enable_hyprcursor = false },
+})
+
+-- Shake to find (plugin dynamic-cursors): la FUENTE DE VERDAD de su config
+-- es ESTE bloque, no el script. Tiene que vivir aqui porque cada reload
+-- resetea las opciones del plugin a sus defaults (y el default es mode=tilt,
+-- el cursor torciendose al moverse) -- y la cadena del wallpaper hace
+-- reloads. El pcall es para el ARRANQUE: el .lua se parsea antes de que
+-- dynamic-cursors.sh cargue el plugin y estas claves aun no existen; el
+-- script hace un reload tras cargarlo y entonces esto aplica de verdad.
+-- OJO sintaxis: dynamic_cursors con guion bajo (se traduce a
+-- plugin:dynamic-cursors:*); con guion da "unknown config key".
+-- Perfil "smooth" (base: dotfiles de alonso-herreros): threshold 3 detecta
+-- al primer vaiven; influence 2 hace crecer el zoom CON la intensidad del
+-- agitado; timeout 0 lo deshincha al soltar, como macOS. Verificado por IPC:
+-- progresion 1 -> 3.6 continua, sin escalones.
+pcall(function()
+    hl.config({
+        plugin = {
+            dynamic_cursors = {
+                mode = "none",
+                shake = { threshold = 3.0, base = 2.0, speed = 2.0, influence = 2.0, limit = 4.0, timeout = 0 },
+                -- nearest 0: nunca escalado pixelado. resolution 128: el tema
+                -- SVG se rasteriza a 128 px -> nitido en todo el rango de zoom
+                -- (19 px x 4 = 76). El plugin va parcheado para cargar el tema
+                -- SVG aunque cursor:enable_hyprcursor este a false (el cursor
+                -- NORMAL sigue siendo el XCursor bitmap de siempre).
+                hyprcursor = { nearest = 0, resolution = 128 },
+            },
+        },
+    })
+end)
 
 
 ----------------
@@ -633,3 +708,21 @@ hl.layer_rule({
 -- rofi, que era lo unico con transparencia real). Se va con rofi el 19-08-2026:
 -- una regla que apunta a una capa que ya nadie crea no hace nada salvo hacerte
 -- creer que rofi sigue en el escritorio.
+
+
+-- ==========================================================================
+--  LO QUE MANDA EL SHELL
+--
+--  Ajustes > Apariencia > Efectos escribe efectos.lua y ademas lo aplica en
+--  caliente, para que el interruptor se note en el momento. Este dofile es lo
+--  que hace que ademas SOBREVIVA: a un `hyprctl reload`, que vuelve a leer
+--  esta config y se llevaria por delante cualquier cambio en caliente, y a
+--  reiniciar la sesion.
+--
+--  Va EL ULTIMO para ganarle a lo de arriba, y protegido con pcall: si el
+--  fichero no existe -- un clon recien instalado, o un arranque sin Quickshell
+--  -- no pasa nada y quedan los valores de arriba. Mismo trato que hyprlock.conf
+--  le da a language.conf: los valores por defecto primero, la capa que puede
+--  faltar despues.
+-- ==========================================================================
+pcall(dofile, os.getenv("HOME") .. "/.config/hypr/efectos.lua")

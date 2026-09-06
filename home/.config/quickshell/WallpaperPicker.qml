@@ -68,12 +68,18 @@ Scope {
         id: win
         // Solo en la pantalla que estas mirando, no siempre en la primera.
         screen: ShellState.focusedScreen
-        visible: root.open
+        // Mapeada hasta que el fundido de salida termina: con visible ligado
+        // solo a open, la ventana se desmapeaba en el mismo frame y la
+        // animación de cierre no se veía nunca (el no_anim de hyprland.lua
+        // confía en que este stage se funde solo).
+        visible: root.open || stage.opacity > 0
         anchors { top: true; bottom: true; left: true; right: true }
         exclusiveZone: 0
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+        // Exclusive solo mientras está abierto: durante los ~110 ms del
+        // fundido de salida la ventana sigue mapeada y no debe retener nada.
+        WlrLayershell.keyboardFocus: root.open ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
         // Sin namespace no hay layerrule posible: es el asa por la que
         // Hyprland anima ESTA superficie y no todas por igual.
         WlrLayershell.namespace: "quickshell:wallpaper"
@@ -83,7 +89,10 @@ Scope {
             anchors.fill: parent
             focus: true
             opacity: root.open ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Appearance.animMed; easing.type: Easing.OutCubic } }
+            // Entrada 210/OutCubic; salida 110 ms (mOut) con InCubic, que es
+            // la curva `sale`: acelera y no frena. Ley 3: lo que sale se va
+            // en la mitad de tiempo.
+            Behavior on opacity { NumberAnimation { duration: root.open ? Appearance.animMed : Appearance.mOut; easing.type: root.open ? Easing.OutCubic : Easing.InCubic } }
 
             Connections {
                 target: root

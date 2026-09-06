@@ -27,6 +27,11 @@ user		hypridle.service
 user		hyprpolkitagent.service
 user		quickshell.service
 user		bt-agent.service
+# tailscaled es lo que hace falta para las dos reglas de Tailscale de
+# system/etc/nftables.conf. Va comentado porque el demonio solo, sin un
+# `tailscale up` con tu cuenta, no hace nada: enciendelo tu si vas a usarlo.
+#system		tailscaled.service
+
 # luminous-autoselect responde que SI a toda peticion de captura de pantalla,
 # sin preguntar y siempre con la salida 0. Solo hace falta para RustDesk, y
 # RustDesk no lo instala este repo. Ver home/.config/xdg-desktop-portal/

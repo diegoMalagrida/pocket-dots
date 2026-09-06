@@ -2,8 +2,11 @@
 **/hosts.yml
 **/credentials
 **/credentials.json
-**/*token*
-**/*secret*
+# Las clases de caracteres no son adorno: un .gitignore distingue
+# mayusculas de minusculas, y asi escrito `**/*token*` dejaba pasar
+# API_TOKEN.txt o Secret.json. Comprobado con `git check-ignore -v`.
+**/*[Tt][Oo][Kk][Ee][Nn]*
+**/*[Ss][Ee][Cc][Rr][Ee][Tt]*
 **/*.pem
 **/*.key
 **/id_rsa*
@@ -17,6 +20,13 @@
 **/*.nmconnection
 
 **/.ssh/
+**/.gnupg/
+**/.pki/
+**/.mozilla/
+**/.local/state/
+**/Web Data*
+**/key4.db
+**/logins.json
 
 **/.npmrc
 **/.pypirc
@@ -49,7 +59,9 @@ home/.agent-memory/
 **/.zsh_history
 **/.bash_history
 **/.python_history
-**/*history*
+**/*[Hh][Ii][Ss][Tt][Oo][Rr][Yy]*
+# ...menos este, que es codigo del shell y no un historial de nada.
+!home/.config/quickshell/HistoryGraph.qml
 
 home/.cache/
 **/__pycache__/
@@ -70,6 +82,24 @@ home/.config/hypr/hypridle.conf
 # Sin esta linea, './install.sh --lang en' escribia dentro del propio
 # repo -en modo --link, ~/.config/hypr ES el repo- y dejaba git sucio.
 home/.config/hypr/language.conf
+# Lo mismo, y por lo mismo: lo escribe el interruptor de Ajustes > Apariencia >
+# Efectos cada vez que lo tocas, y en modo --link eso cae dentro del repo. Los
+# valores por defecto ya viven versionados en hyprland.lua, asi que aqui no se
+# pierde nada: si el fichero falta, manda hyprland.lua.
+home/.config/hypr/efectos.lua
+# Y lo mismo con las paletas de Qt: las reescribe qt-pywal.py en CADA
+# cambio de fondo (su propia cabecera dice "no editar a mano"). Los
+# qt5ct.conf/qt6ct.conf de al lado si van versionados: son ajustes de
+# verdad -dialogos, tipografia- y de ellos el script solo reescribe las
+# cuatro claves que hacen falta para que la paleta se aplique
+# (color_scheme_path, custom_palette, style e icon_theme).
+home/.config/qt5ct/colors/
+home/.config/qt6ct/colors/
+# kdeglobals, en cambio, SI va versionado aunque el mismo script lo reescriba:
+# ademas de colores lleva las tipografias del escritorio y los ajustes del
+# dialogo de ficheros, que si son parte del rice. El precio es que en modo
+# --link saldra como modificado despues de cada cambio de fondo; lo que hay en
+# el repo es la semilla con la que arranca una instalacion nueva.
 home/.config/poke-theme/state
 home/.config/spicetify/config-xpui.ini
 

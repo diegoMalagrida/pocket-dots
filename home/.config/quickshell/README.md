@@ -58,7 +58,7 @@ la tarjeta de Energía sin tener que adivinar que continúa debajo.
 
 | sección | qué lleva |
 |---|---|
-| Apariencia | todo lo que antes había que editar en el QML: forma del notch, comportamiento, barra, tipografía, y el acceso al selector de fondos |
+| Apariencia | todo lo que antes había que editar en el QML: forma del notch, comportamiento, barra, tipografía, efectos del compositor y el acceso al selector de fondos |
 | Sistema | brillo, luz nocturna, modo lectura, batería con salud/ciclos/capacidad/autonomía, cafeína, modo remoto, wifi y perfiles EAP, no molestar y pokémon del tema |
 | Sonido | volumen, silencio y elección de dispositivo de salida/entrada (Pipewire nativo, sin pavucontrol) |
 | Bluetooth | emparejar, conectar, desconectar y olvidar (Bluez nativo, sustituye al rofi) |
@@ -101,6 +101,29 @@ aplican **en vivo** (mueves el slider y el notch cambia) y se guardan solos.
 **El fichero va FUERA de `~/.config/quickshell/` a propósito**: Quickshell vigila
 su directorio de configuración para recargar en caliente, y guardar ahí dentro
 dispararía una recarga por cada píxel de slider.
+
+#### Los ajustes que no son del shell
+`EFECTOS` (por ahora, el desenfoque de movimiento) es la excepción: no lo pinta
+el shell, manda sobre **Hyprland**, que no tiene ni idea de que existe
+`quickshell-rice.json`. Así que `Config.applyEffects()` lo manda por dos caminos
+y hacen falta los dos:
+
+- **`hyprctl eval`** lo aplica en caliente, para que se note al soltar el
+  interruptor y no al reiniciar.
+- **`~/.config/hypr/efectos.lua`** lo deja escrito. `hyprland.lua` lo carga al
+  final con un `pcall(dofile, ...)`, así que sobrevive a un `hyprctl reload`
+  —que releería la config y se llevaría por delante el `eval`— y a reiniciar la
+  sesión.
+
+Es el mismo trato que `hyprlock.conf` le da a `language.conf`: los valores por
+defecto primero en la config versionada, y encima la capa que puede faltar. Si
+`efectos.lua` no existe —un clon recién instalado, o un arranque sin
+Quickshell— no pasa nada y mandan los valores de `hyprland.lua`. Por eso está
+en el `.gitignore`: en modo `--link`, `~/.config/hypr` **es** el repo.
+
+El rebote de 180 ms vive en `Config.qml` y no en la interfaz porque el
+deslizador de muestras emite en cada píxel del arrastre y no tiene señal de
+«soltado»; sin él, un arrastre lanza cien procesos.
 
 ## Arquitectura
 - **`ShellState.qml`** (singleton) — el hub: reloj, ventana activa, MPRIS,

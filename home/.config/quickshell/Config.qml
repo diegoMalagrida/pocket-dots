@@ -52,6 +52,13 @@ Singleton {
     // el usuario coloca arrastrando, así que la lista es el dato, no un conjunto.
     property alias favApps: opts.favApps
 
+    // ───────── efectos del compositor ─────────
+    // Estos dos no son del shell: son de Hyprland. Se guardan aquí igual que el
+    // resto para que Ajustes siga siendo un solo sitio, pero llegar hasta
+    // Hyprland es harina de otro costal — ver applyEffects() más abajo.
+    property alias motionBlur: opts.motionBlur
+    property alias motionBlurSamples: opts.motionBlurSamples
+
     // ───────── tipografía ─────────
     property alias fontUI: opts.fontUI
     property alias clockSize: opts.clockSize
@@ -63,6 +70,51 @@ Singleton {
 
     function save() { file.writeAdapter(); }
 
+    // Hyprland no lee quickshell-rice.json, así que el ajuste tiene que viajar
+    // por dos caminos, y hacen falta LOS DOS:
+    //
+    //   hyprctl eval    lo aplica en caliente, para que se note al soltar el
+    //                   interruptor y no al reiniciar.
+    //   efectos.lua     lo deja escrito. hyprland.lua lo carga al final con un
+    //                   dofile protegido, así que sobrevive a `hyprctl reload`
+    //                   —que releería la config y se llevaría por delante el
+    //                   eval— y a reiniciar la sesión.
+    //
+    // El fichero se escribe SIEMPRE, también si el eval falla: si Hyprland no
+    // está escuchando, el ajuste no se pierde, solo tarda hasta el siguiente
+    // arranque. Al revés no valdría.
+    // El rebote vive aquí y no en la interfaz a propósito: el deslizador de
+    // muestras emite en CADA píxel del arrastre y no tiene señal de "soltado",
+    // así que sin esto un arrastre lanza cien procesos y cien reescrituras del
+    // fichero. Quien llame no tiene que saberlo — llama y ya.
+    function applyEffects() { debounce.restart(); }
+
+    Timer {
+        id: debounce
+        interval: 180
+        onTriggered: {
+            const lua = "hl.config({ decoration = { motion_blur = { enabled = "
+                      + (opts.motionBlur ? "true" : "false")
+                      + ", samples = " + opts.motionBlurSamples + " } } })";
+            // Los dos valores son un bool y un int del JsonAdapter, nunca texto
+            // libre del usuario, así que estas comillas simples no las puede
+            // romper nadie escribiendo.
+            fx.command = ["sh", "-c",
+                "hyprctl eval '" + lua + "' >/dev/null 2>&1; "
+                + "printf '%s\\n' "
+                + "'-- Generado por Ajustes > Apariencia > Efectos. Se reescribe solo: no lo edites a mano.' "
+                + "'" + lua + "' > \"$HOME/.config/hypr/efectos.lua\""];
+            fx.running = true;
+        }
+    }
+
+    Process { id: fx }
+
+    // Al arrancar el shell no hay que aplicar nada: hyprland.lua ya ha leído
+    // efectos.lua. Esto es solo para cuando el JSON se toca por fuera —a mano,
+    // o por el instalador— y los dos ficheros se han ido separando.
+    Component.onCompleted: root.applyEffects()
+
     function reset() {
         opts.notchStyle = "notch"; opts.islandGap = 4;
         opts.notchColor = "#000000";
@@ -73,6 +125,8 @@ Singleton {
         opts.showArch = true; opts.showWorkspaces = true;
         opts.showAppName = true; opts.showTray = true;
         opts.fontUI = "Adwaita Sans"; opts.clockSize = 17;
+        opts.motionBlur = true; opts.motionBlurSamples = 7;
+        root.applyEffects();   // este no se entera solo: hay que empujarlo a Hyprland
         // favApps y language NO se tocan a propósito: "restaurar valores" es
         // para la apariencia, y ni los favoritos ni el idioma en el que lees la
         // pantalla son un ajuste por defecto que convenga devolver.
@@ -113,6 +167,12 @@ Singleton {
             property bool showWorkspaces: true
             property bool showAppName: true
             property bool showTray: true
+
+            // Encendido de fábrica: es de las pocas cosas del rice que se ven
+            // sin tocar nada. El interruptor está para el día que la batería
+            // importe más que la estela.
+            property bool motionBlur: true
+            property int motionBlurSamples: 7
 
             property string fontUI: "Adwaita Sans"
             property int clockSize: 17

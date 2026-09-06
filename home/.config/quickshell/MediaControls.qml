@@ -83,6 +83,8 @@ Scope {
                             anchors.fill: parent
                             source: (root.player && root.player.trackArtUrl) ? root.player.trackArtUrl : ""
                             fillMode: Image.PreserveAspectCrop
+                            // Decodifica al tamaño de pintado, no al nativo.
+                            sourceSize.width: 116
                             visible: status === Image.Ready
                         }
                         StyledText {

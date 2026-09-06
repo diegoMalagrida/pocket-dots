@@ -646,7 +646,7 @@ packages_failed() {
 # ----------------------------------------------------------------- phase: repos
 
 phase_repos() {
-    heading "zsh repos (oh-my-zsh, p10k, plugins)"
+    heading "git repos (zsh tooling, Hyprland plugins)"
 
     local manifest="$REPO/packages/git-repos.txt"
     [ -f "$manifest" ] || { warn "no git-repos.txt, skipping"; return 0; }
@@ -739,6 +739,18 @@ EOF
     if [ -d "$root/.local/share/icons" ]; then
         copy_tree "$root/.local/share/icons" "$HOME/.local/share/icons"
         ok "user icons"
+    fi
+
+    # 4b) .desktop files of our own. They are here to WIN over the ones in
+    #     /usr/share/applications -~/.local/share takes precedence in XDG- so
+    #     that, for instance, opening a video launches the vlc wrapper in
+    #     ~/.local/bin, the one that carries the pywal palette, and not
+    #     /usr/bin/vlc straight up. Without this the wrapper gets copied but
+    #     nothing ever calls it.
+    if [ -d "$root/.local/share/applications" ]; then
+        copy_tree "$root/.local/share/applications" "$HOME/.local/share/applications"
+        run update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+        ok "desktop entries"
     fi
 
     # 5) wallpapers: copied without clobbering. If you already have some there,
@@ -1440,7 +1452,7 @@ phase_final() {
     if [ -n "$wallpaper" ] && command -v wal >/dev/null; then
         if [ "$DRY" = 1 ]; then
             skip "would generate the pywal palette from $(basename "$wallpaper")"
-            skip "would regenerate the derived themes (btop, cava, yazi, discord, spicetify)"
+            skip "would regenerate the derived themes (btop, cava, yazi, discord, spicetify, Qt)"
         else
             wal -i "$wallpaper" -n -q && ok "pywal palette generated from $(basename "$wallpaper")"
 
@@ -1452,12 +1464,13 @@ phase_final() {
             # the first wallpaper change. They only read ~/.cache/wal and write
             # config files: no session needed.
             local regenerated=0 s
-            for s in yazi-pywal cava-pywal btop-pywal discord-pywal spicetify-pywal; do
-                if [ -x "$HOME/.config/hypr/scripts/$s.sh" ]; then
-                    "$HOME/.config/hypr/scripts/$s.sh" >/dev/null 2>&1 && regenerated=$((regenerated + 1))
+            for s in yazi-pywal.sh cava-pywal.sh btop-pywal.sh discord-pywal.sh \
+                     spicetify-pywal.sh qt-pywal.py; do
+                if [ -x "$HOME/.config/hypr/scripts/$s" ]; then
+                    "$HOME/.config/hypr/scripts/$s" >/dev/null 2>&1 && regenerated=$((regenerated + 1))
                 fi
             done
-            [ "$regenerated" -gt 0 ] && ok "derived themes regenerated ($regenerated of 5)"
+            [ "$regenerated" -gt 0 ] && ok "derived themes regenerated ($regenerated of 6)"
         fi
     else
         warn "could not generate the initial palette (python-pywal missing, or no wallpapers)"
