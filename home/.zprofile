@@ -66,8 +66,8 @@ if uwsm check may-start; then
             print -- ""
             print -- "$(tr_ "Consola. Para arrancarlo a mano:  uwsm start hyprland.desktop" \
                              "Console. To start it by hand:     uwsm start hyprland.desktop")"
-            print -- "$(tr_ "Para ver que falla:               ~/dotfiles/diagnose" \
-                             "To see what is failing:           ~/dotfiles/diagnose")"
+            print -- "$(tr_ "Para ver que falla:               ./diagnose, en la carpeta del repo" \
+                             "To see what is failing:           ./diagnose, in the repo's folder")"
         else
             print -- ""
         fi

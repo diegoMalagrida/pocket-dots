@@ -4,8 +4,8 @@
 #
 # All the new machine needs is Arch and git:
 #
-#     git clone https://github.com/diegoMalagrida/dotfiles
-#     cd dotfiles
+#     git clone https://github.com/diegoMalagrida/pocket-dots
+#     cd pocket-dots
 #     ./install.sh
 #
 # It can be re-run as many times as you like: it does not redo what is already

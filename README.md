@@ -99,8 +99,8 @@ windows. <kbd>Super</kbd> <kbd>Shift</kbd> <kbd>O</kbd> opens the team.
 ## Install
 
 ```sh
-git clone https://github.com/diegoMalagrida/dotfiles
-cd dotfiles
+git clone https://github.com/diegoMalagrida/pocket-dots
+cd pocket-dots
 ./install.sh
 ```
 
