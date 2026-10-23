@@ -899,6 +899,26 @@ Singleton {
     readonly property int cavaBaja: 110   // decay
 
     property var cavaTarget: new Array(bands).fill(0)   // what cava says
+
+    // WHY EVERY BAND HAS ITS OWN RANGE. With dense music no band ever goes
+    // below 200-400 out of 1000, so mapping 0-1000 straight onto the bar left
+    // all eight half-to-two-thirds high, travelling 2-3 px out of 18 in half a
+    // second: an equaliser that looks frozen. Each band keeps a window that
+    // jumps at once to a new peak or valley and forgets it slowly, and the bar
+    // is painted inside that window, so every beat goes from floor to ceiling
+    // whatever the band's loudness. Simulated on the same cava output: travel
+    // 2.7 -> 8.4 px every half second, at the ceiling 23% of the time.
+    //
+    // cavaRango = ms it takes to forget 63% of a peak or valley. Lower = more
+    // nervous, it stretches even the quiet passages; higher = slower to adapt
+    // when the song changes section.
+    // cavaRangoMin = the narrowest window, so a near-silent band does not get
+    // its noise blown up to full height.
+    readonly property int cavaRango: 2500
+    readonly property real cavaRangoMin: 0.25
+    property var cavaHi: new Array(bands).fill(0.5)
+    property var cavaLo: new Array(bands).fill(0.3)
+    property real cavaUltima: 0
     property var levels: new Array(bands).fill(0)       // what gets painted
     property bool cavaQuieto: true
 
@@ -958,20 +978,35 @@ Singleton {
         stdout: SplitParser {
             onRead: function (line) {
                 const parts = line.split(";");
+                const now = Date.now();
+                const dt = root.cavaUltima ? Math.min(100, now - root.cavaUltima) : 16.7;
+                root.cavaUltima = now;
+                const olvido = 1 - Math.exp(-dt / root.cavaRango);
+                const hi = root.cavaHi.slice();
+                const lo = root.cavaLo.slice();
                 const out = new Array(root.bands);
                 for (let i = 0; i < root.bands; i++) {
                     const v = Math.max(0, Math.min(1, (+parts[i] || 0) / 1000));
-                    // Gamma: in linear the treble is so small next to the
-                    // bass that at 18px tall you would not see it move.
-                    out[i] = Math.pow(v, 0.6);
+                    hi[i] = v > hi[i] ? v : hi[i] + (v - hi[i]) * olvido;
+                    lo[i] = v < lo[i] ? v : lo[i] + (v - lo[i]) * olvido;
+                    // A window narrower than the minimum grows downwards, so a
+                    // loud band still reaches the ceiling.
+                    const span = Math.max(hi[i] - lo[i], root.cavaRangoMin);
+                    const base = Math.min(lo[i], Math.max(0, hi[i] - span));
+                    out[i] = Math.max(0, Math.min(1, (v - base) / span));
                 }
+                root.cavaHi = hi;
+                root.cavaLo = lo;
                 root.cavaTarget = out;   // only the target; moving is the FrameAnimation's job
                 root.cavaQuieto = false;
             }
         }
         // On pause, cava dies and the target would keep the last snapshot:
         // bars at half height through the whole fade-out.
-        onRunningChanged: if (!running) root.cavaTarget = new Array(root.bands).fill(0)
+        onRunningChanged: if (!running) {
+            root.cavaTarget = new Array(root.bands).fill(0);
+            root.cavaUltima = 0;
+        }
     }
 
     // ═════════════════════ brightness ═════════════════════
