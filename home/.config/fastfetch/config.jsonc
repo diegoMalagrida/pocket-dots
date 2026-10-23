@@ -17,15 +17,15 @@
     "modules": [
         "title",
         "separator",
-        { "type": "os",       "key": "",  "keyColor": "red" },
-        { "type": "kernel",   "key": "",  "keyColor": "yellow" },
+        { "type": "os",       "key": "",  "keyColor": "red" },
+        { "type": "kernel",   "key": "",  "keyColor": "yellow" },
         { "type": "uptime",   "key": "󱑂", "keyColor": "green" },
         { "type": "packages", "key": "󰏗", "keyColor": "cyan" },
-        { "type": "cpu",      "key": "",  "keyColor": "magenta" },
+        { "type": "cpu",      "key": "",  "keyColor": "magenta" },
         { "type": "gpu",      "key": "󰢮", "keyColor": "blue" },
-        { "type": "memory",   "key": "",  "keyColor": "magenta" },
-        { "type": "terminal", "key": "",  "keyColor": "green" },
-        { "type": "shell",    "key": "",  "keyColor": "cyan" },
+        { "type": "memory",   "key": "",  "keyColor": "magenta" },
+        { "type": "terminal", "key": "",  "keyColor": "green" },
+        { "type": "shell",    "key": "",  "keyColor": "cyan" },
         "break",
         "colors"
     ]

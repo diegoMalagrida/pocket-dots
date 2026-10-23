@@ -305,11 +305,21 @@ pokefetch() {
       fi
     fi
     [[ -f $big ]] && play="$big"
-    local -a il=("${(@f)$(fastfetch --logo none 2>/dev/null)}")
+    # Without the CPU's "(8) @ 4.20 GHz" and the GPU's clock and "[Integrated]":
+    # beside the sprite there are ~45 columns, and those two lines did not fit.
+    local -a il=("${(@f)$(fastfetch --logo none 2>/dev/null \
+        | sed -E 's/ \([0-9]+\) @ [0-9.]+ GHz//; s/ @ [0-9.]+ GHz//; s/ \[(Integrated|Discrete)\]//')}")
     local n=${#il} indent=32 ln
     printf "\033[2J\033[H"                          # clears the p10k instant prompt (avoids a double prompt)
     printf "\0337"                                  # save cursor
+    # Autowrap OFF while the info is printed: a line longer than the window
+    # (the CPU's "... (8) @ 4.20 GHz", the GPU's "[Integrated]") used to wrap
+    # onto the next row at column 0, right under the sprite, and its tail showed
+    # through it. It also threw off the row count below. Cut at the edge
+    # instead, which is what fastfetch itself does when run on its own.
+    printf "\033[?7l"
     for ln in "${il[@]}"; do printf "%*s%s\n" $indent "" "$ln"; done   # info on the right
+    printf "\033[?7h"
     printf "\0338"                                  # back to the top
     printf "\033[2B"                                # moves ONLY the sprite down 2 rows (centres it against the info)
     kitten icat --align left --loop -1 "$play" 2>/dev/null   # animated gif on the left (non-blocking)

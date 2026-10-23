@@ -596,7 +596,13 @@ def cmd_wear(args) -> int:
         if not filas:
             raise SystemExit(tr(f"no hay fondos indexables en {DIR_WALLS}",
                                 f"No indexable wallpapers in {DIR_WALLS}"))
-        distancia, fondo = filas[0]
+        # A wallpaper NAMED after the pokémon beats the best colour match: if
+        # you keep a Gyarados wallpaper, wearing Gyarados puts that one. Among
+        # several, the closest in colour.
+        suyos = [f for f in filas if nombre.lower() in f[1].stem.lower()]
+        distancia, fondo = (suyos or filas)[0]
+        if args.verbose and suyos:
+            print(tr(f"  con su nombre: {fondo.name}", f"  named after it: {fondo.name}"), file=sys.stderr)
         if args.verbose:
             for d, r in filas[:5]:
                 print(f"  {d:6.2f}  {r.name}", file=sys.stderr)
