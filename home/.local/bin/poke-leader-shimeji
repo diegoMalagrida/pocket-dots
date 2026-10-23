@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""poke-leader-shimeji — the team leader walks around the desktop.
+
+Keeps the on-screen shimeji in step with poke-team's leader: you change
+leader and the critter on screen changes; your pokémon evolves and the critter
+walking around the desktop TRANSFORMS. That moment is the payoff of the whole
+team system.
+
+ShellState calls it every time it rereads the team, so it is built to exit
+FAST when there is nothing to do: it compares what is currently out (the
+pasea-estado file) with what should be, and only acts if they differ. A flock
+stops two back-to-back calls from trampling each other; the late one leaves
+without doing anything.
+
+That comparison is NOT enough on its own, because pasea-estado is a note of
+ours and the desktop can be emptied without going through here (see
+mascotas_vivas): before leaving by the fast exit, the daemon is asked how many
+mascots it has.
+
+And since the caller is an execDetached -- which collects neither output nor
+exit code -- whatever goes wrong is left WRITTEN in pasea-fallo, next to
+pasea-estado: it avoids repeating a four-minute build in a loop, and
+'poke-team estado' publishes it, which is how the panel learns everything
+else.
+
+CAREFUL: to change mascot the whole wl_shimeji.service is restarted. It is not
+laziness: 'shimejictl dismiss' sometimes hangs (verified on this machine), and
+with socket activation the restart is clean and fast. The consequence is that
+it sweeps away any shimeji summoned BY HAND with 'shimejictl summon'; if the
+leader is out walking, the leader is the star. With 'poke-team pasear off'
+this script shuts the whole show down and manual summons are in charge again.
+
+And DOUBLE CAREFUL with that restart, which for a while restarted nothing:
+stopping the service does NOT kill the daemon while the socket is still
+active. systemd says so in as many words --"Stopping wl_shimeji.service, but
+its triggering units are still active: wl_shimeji.socket"-- and leaves the
+process alive with all its pokémon inside. Since the daemon keeps nothing on
+disk, what looked like pokémon coming back to life was really pokémon that had
+never left: every run of this script added ONE MORE, and changing leader a few
+times was enough to fill the desktop with critters. That is why the socket is
+now stopped too and the process finished off.
+"""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+HOME = Path.home()
+ESTADO = HOME / ".config" / "poke-equipo" / "equipo.json"
+MARCA = HOME / ".config" / "poke-equipo" / "pasea-estado"
+FALLO = HOME / ".config" / "poke-equipo" / "pasea-fallo"
+FUNCION = HOME / ".config" / "poke-equipo" / "funcion-en-marcha"
+NOMBRES = HOME / ".cache" / "pokepalette" / "nombres.tsv"
+PROTOS = HOME / ".local" / "share" / "wl_shimeji" / "shimejis"
+DIR_SHINY = HOME / ".cache" / "pokeshiny"
+GENERADOR = HOME / ".local" / "bin" / "poke-shimeji-pixel"
+REGISTRO = HOME / ".cache" / "pokepalette" / "shimejis-pixel.json"
+
+ESPERA_FALLO = 1800     # s a failure is respected before trying again
+FUNCION_TTL = 180       # s the "show running" signal stays valid (the show lasts ~31 s)
+
+
+def correr(args: list, timeout: int):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None
+
+
+def servicio_activo() -> bool:
+    r = correr(["systemctl", "--user", "is-active", "wl_shimeji.service"], 10)
+    return bool(r) and r.stdout.strip() == "active"
+
+
+def mascotas_vivas() -> int:
+    """How many pokémon are in the overlay RIGHT NOW, asking the daemon itself.
+
+    It is needed because pasea-estado is a note that WE write, and some things
+    empty the desktop without going through here: poke-shimeji-pixel reimports
+    a prototype, stops the daemon and starts it again, and the daemon comes back
+    WITH NO MASCOTS -- it keeps nothing on disk. Its own message points you to
+    this script, which looked at the note, saw it matched the wanted state and
+    left by the fast exit without summoning anyone: the panel said the leader
+    was out walking and nobody was walking on the desktop.
+
+    'environment list' prints one line per screen ending in "with N
+    mascots". It is the SAME truth poke-mood probes with set-behavior -- the
+    mascot table the daemon sends the client when it connects, both read it --,
+    but asked read-only: a single call (~0.5 s measured, instead of up to 16
+    for probing by id) and, above all, WITH NO SIDE EFFECT. Probing with
+    set-behavior here would mean sending the critter a StandUp every time the
+    panel opens, i.e. stopping it dead all the time; poke-mood can do it
+    because there the order is exactly what it wants to send.
+
+    --do-not-start for the usual reason: without it, shimejictl starts its own
+    ~360 MB overlayd outside systemd, which also grabs the socket.
+    """
+    r = correr(["shimejictl", "--do-not-start", "environment", "list"], 15)
+    if not r or r.returncode != 0:
+        return 0            # no daemon means no mascots, which is the answer
+    total = 0
+    for linea in (r.stdout or "").splitlines():
+        m = re.search(r"with (\d+) mascots?", linea)
+        if m:
+            total += int(m.group(1))
+    return total
+
+
+def funcion_en_marcha() -> bool:
+    """A show is running on the desktop (the battle), so nothing is touched.
+
+    poke-battle puts two fighters on stage and drives them through timed
+    behaviours for ~31 s. If someone rereads the team halfway through --
+    opening the panel is enough -- this script would see two critters that are
+    not the leader and would start restarting the daemon in the middle of the
+    choreography. The signal expires by itself (FUNCION_TTL) so that a battle
+    that died halfway does not leave the walk frozen for the rest of the
+    session.
+    """
+    try:
+        d = json.loads(FUNCION.read_text())
+    except (OSError, ValueError):
+        return False
+    return time.time() - float(d.get("desde") or 0) < FUNCION_TTL
+
+
+# --- the failure that cannot be reported through the output ------------------
+# Quickshell calls this script with execDetached, which collects NEITHER the
+# output nor the exit code: a 'return 1' here is a scream into the void. And
+# the expensive failure is precisely the one you cannot see -- building a
+# prototype takes up to 240 s --, so every time the panel opened it relaunched
+# the whole factory while the panel showed the evolution ceremony and the
+# critter kept its old form. That is why the reason is left WRITTEN next to
+# pasea-estado, with its time: it stops retries in a loop, and on top of that
+# 'poke-team estado' publishes it, the channel through which the panel
+# already learns everything else.
+def leer_fallo() -> dict:
+    try:
+        return json.loads(FALLO.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def apuntar_fallo(proto: str, num: int, motivo: str) -> None:
+    try:
+        FALLO.write_text(json.dumps(
+            {"proto": proto, "num": num, "motivo": motivo,
+             "cuando": datetime.now().astimezone().isoformat(timespec="seconds"),
+             "epoca": int(time.time())}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def olvidar_fallo() -> None:
+    FALLO.unlink(missing_ok=True)
+
+
+def ultima_linea(r) -> str:
+    """The last thing the generator said, which is the only thing we can show."""
+    texto = ((r.stderr or "") + (r.stdout or "")).strip() if r else ""
+    return texto.splitlines()[-1][:200] if texto else tr("sin mensaje", "no message")
+
+
+def nombre_de(num: int) -> str:
+    if NOMBRES.exists():
+        for linea in NOMBRES.read_text().splitlines():
+            n, _, nom = linea.partition("\t")
+            if n == str(num) and nom:
+                return nom
+    return str(num)
+
+
+def main() -> int:
+    MARCA.parent.mkdir(parents=True, exist_ok=True)
+    # Before the lock, since it is cheaper and also the only way not to trample
+    # the battle: during the show the two on screen are not the leader, and
+    # reconciling then would cut the choreography in half.
+    if funcion_en_marcha():
+        return 0
+    cerrojo = open(MARCA.parent / ".pasea.lock", "w")
+    # Wait a little instead of giving up at the first try. Changing mascot takes
+    # ~1.5 s and Quickshell calls again after ~150 ms, so the second call --
+    # precisely the one carrying the NEW leader -- always landed on the lock
+    # and left without doing anything: you changed leader twice in a row and
+    # the one walking the desktop was the previous one, until the half-hourly
+    # refresh. The team is reread AFTER taking the lock, so whoever waits comes
+    # in already holding the good state and nothing has to be passed to it.
+    for _ in range(30):                     # 30 x 0.1 s = 3 s of patience
+        try:
+            fcntl.flock(cerrojo, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            time.sleep(0.1)
+    else:
+        return 0  # another run has been at it for over 3 s; let it finish
+
+    try:
+        d = json.loads(ESTADO.read_text())
+    except (OSError, ValueError):
+        d = {}
+    equipo = d.get("equipo") or []
+    # absent = on: the SAME default as leer() in poke-team. Without this, a
+    # save made before the flag existed silently left the walk switched off
+    # (it happened with the save restored from the tests).
+    pasear = d.get("pasear", True)
+    lider = equipo[0] if pasear and equipo else None
+
+    # shiny only if its gif really exists: a "Shiny" prototype with the normal
+    # sprite inside would be lying twice.
+    shiny = bool(lider and lider.get("shiny") and (DIR_SHINY / f"{lider['num']}.gif").exists())
+    deseado = f"{lider['num']}{'-shiny' if shiny else ''}" if lider else ""
+
+    actual = MARCA.read_text().strip() if MARCA.exists() else ""
+
+    if not deseado:
+        # nothing should be walking: if we put it there, it is cleared; if not, hands off.
+        if actual:
+            # The SAME recipe as the leader change further down, and for the
+            # same reason, explained in full there: stopping only the service
+            # does NOT clear anything. While the socket is still active systemd
+            # refuses to kill the daemon -- it says so in as many words, "but
+            # its triggering units are still active" -- and the critter stayed
+            # out walking. And since the marker WAS deleted, nobody was ever
+            # going to try to clear it again: the panel said "apagado" (off)
+            # and the pokémon kept wandering about until the session ended.
+            correr(["systemctl", "--user", "stop", "wl_shimeji.socket", "wl_shimeji.service"], 20)
+            correr(["pkill", "-f", "shimeji-overlayd"], 10)
+            MARCA.unlink(missing_ok=True)
+        olvidar_fallo()   # nothing to walk: nothing pending left to report
+        return 0
+
+    # The fast exit that pays for all the rest, with the three conditions IN
+    # THIS ORDER, cheapest first (Python stops as soon as one fails): the note
+    # we wrote, the service, and -- only if both check out -- the daemon, the
+    # only one that knows whether anyone is really on screen. Asking it costs
+    # ~0.5 s measured; that is the price of never again swearing the leader is
+    # out walking when the desktop is empty (see mascotas_vivas).
+    #
+    # The service BEFORE the daemon is not only about cost: with the overlay
+    # stopped, connecting to the socket WAKES it through systemd activation
+    # and, since it is born empty, it dies when we hang up -- and after five
+    # starts in ten seconds systemd puts the socket in failed (it happened on
+    # 2026-09-25 at 23:31; the whole story is in poke-mood.daemon_vivo). If
+    # the service is not active there is nothing to ask: it has to be rebuilt
+    # anyway.
+    if deseado == actual and servicio_activo() and mascotas_vivas() > 0:
+        return 0
+
+    num = int(lider["num"])
+    proto = nombre_de(num).capitalize() + ("Shiny" if shiny else "")
+
+    # It is NOT enough for the prototype to exist: the 22 shimeji downloaded
+    # from shimejis.xyz are HAND-DRAWN and take names like 'Charmander'. If only
+    # existence were checked, the leader would walk as a drawing instead of as
+    # the terminal sprite -- which is exactly what happened. The truth is in the
+    # registry: if WE did not build that name WITH THAT number, it is rebuilt
+    # and overwritten.
+    try:
+        registro = json.loads(REGISTRO.read_text()) if REGISTRO.exists() else {}
+    except (OSError, ValueError):
+        registro = {}
+    nuestro = registro.get(proto) == num
+
+    if not nuestro or not (PROTOS / f"Shimeji.{proto}").exists():
+        # If that build already failed recently, it is NOT repeated. Building
+        # takes up to 240 s and the panel calls this script on every read of
+        # the team: without this gate, an evolution into a pokémon that cannot
+        # be built meant four minutes of CPU every time the panel was opened.
+        # Half an hour of waiting is plenty of time for something else (the
+        # sprite factory, the network) to fix whatever was missing.
+        fallo = leer_fallo()
+        if (fallo.get("proto") == proto
+                and time.time() - float(fallo.get("epoca") or 0) < ESPERA_FALLO):
+            return 1
+        args = [str(GENERADOR), str(num), "--nombre", proto]
+        if shiny:
+            args += ["--gif", str(DIR_SHINY / f"{num}.gif")]
+        r = correr(args, 240)
+        if not r or r.returncode != 0:
+            motivo = tr(f"no pude fabricar el prototipo {proto}: {ultima_linea(r)}",
+                        f"could not build the prototype {proto}: {ultima_linea(r)}")
+            apuntar_fallo(proto, num, motivo)
+            print(motivo, file=sys.stderr)
+            return 1
+
+    # Clean slate, but THROUGH THE SOCKET: the daemon started with a direct
+    # restart dies the moment it is born (verified: same ending as with
+    # systemd-run), whereas socket activation keeps it alive. So the service is
+    # STOPPED, the socket is made sure of, and the summon itself is what wakes
+    # it -- the only recipe that has always worked on this machine.
+    # The socket FIRST: while it is still active, systemd refuses to kill the
+    # daemon and the service 'stop' does nothing (see the header). Then the
+    # process is finished off, which is the only thing that really takes the
+    # pokémon with it -- there is no state on disk to clean up.
+    correr(["systemctl", "--user", "stop", "wl_shimeji.socket", "wl_shimeji.service"], 20)
+    correr(["pkill", "-f", "shimeji-overlayd"], 10)
+    time.sleep(0.5)
+    correr(["systemctl", "--user", "start", "wl_shimeji.socket"], 15)
+    time.sleep(0.4)
+    # --do-not-start here too, since this was the last command in the house
+    # still running without it. It does not get in the way of waking the
+    # daemon: what wakes it is the CONNECTION to the socket (systemd
+    # activation, which we started two lines up), and shimejictl only launches
+    # an overlayd of its own when it cannot even connect. In other words, the
+    # flag only changes what happens when something goes wrong -- and then a
+    # failed summon, which is also noted in pasea-fallo, is better than a
+    # ~360 MB overlayd outside systemd grabbing the socket.
+    r = correr(["shimejictl", "--do-not-start", "summon", proto], 25)
+    if not r or r.returncode != 0:
+        # Same reason as above, and the same wait: the summon can also fail
+        # silently (half-imported prototype, a daemon that does not wake up)
+        # and the caller does not collect anything either.
+        motivo = tr(f"no pude invocar a {proto}: {ultima_linea(r)}",
+                    f"could not summon {proto}: {ultima_linea(r)}")
+        apuntar_fallo(proto, num, motivo)
+        print(motivo, file=sys.stderr)
+        return 1
+
+    olvidar_fallo()   # it worked: if a failure was noted, it is no longer true
+    MARCA.write_text(deseado + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

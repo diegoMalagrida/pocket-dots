@@ -1,12 +1,12 @@
-// SettingsSystem.qml — los interruptores del sistema que hasta ahora solo
-// existían en el centro de control del notch (Super+D).
+// SettingsSystem.qml — the system switches that until now only existed in
+// the notch's control centre (Super+D).
 //
-// POR QUÉ REPETIRLOS AQUÍ: el centro de control es para tocar y salir corriendo
-// — está pensado para un gesto. Ajustes es para cuando quieres LEER qué hace
-// cada cosa antes de tocarla (para eso está la franja del pie) y para lo que no
-// cabe en cuatro botones: el estado de la batería, qué red hay, cuántas
-// notificaciones tienes. Ninguno de estos ajustes se guarda en el JSON del
-// rice: son estado del sistema y los lee ShellState.
+// WHY REPEAT THEM HERE: the control centre is for a quick touch and off you go
+// — it is designed for a gesture. Settings is for when you want to READ what
+// each thing does before touching it (that is what the footer strip is for)
+// and for what does not fit in four buttons: the battery state, which network
+// you are on, how many notifications you have. None of these settings is saved
+// in the rice's JSON: they are system state and ShellState reads them.
 import Quickshell
 import QtQuick
 import QtQuick.Controls
@@ -15,15 +15,15 @@ import QtQuick.Layouts
 Flickable {
     id: root
 
-    property string note: I18n.tr("Ajustes del sistema en vivo: no se guardan en el JSON del rice.")
-    readonly property int matchCount: cScreen.visibleRows + cPower.visibleRows
+    property string note: I18n.tr("Los perfiles de energía se recuerdan para batería y cargador.")
+    readonly property int matchCount: cScreen.visibleRows + cPower.visibleRows + cProfiles.visibleRows
         + cNet.visibleRows + cNotif.visibleRows + cTerm.visibleRows
 
     contentHeight: col.implicitHeight + 34
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded; width: 5 }
-    onVisibleChanged: if (visible) contentY = 0
+    onVisibleChanged: if (visible) { contentY = 0; Energy.refresh(); }
 
     ColumnLayout {
         id: col
@@ -32,10 +32,10 @@ Flickable {
         y: 16
         spacing: 10
 
-        // ─────────────────── pantalla ───────────────────
+        // ─────────────────── screen ───────────────────
         SettingsControls.Card_ {
             id: cScreen
-            title: I18n.tr("PANTALLA")
+            title: I18n.tr("Pantalla")
 
             SettingsControls.Row_ {
                 shown: ShellState.bright >= 0
@@ -66,25 +66,95 @@ Flickable {
             }
         }
 
-        // ─────────────────── energía ───────────────────
+        SettingsControls.Card_ {
+            id: cProfiles
+            title: I18n.tr("Perfiles de energía")
+            SettingsControls.Row_ {
+                label: I18n.tr("Perfil activo")
+                hint: I18n.tr("Ahorro desactiva el turbo y el desenfoque de movimiento, y puede reducir el brillo. Equilibrado conserva el turbo y prioriza eficiencia. Rendimiento prioriza la respuesta.")
+                SettingsControls.Val_ {
+                    text: Energy.busy ? I18n.tr("Aplicando…") : Energy.label(Energy.active)
+                    color: Energy.active === "power-saver" ? Colors.accentInk : Colors.label2
+                }
+            }
+            SettingsControls.Row_ {
+                shown: Energy.available
+                label: I18n.tr("Con batería")
+                hint: I18n.tr("Se aplica al desenchufar y al iniciar la sesión con batería. Puedes cambiarlo cuando necesites más velocidad.")
+                SettingsControls.Choice_ {
+                    options: Energy.labels
+                    current: Energy.label(Config.energyOnBattery)
+                    onPicked: function(v) { Energy.choose(true, v); }
+                }
+            }
+            SettingsControls.Row_ {
+                shown: Energy.available
+                label: I18n.tr("Con cargador")
+                hint: I18n.tr("Se aplica al enchufar y al iniciar la sesión con corriente. La elección se guarda automáticamente.")
+                SettingsControls.Choice_ {
+                    options: Energy.labels
+                    current: Energy.label(Config.energyOnAC)
+                    onPicked: function(v) { Energy.choose(false, v); }
+                }
+            }
+            SettingsControls.Row_ {
+                shown: ShellState.bright >= 0 && Energy.available
+                label: I18n.tr("Reducir brillo en Ahorro")
+                hint: I18n.tr("Al entrar en Ahorro baja el brillo si supera el límite. Al salir recupera el anterior, salvo que lo hayas cambiado manualmente.")
+                SettingsControls.Switch_ {
+                    checked: Config.dimOnSaver
+                    onToggled: function(v) { Config.dimOnSaver = v; Config.save(); }
+                }
+            }
+            SettingsControls.Row_ {
+                shown: ShellState.bright >= 0 && Energy.available && Config.dimOnSaver
+                label: I18n.tr("Brillo en Ahorro")
+                hint: I18n.tr("Es un límite al entrar en el perfil, no un bloqueo: las teclas de brillo siguen funcionando. Si ya estaba más bajo, no lo sube.")
+                SettingsControls.Slider_ {
+                    value: Config.saverBrightness; from: 10; to: 80; suffix: " %"
+                    onMoved: function(v) { Config.saverBrightness = Math.round(v); Config.save(); }
+                }
+            }
+            SettingsControls.Row_ {
+                shown: !Energy.available || Energy.error.length > 0
+                label: Energy.error.length > 0 ? Energy.error : I18n.tr("Servicio de perfiles no disponible")
+                hint: I18n.tr("Los perfiles necesitan el servicio TLP de energía activo.")
+                SettingsControls.Btn_ {
+                    text: I18n.tr("Reintentar")
+                    onClicked: { Energy.refresh(); Energy.apply(); }
+                }
+            }
+            SettingsControls.Row_ {
+                shown: ShellState.batt >= 0
+                label: I18n.tr("Permitir reposo con batería")
+                hint: I18n.tr("Quita Cafeína al desenchufar: deja atenuar, bloquear, apagar la pantalla y suspender según tus tiempos de inactividad. Al enchufar restaura Cafeína. Puedes encenderla manualmente en el notch.")
+                SettingsControls.Switch_ {
+                    checked: Config.batteryAllowIdle
+                    onToggled: function(v) { Config.batteryAllowIdle = v; Config.save(); }
+                }
+            }
+        }
+
+        // ─────────────────── power ───────────────────
         SettingsControls.Card_ {
             id: cPower
-            title: I18n.tr("ENERGÍA")
+            title: I18n.tr("Energía")
 
-            // En una torre no hay /sys/class/power_supply/BAT*, así que `batt`
-            // vale -1 y esta fila decía "sin batería" para siempre. Contar algo
-            // que en ese equipo no puede existir no es honestidad, es un hueco
-            // con texto: las tres filas de abajo ya se escondían por lo mismo y
-            // esta se quedaba sola presidiéndolas. La tarjeta ENERGÍA no se
-            // vacía porque Cafeína y el resto siguen ahí.
+            // On a tower there is no /sys/class/power_supply/BAT*, so `batt`
+            // is -1 and this row said "sin batería" (no battery) forever.
+            // Reporting something that cannot exist on that machine is not
+            // honesty, it is a gap with text in it: the three rows below were
+            // already hidden for the same reason and this one was left alone
+            // presiding over them. The ENERGY card does not end up empty
+            // because Caffeine and the rest are still there.
             SettingsControls.Row_ {
                 shown: ShellState.batt >= 0
                 label: I18n.tr("Batería")
                 hint: I18n.tr("Carga actual según el kernel, la misma que enseña el notch.")
                 SettingsControls.Val_ {
                     text: I18n.tr("{0} % · {1}", ShellState.batt,
-                                  ShellState.ac ? I18n.tr("cargando") : I18n.tr("con batería"))
-                    color: ShellState.batt < 15 && !ShellState.ac ? Colors.crit : "#b9b9b9"
+                                  ShellState.ac ? I18n.tr("con cargador") : I18n.tr("con batería"))
+                    color: ShellState.batt < 15 && !ShellState.ac ? Colors.crit : Colors.label2
                 }
             }
 
@@ -100,7 +170,7 @@ Flickable {
                              ? I18n.tr("{0} · {1} ciclos", salud, ShellState.battCycles) : salud;
                     }
                     color: ShellState.battHealth >= 0 && ShellState.battHealth < 60 ? Colors.crit
-                        : ShellState.battHealth >= 0 && ShellState.battHealth < 80 ? Colors.warn : "#b9b9b9"
+                        : ShellState.battHealth >= 0 && ShellState.battHealth < 80 ? Colors.warn : Colors.label2
                 }
             }
 
@@ -128,16 +198,25 @@ Flickable {
 
             SettingsControls.Row_ {
                 label: I18n.tr("Cafeína")
-                hint: I18n.tr("Impide que la pantalla se apague y que el equipo se suspenda. Se activa sola al iniciar; apágala desde el notch cuando quieras permitir el reposo.")
+                hint: I18n.tr("Impide apagar la pantalla y suspender por inactividad. El ajuste Permitir reposo con batería la desactiva al desenchufar; puedes volver a activarla manualmente.")
                 SettingsControls.Switch_ {
                     checked: ShellState.caffeine
                     onToggled: function (v) { ShellState.caffeine = v; }
                 }
             }
 
+            // The text NO LONGER names RustDesk. It used to, and it promised
+            // too much: the switch only touches hypridle, which is real and
+            // useful for getting in over SSH or Tailscale, but remote desktop
+            // WITH VIDEO needs two more things that are not there — RustDesk
+            // itself, which is not installed, and switching the portal backend
+            // to luminous, because Hyprland's does not implement
+            // RemoteDesktop. That last one is deliberately left undone, and
+            // the reason (with luminous any program can record your screen
+            // without asking) is told in full in hypr/portals.conf.
             SettingsControls.Row_ {
                 label: I18n.tr("Modo remoto")
-                hint: I18n.tr("Para conectarte por RustDesk desde fuera: deja el bloqueo de sesión pero quita el apagado de pantalla y la suspensión, que es lo que cortaba la conexión.")
+                hint: I18n.tr("Mantiene el equipo accesible desde fuera: quita el apagado de pantalla y la suspensión, pero deja el bloqueo de sesión. Para escritorio remoto con vídeo hacen falta además RustDesk y cambiar el backend del portal; lo explica hypr/portals.conf.")
                 SettingsControls.Switch_ {
                     checked: ShellState.remoteMode
                     onToggled: ShellState.toggleRemoteMode()
@@ -145,10 +224,10 @@ Flickable {
             }
         }
 
-        // ─────────────────── red ───────────────────
+        // ─────────────────── network ───────────────────
         SettingsControls.Card_ {
             id: cNet
-            title: I18n.tr("RED")
+            title: I18n.tr("Red")
 
             SettingsControls.Row_ {
                 shown: ShellState.hasWifi
@@ -182,10 +261,10 @@ Flickable {
             }
         }
 
-        // ─────────────────── notificaciones ───────────────────
+        // ─────────────────── notifications ───────────────────
         SettingsControls.Card_ {
             id: cNotif
-            title: I18n.tr("NOTIFICACIONES")
+            title: I18n.tr("Notificaciones")
 
             SettingsControls.Row_ {
                 label: I18n.tr("No molestar")
@@ -209,7 +288,7 @@ Flickable {
         // ─────────────────── terminal ───────────────────
         SettingsControls.Card_ {
             id: cTerm
-            title: I18n.tr("TERMINAL")
+            title: I18n.tr("Terminal")
 
             SettingsControls.Row_ {
                 label: I18n.tr("Pokémon del tema")
@@ -217,6 +296,15 @@ Flickable {
                 SettingsControls.Switch_ {
                     checked: ShellState.pokeTheme
                     onToggled: ShellState.togglePokeTheme()
+                }
+            }
+
+            SettingsControls.Row_ {
+                label: I18n.tr("Entorno de Python")
+                hint: I18n.tr("Abre el prompt con (nombre) en verde cuando hay un entorno activo, sea un venv o uno de conda, para no acabar instalando en el que no era. Se aplica en las terminales que abras a partir de ahora.")
+                SettingsControls.Switch_ {
+                    checked: ShellState.promptEnv
+                    onToggled: ShellState.togglePromptEnv()
                 }
             }
         }

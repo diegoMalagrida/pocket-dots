@@ -1,24 +1,25 @@
-// I18n.qml — la capa de idioma del shell.
+// I18n.qml — the shell's language layer.
 //
-// EL CASTELLANO ES EL CÓDIGO. Las cadenas siguen escritas en español dentro de
-// cada .qml, envueltas en I18n.tr(...). En español tr() devuelve su argumento
-// tal cual: no hay diccionario que mantener, ni claves que inventar, ni forma
-// de que un texto se quede sin traducir y salga en blanco. Solo el inglés vive
-// en un diccionario (translations-en.js), y lo que le falte cae en español, que
-// es un fallo visible pero inofensivo.
+// SPANISH IS THE CODE. The strings are still written in Spanish inside each
+// .qml, wrapped in I18n.tr(...). In Spanish tr() returns its argument as is:
+// there is no dictionary to maintain, no keys to invent, and no way for a text
+// to go untranslated and come out blank. Only English lives in a dictionary
+// (translations-en.js), and whatever it lacks falls back to Spanish, which is
+// a visible but harmless failure.
 //
-// POR QUÉ NO qsTr() Y .qm: el flujo de Qt Linguist obliga a compilar los .ts y
-// a reiniciar la aplicación para cambiar de idioma. Aquí el idioma se cambia
-// desde Ajustes y la interfaz entera se repinta en el sitio, porque `lang` es
-// una propiedad y todas las asignaciones `text: I18n.tr(...)` son bindings que
-// dependen de ella.
+// WHY NOT qsTr() AND .qm: the Qt Linguist workflow forces you to compile the
+// .ts files and restart the application to change language. Here the language
+// is changed from Settings and the whole interface repaints in place, because
+// `lang` is a property and every `text: I18n.tr(...)` assignment is a binding
+// that depends on it.
 pragma Singleton
 
 import Quickshell
 import QtQuick
-// El diccionario va en un .js importado, no en otro singleton QML: probado que
-// un `readonly property var` con las 402 entradas dentro llega como `undefined`
-// al leerlo desde aqui. El porque, entero, en la cabecera de translations-en.js.
+// The dictionary lives in an imported .js, not in another QML singleton: it was
+// tested that a `readonly property var` holding the 402 entries arrives as
+// `undefined` when read from here. The full reason is in the header of
+// translations-en.js.
 import "translations-en.js" as Dict
 
 Singleton {
@@ -27,8 +28,8 @@ Singleton {
     readonly property string lang: Config.language
     readonly property bool english: lang === "en"
 
-    // El rótulo va en su propio idioma a propósito: quien tenga el shell en un
-    // idioma que no entiende tiene que poder encontrar el suyo en la lista.
+    // Each label is in its own language on purpose: someone with the shell in a
+    // language they do not understand has to be able to find theirs in the list.
     readonly property var languages: [
         { code: "es", label: "Español" },
         { code: "en", label: "English" }
@@ -51,9 +52,9 @@ Singleton {
     // tr("Apagar")                       -> "Shut down"
     // tr("Quedan {0} minutos", 5)        -> "5 minutes left"
     //
-    // Los huecos son {0}, {1}, {2} y NO se concatenan fuera: una frase partida
-    // en trozos ("Quedan " + n + " minutos") no se puede traducir, porque en
-    // otro idioma las piezas van en otro orden.
+    // The placeholders are {0}, {1}, {2} and are NOT concatenated outside: a
+    // sentence split into pieces ("Quedan " + n + " minutos") cannot be
+    // translated, because in another language the pieces go in another order.
     function tr(s, a0, a1, a2) {
         var out = root.english && Dict.en[s] !== undefined ? Dict.en[s] : s;
         if (a0 !== undefined) out = out.split("{0}").join(a0);

@@ -1,42 +1,139 @@
 #!/usr/bin/env bash
-# Hace que las aplicaciones GTK YA ABIERTAS cojan la paleta nueva, sin cerrarlas.
+# Recolours GTK with the new palette, including the windows ALREADY OPEN.
 #
-# El problema: ~/.config/gtk-3.0/gtk.css y gtk-4.0/gtk.css no llevan colores,
-# llevan un @import de ~/.cache/wal/colors-gtk.css. Cuando pywal reescribe ese
-# fichero, GTK ni se entera: el import se resolvio una vez, al arrancar la
-# aplicacion. Medido con pavucontrol delante -no se movio ni cambiando la
-# paleta, ni haciendo touch de los dos gtk.css, ni cambiando gtk-theme-name.
+# THE PROBLEM, AND WHY THIS SCRIPT IS THE WAY IT IS
 #
-# Lo que si funciona es el portal de apariencia. libadwaita y GTK escuchan
-# org.freedesktop.appearance del portal xdg-desktop-portal, y cuando les llega
-# un cambio de color-scheme reconstruyen su cascada de estilos entera - y al
-# reconstruirla vuelven a leer el gtk.css del usuario, o sea el @import con los
-# colores nuevos. Asi que se les da un tiron del color-scheme y se devuelve
-# enseguida al que estaba. Medido: pavucontrol pasa de #0B1018 a #0D0F11, que
-# son exactamente los dos fondos de pywal.
+# pywal writes ~/.cache/wal/colors-gtk.css and that is where its job ends. The
+# GTK applications that are already open do not notice: they resolved their CSS
+# once, at startup. So far, nothing new.
 #
-# El precio son 0,15 s de tema claro en las aplicaciones GTK que esten abiertas
-# (y en Chrome, que tambien escucha el portal). Es el minimo que funciona: por
-# debajo, el portal no llega a propagar los dos cambios. Si algun dia molesta
-# mas de lo que aporta, se quita la llamada de set-wallpaper.sh y las
-# aplicaciones simplemente cogeran el color al abrirse, como antes.
+# What does NOT work, all measured with colour probes and grim captures of a
+# Thunar window in front:
+#
+#   * Touching the gtk.css files, or rewriting them IN PLACE keeping the inode
+#     (the trick that DOES work with qt5ct/qt6ct in qt-pywal.py): GTK3 does not
+#     watch its gtk.css. The statusbar stayed magenta after changing it to green.
+#   * The appearance-portal nudge -- setting color-scheme to prefer-light and
+#     back --, which is what this script used to do: no luck either. It was
+#     written in the belief that it rebuilt the whole cascade, and in this GTK3
+#     version it does not read anything from disk again.
+#   * Nudging gtk-theme-name to the same old theme: nothing. GTK caches themes
+#     BY NAME inside the process and hands back the cached one.
+#
+# What DOES work, and what this script lives on: giving it a name that process
+# has never seen. Then there is no cache entry, GTK reads it from disk and
+# repaints the open window. Hence `pywal-gtk-<hash>`: the hash comes from the
+# palette (and from the rules), so every wallpaper with new colours gets a
+# fresh name, and a wallpaper that gives the same colours does not get one --
+# nor does it need to. The same goes for the icon theme, which folders-pywal.py
+# generates.
+#
+# The theme is assembled from three pieces: it imports adw-gtk3-dark, embeds
+# the palette's colours, and appends ~/.config/gtk-3.0/rice-gtk3.css, which is
+# where the shapes and timings live and the only thing edited by hand.
+#
+# And MIND ~/.config/gtk-3.0/gtk.css: it has to stay EMPTY. The user CSS
+# overrides the theme (USER priority) and is never reloaded, so with the pywal
+# colours in there the open window keeps the previous wallpaper's colours for
+# ever, even when the new theme went in fine. That was exactly the second bug
+# of this round: the theme said #0B1018 and the view was still on #191612.
 set -uo pipefail
 
-ESQUEMA="org.gnome.desktop.interface color-scheme"
+CACHE="$HOME/.cache/wal/colors.json"
+[ -r "$CACHE" ] || exit 0
+command -v gsettings >/dev/null 2>&1 || exit 0
 
-actual=$(gsettings get ${ESQUEMA} 2>/dev/null) || exit 0
-actual=${actual//\'/}
-[ -n "$actual" ] || exit 0
+TEMAS="$HOME/.local/share/themes"
+BASE_GTK3=/usr/share/themes/adw-gtk3-dark/gtk-3.0/gtk.css
+BASE_GTK4=/usr/share/themes/adw-gtk3-dark/gtk-4.0/gtk.css
+REGLAS="$HOME/.config/gtk-3.0/rice-gtk3.css"
+COLORES="$HOME/.cache/wal/colors-gtk.css"
+ACENTO4="$HOME/.cache/wal/colors-gtk4-accent.css"
 
-case "$actual" in
-  prefer-dark) otro=prefer-light ;;
-  *)           otro=prefer-dark  ;;
-esac
+# --- 1) the folder icons; the script returns its theme's name ---
+ICONOS=""
+if [ -x "$HOME/.config/hypr/scripts/folders-pywal.py" ]; then
+	ICONOS=$("$HOME/.config/hypr/scripts/folders-pywal.py" 2>/dev/null | tail -1)
+fi
 
-# Pase lo que pase se vuelve al esquema que tenia: dejarlo en claro seria peor
-# que no haber hecho nada.
-restaurar() { gsettings set ${ESQUEMA} "$actual" 2>/dev/null || true; }
-trap restaurar EXIT INT TERM
+# --- 2) the GTK theme, with the palette's hash in the name ---
+# The hash covers the colours AND the rules: that way, editing rice-gtk3.css by
+# hand also gets a fresh name and the change shows without restarting anything.
+FIRMA=$( { jq -r '[.colors[]] | join("")' "$CACHE" 2>/dev/null; cat "$REGLAS" 2>/dev/null; } \
+	| md5sum | cut -c1-8)
+[ -n "$FIRMA" ] || exit 0
+TEMA="pywal-gtk-$FIRMA"
+DIR="$TEMAS/$TEMA"
 
-gsettings set ${ESQUEMA} "$otro" 2>/dev/null || exit 0
-sleep 0.15
+# It is always regenerated, not only when missing: it costs nothing, and that way
+# a theme left half-written by an interruption fixes itself.
+mkdir -p "$DIR/gtk-3.0" "$DIR/gtk-4.0" || exit 0
+
+# The colours are EMBEDDED and not pulled in by @import: the theme has to be
+# self-contained, because its name promises specific colours. If it imported
+# ~/.cache/wal/colors-gtk.css, the theme of an old palette would show the new
+# palette's colours and the hash would stop meaning anything.
+#
+# The rules are APPENDED and not imported either: in CSS an @import only counts
+# at the start of the file, and after the @define-color lines above GTK throws
+# it away without applying a single rule.
+{
+	printf '/* Generated by gtk-pywal.sh on each wallpaper change. Do not edit:\n'
+	printf '   edit the rules in ~/.config/gtk-3.0/rice-gtk3.css. */\n'
+	printf '@import url("file://%s");\n' "$BASE_GTK3"
+	[ -r "$COLORES" ] && cat "$COLORES"
+	[ -r "$REGLAS" ] && cat "$REGLAS"
+} > "$DIR/gtk-3.0/gtk.css"
+
+# GTK4 goes separately because libadwaita needs its accent via :root. It
+# replicates what ~/.config/gtk-4.0/gtk.css already did, so that changing the
+# theme name takes nothing away from GTK4 applications.
+{
+	printf '/* Generated by gtk-pywal.sh. */\n'
+	printf '@import url("file://%s");\n' "$BASE_GTK4"
+	[ -r "$COLORES" ] && cat "$COLORES"
+	[ -r "$ACENTO4" ] && cat "$ACENTO4"
+} > "$DIR/gtk-4.0/gtk.css"
+
+printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=%s\nComment=adw-gtk3-dark with the pywal palette (generated)\nComment[es]=adw-gtk3-dark con la paleta de pywal (generado)\n' \
+	"$TEMA" > "$DIR/index.theme"
+
+# --- 3) apply it ---
+# gsettings is what reaches the OPEN windows, through the settings portal.
+# The settings.ini files are for the ones opened later.
+gsettings set org.gnome.desktop.interface gtk-theme "$TEMA" 2>/dev/null || true
+[ -n "$ICONOS" ] && { gsettings set org.gnome.desktop.interface icon-theme "$ICONOS" 2>/dev/null || true; }
+
+fijar() { # fijar <file> <key> <value>
+	local f="$1" k="$2" v="$3"
+	[ -f "$f" ] || return 0
+	if grep -q "^${k}=" "$f"; then
+		sed -i "s|^${k}=.*|${k}=${v}|" "$f"
+	else
+		printf '%s=%s\n' "$k" "$v" >> "$f"
+	fi
+}
+
+fijar "$HOME/.config/gtk-3.0/settings.ini" gtk-theme-name "$TEMA"
+fijar "$HOME/.config/gtk-4.0/settings.ini" gtk-theme-name "$TEMA"
+if [ -n "$ICONOS" ]; then
+	fijar "$HOME/.config/gtk-3.0/settings.ini" gtk-icon-theme-name "$ICONOS"
+	fijar "$HOME/.config/gtk-4.0/settings.ini" gtk-icon-theme-name "$ICONOS"
+	# GTK2 uses another format (values in quotes) and on top of that nwg-look
+	# rewrites it, so only the icons are changed there: the generated theme has
+	# no gtk-2.0 and pointing it there would leave it without a theme.
+	if [ -f "$HOME/.gtkrc-2.0" ]; then
+		sed -i "s|^gtk-icon-theme-name=.*|gtk-icon-theme-name=\"${ICONOS}\"|" "$HOME/.gtkrc-2.0"
+	fi
+fi
+
+# --- 4) out with the themes of previous palettes ---
+# The current one is NEVER deleted: it is the one the settings.ini files point
+# to, and if it disappears, applications opened later fall back to stock Adwaita.
+for otro in "$TEMAS"/pywal-gtk-*; do
+	[ -d "$otro" ] || continue
+	[ "$(basename "$otro")" = "$TEMA" ] && continue
+	rm -rf -- "$otro"
+done
+
+exit 0

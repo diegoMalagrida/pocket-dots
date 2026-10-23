@@ -1,22 +1,23 @@
-/* Acento de libadwaita >= 1.6 desde pywal.
+/* libadwaita >= 1.6 accent from pywal.
 
-   Por que existe este fichero aparte de colors-gtk.css: desde libadwaita 1.6 el
-   acento se resuelve con propiedades CSS (--accent-bg-color en :root), y el
-   "@define-color accent_bg_color" de colors-gtk.css YA NO BASTA: lo pisa el
-   acento del sistema y Nautilus salia azul (#3584e4) con el resto de la ventana
-   en colores de pywal. Comprobado midiendo el color calculado con GTK4.
+   Why this file exists apart from colors-gtk.css: since libadwaita 1.6 the
+   accent is resolved with CSS properties (--accent-bg-color on :root), and the
+   "@define-color accent_bg_color" in colors-gtk.css is NO LONGER ENOUGH: the
+   system accent overrides it and Nautilus came out blue (#3584e4) with the rest
+   of the window in pywal colours. Checked by measuring the computed colour with
+   GTK4.
 
-   Va aparte porque GTK3 no entiende ":root" ni las custom properties: este
-   fichero SOLO se importa desde ~/.config/gtk-4.0/gtk.css, mientras que
-   colors-gtk.css lo siguen importando GTK3 y GTK4. */
+   It is kept apart because GTK3 does not understand ":root" or custom
+   properties: this file is ONLY imported from ~/.config/gtk-4.0/gtk.css,
+   whereas colors-gtk.css is still imported by both GTK3 and GTK4. */
 
-/* OJO: pywal renderiza con str.format, asi que las llaves literales del CSS van
-   duplicadas ({{ y }}); si se escriben sencillas, wal peta con KeyError. */
+/* CAREFUL: pywal renders with str.format, so the CSS's literal braces are
+   doubled ({{ and }}); written single, wal blows up with a KeyError. */
 :root {{
   --accent-bg-color: {color4};
   --accent-fg-color: {background};
-  /* La misma formula que usa libadwaita para el acento "standalone" (texto y
-     iconos): aclara el color en modo oscuro para que contraste. El valor de
-     reserva es el de la hoja de estilo de libadwaita en oscuro. */
+  /* The same formula libadwaita uses for the "standalone" accent (text and
+     icons): it lightens the colour in dark mode so it contrasts. The fallback
+     value is the one from libadwaita's dark stylesheet. */
   --accent-color: oklab(from var(--accent-bg-color) var(--standalone-color-oklab, max(l, 0.85) a b));
 }}

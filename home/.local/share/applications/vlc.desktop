@@ -1,11 +1,11 @@
-# Copia de /usr/share/applications/vlc.desktop con el Exec apuntando al
-# envoltorio ~/.local/bin/vlc, el que le mete la paleta de pywal. Vive aqui
-# porque ~/.local/share gana a /usr/share en XDG, asi que esta es la entrada
-# que usan el gestor de archivos y el lanzador.
+# Copy of /usr/share/applications/vlc.desktop with Exec pointing to the
+# ~/.local/bin/vlc wrapper, the one that gives it the pywal palette. It lives
+# here because ~/.local/share beats /usr/share in XDG, so this is the entry the
+# file manager and the launcher use.
 #
-# El precio de copiarla es que se queda congelada: si VLC anade tipos MIME o
-# acciones nuevas en una actualizacion, aqui no llegan. Para refrescarla,
-# vuelve a copiar la del sistema y cambia solo las lineas Exec y TryExec.
+# The price of copying it is that it stays frozen: if VLC adds MIME types or
+# new actions in an update, they do not reach this one. To refresh it, copy
+# the system one again and change only the Exec and TryExec lines.
 [Desktop Entry]
 Version=1.0
 Name=VLC media player

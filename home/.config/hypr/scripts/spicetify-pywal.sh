@@ -1,28 +1,29 @@
 #!/usr/bin/env bash
-# Re-tematiza Spotify (spicetify) con la paleta de pywal. Lo llama set-wallpaper.sh.
+# Re-themes Spotify (spicetify) with the pywal palette. Called by set-wallpaper.sh.
 #
-# Usa el tema 'termspot' (github.com/fdeox/termspot): TUI de fósforo CRT. Su
-# color.ini trae 19 esquemas propios, así que spicetify-colors.py solo
-# inserta/actualiza el bloque [pywal] con un acento vivo derivado del tono
-# dominante del fondo, y deja el resto del fichero como está.
+# It uses the 'termspot' theme (github.com/fdeox/termspot): a CRT-phosphor TUI.
+# Its color.ini ships 19 schemes of its own, so spicetify-colors.py only
+# inserts/updates the [pywal] block with a vivid accent derived from the
+# wallpaper's dominant hue, and leaves the rest of the file as it is.
 #
-# Cómo llega el color al Spotify que ya está abierto:
+# How the colour reaches the Spotify that is already open:
 #
-#   1. En caliente (lo normal). spicetify-push-colors.py entra por el WebSocket
-#      de DevTools y reescribe las variables --spice-* de documentElement. Es
-#      instantáneo y no se nota: ni reinicio, ni recarga, ni se pierde el scroll.
-#      Necesita que Spotify se lanzara con --remote-debugging-port (lo ponen el
-#      .desktop de ~/.local/share/applications y spicetify-restart-spotify.sh).
+#   1. Live (the normal case). spicetify-push-colors.py comes in through the
+#      DevTools WebSocket and rewrites documentElement's --spice-* variables. It
+#      is instant and unnoticeable: no restart, no reload, the scroll is not lost.
+#      It needs Spotify to have been launched with --remote-debugging-port (set
+#      by the .desktop in ~/.local/share/applications and by
+#      spicetify-restart-spotify.sh).
 #
-#   2. Reiniciando (plan B). Solo si el push falla: Spotify cerrado sin más, o
-#      abierto desde antes de que existiera el puerto. Es lo que hacíamos siempre.
+#   2. By restarting (plan B). Only if the push fails: Spotify simply closed, or
+#      opened from before the port existed. It is what we always used to do.
 #
-# Por qué no 'spicetify watch': hace una recarga COMPLETA del xpui (destello de
-# 1-2 s y vuelves al principio del scroll), deja un proceso vivo, y el propio
-# mantenedor dice que en Linux falla a menudo (spicetify/cli#1091). Ojo, el
-# motivo por el que 'watch' no detecta cambios en #2384 NO aplica aquí: aquel
-# usuario tenía ${xrdb:...} en el color.ini y el fichero nunca cambiaba; el
-# nuestro se reescribe con hex reales.
+# Why not 'spicetify watch': it does a FULL reload of xpui (a 1-2 s flash and
+# you are back at the top of the scroll), it leaves a process running, and the
+# maintainer himself says it often fails on Linux (spicetify/cli#1091). Mind,
+# the reason 'watch' does not detect changes in #2384 does NOT apply here: that
+# user had ${xrdb:...} in the color.ini and the file never changed; ours is
+# rewritten with real hex values.
 set -u
 
 command -v spicetify >/dev/null 2>&1 || exit 0
@@ -34,20 +35,20 @@ THEME_DIR="$HOME/.config/spicetify/Themes/termspot"
 [ -r "$HOME/.cache/wal/colors.json" ] || exit 0
 mkdir -p "$THEME_DIR"
 
-# Regenerar el color.ini (acento vivo) desde la paleta pywal actual + recompilar a
-# disco. El refresh no toca la ventana abierta, pero deja el color correcto para
-# el siguiente arranque.
+# Regenerate the color.ini (vivid accent) from the current pywal palette + rebuild
+# to disk. The refresh does not touch the open window, but it leaves the right
+# colour for the next launch.
 python3 "$GEN" "$THEME_DIR/color.ini" 2>/dev/null || exit 0
 spicetify refresh >/dev/null 2>&1 || true
 
 pgrep -x spotify >/dev/null 2>&1 || exit 0
 
-# --- 1. intento en caliente ---------------------------------------------------
+# --- 1. live attempt ----------------------------------------------------------
 if python3 "$PUSH" "$THEME_DIR/color.ini" >/dev/null 2>&1; then
   exit 0
 fi
 
-# --- 2. plan B: reiniciar, devolviéndolo a SU workspace y sin robarte el foco --
+# --- 2. plan B: restart, putting it back on ITS workspace without stealing focus
 if pgrep -x spotify >/dev/null 2>&1; then
   WS="$(hyprctl clients -j 2>/dev/null | python3 -c "
 import json,sys

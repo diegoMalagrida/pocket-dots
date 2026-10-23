@@ -1,15 +1,16 @@
 [Unit]
-# Agente de emparejamiento Bluetooth del notch.
+# The notch's Bluetooth pairing agent.
 #
-# Contesta a lo que BlueZ pregunta a mitad de un emparejamiento ("¿coincide este
-# codigo?", "teclea estos seis digitos"). Sin esto los auriculares emparejan
-# igual, porque no preguntan nada, pero un teclado o un mando falla EN SILENCIO:
-# QML no puede exportar un objeto D-Bus y la API de Bluetooth de Quickshell no
-# tiene ningun callback de agente. El porque completo, en la cabecera del script.
+# It answers what BlueZ asks halfway through a pairing ("does this code
+# match?", "type these six digits"). Without it headphones pair all the same,
+# because they ask nothing, but a keyboard or a gamepad fails SILENTLY: QML
+# cannot export a D-Bus object and Quickshell's Bluetooth API has no agent
+# callback at all. The full reason why is in the script's header.
 #
-# No depende de quickshell.service a proposito: si el shell no esta, el agente
-# sigue emparejando (a ciegas, sin cara en el notch) en vez de no emparejar.
-Description=Agente de emparejamiento Bluetooth (notch)
+# It does not depend on quickshell.service on purpose: if the shell is not
+# there, the agent keeps pairing (blind, with no face in the notch) instead of
+# not pairing at all.
+Description=Bluetooth pairing agent (notch)
 Documentation=file:///home/diego/.config/quickshell/scripts/bt-agent.py
 PartOf=graphical-session.target
 After=graphical-session.target

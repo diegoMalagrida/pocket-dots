@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
-# dynamic-cursors.sh — shake to find: agitar el ratón agranda el cursor para
-# encontrarlo, como en macOS. Carga el plugin hypr-dynamic-cursors (compilado
-# a mano en ~/.local/share/hypr-dynamic-cursors contra el commit que su
-# hyprpm.toml pina para la versión EXACTA de Hyprland) y lo deja SOLO con el
-# shake: mode none apaga las físicas del cursor (estirar/rotar), que aquí no
-# se quieren.
+# dynamic-cursors.sh — shake to find: shaking the mouse enlarges the cursor so
+# you can find it, as on macOS. It loads the hypr-dynamic-cursors plugin (built
+# by hand in ~/.local/share/hypr-dynamic-cursors against the commit its
+# hyprpm.toml pins for the EXACT Hyprland version) and leaves it with ONLY the
+# shake: mode none turns off the cursor physics (stretch/rotate), which are not
+# wanted here.
 #
-# Si Hyprland/aquamarine se actualizan, el .so deja de casar con el compositor
-# vivo ("version mismatch"): entonces este script busca el pin del commit del
-# Hyprland EN EJECUCIÓN, recompila y reintenta, avisando por notificación.
-# Ojo: si la sesión es más vieja que el paquete instalado (actualizar sin
-# reiniciar sesión), no hay pin que valga — tocará esperar al siguiente login.
+# If Hyprland/aquamarine get updated, the .so stops matching the running
+# compositor ("version mismatch"): then this script looks up the commit pin for
+# the RUNNING Hyprland, rebuilds and retries, with a notification.
+# Mind: if the session is older than the installed package (updating without
+# restarting the session), no pin will do — you will have to wait for the next
+# login.
 
-# El zoom sale NÍTIDO si hay un tema hyprcursor (SVG) instalado en
-# ~/.local/share/icons con el mismo nombre que tu tema de cursor -- aquí,
-# Bibata-Modern-Ice, de las releases de rtgiskard/bibata_cursor. No se
-# versiona: son 340 KB de binarios de terceros. Sin él no se rompe nada, el
-# plugin agranda el bitmap del XCursor y se ve algo más blando.
+# The zoom comes out SHARP if there is a hyprcursor (SVG) theme installed in
+# ~/.local/share/icons with the same name as your cursor theme -- here,
+# Bibata-Modern-Ice, from the rtgiskard/bibata_cursor releases. It is not
+# versioned: it is 340 KB of third-party binaries. Without it nothing breaks,
+# the plugin scales up the XCursor bitmap and it looks a bit softer.
+#
+# The notifications go through tr_() so they follow the rice's language (lang.sh
+# reads the same language.conf as hyprlock, so the lock screen and these
+# notifications cannot drift apart). If lang.sh were missing, the `||` leaves a
+# tr_ that returns the Spanish: never any extra text, and never a blank one.
+. "$HOME/.config/hypr/scripts/lang.sh" 2>/dev/null || tr_() { printf '%s' "$1"; }
+
 REPO="$HOME/.local/share/hypr-dynamic-cursors"
 SO="$REPO/out/dynamic-cursors.so"
 
@@ -27,11 +35,11 @@ cargar() { hyprctl plugin load "$SO" 2>&1; }
 cargado() { hyprctl plugin list 2>/dev/null | grep -q dynamic-cursors; }
 
 aplicar_config() {
-    # La config del plugin VIVE EN hyprland.lua (bloque pcall "Shake to
-    # find"), no aqui: cada reload resetea las opciones del plugin a defaults
-    # (mode=tilt), asi que tiene que reaplicarse en cada re-evaluacion del
-    # .lua. Este reload es el que hace efectivo ese bloque tras cargar el
-    # plugin (en el parseo del arranque las claves aun no existian).
+    # The plugin's config LIVES IN hyprland.lua (the pcall block "Shake to
+    # find"), not here: every reload resets the plugin's options to defaults
+    # (mode=tilt), so it has to be reapplied on every re-evaluation of the
+    # .lua. This reload is what makes that block take effect after loading the
+    # plugin (when the startup config was parsed the keys did not exist yet).
     hyprctl reload >/dev/null 2>&1
 }
 
@@ -42,7 +50,7 @@ pin_para_hyprland_vivo() {
     local pin
     pin=$(sed -n "s/.*\"$hl\", \"\([0-9a-f]\{40\}\)\".*/\1/p" "$REPO/hyprpm.toml" | head -1)
     if [ -z "$pin" ]; then
-        # El hyprpm.toml local aún no conoce esta versión: traer el de main.
+        # The local hyprpm.toml does not know this version yet: fetch main's.
         git -C "$REPO" fetch -q origin main 2>/dev/null &&
             git -C "$REPO" checkout -q origin/main -- hyprpm.toml 2>/dev/null
         pin=$(sed -n "s/.*\"$hl\", \"\([0-9a-f]\{40\}\)\".*/\1/p" "$REPO/hyprpm.toml" | head -1)
@@ -55,31 +63,31 @@ compilar() {
     pin=$(pin_para_hyprland_vivo) || return 1
     [ -n "$pin" ] || return 1
     git -C "$REPO" fetch -q origin "$pin" 2>/dev/null
-    # -f: descarta el parche local viejo antes de saltar de commit.
+    # -f: discards the old local patch before jumping to another commit.
     git -C "$REPO" checkout -q -f "$pin" 2>/dev/null || return 1
-    # El toml del pin no trae su propio pin (se añade después en main):
-    # dejarlo siempre al día para la próxima búsqueda.
+    # The pinned commit's toml does not carry its own pin (it is added later
+    # on main): always keep it up to date for the next lookup.
     git -C "$REPO" checkout -q origin/main -- hyprpm.toml 2>/dev/null || true
-    # Re-aplica el PARCHE local en highres.cpp: el zoom del shake debe
-    # cargar el tema SVG aunque cursor:enable_hyprcursor esté apagado
-    # (apagado a propósito: el cursor NORMAL es el XCursor de siempre).
-    # Si upstream cambia esa línea, el sed no casa y se compila SIN
-    # parche (zoom borroso pero funcional) — mejor que no compilar.
+    # Re-applies the local PATCH in highres.cpp: the shake zoom must load
+    # the SVG theme even with cursor:enable_hyprcursor turned off (off on
+    # purpose: the NORMAL cursor is the usual XCursor).
+    # If upstream changes that line, the sed does not match and it builds
+    # WITHOUT the patch (blurry but working zoom) — better than not building.
     sed -i 's/ || !\*PUSEHYPRCURSOR//' "$REPO/src/highres.cpp" 2>/dev/null || true
     make -s -C "$REPO" all >/dev/null 2>&1
 }
 
-# Recién clonado: packages/git-repos.txt trae el repo, pero no el .so, que hay
-# que compilar contra la versión de Hyprland de ESTA máquina. Solo pasa una vez.
+# Freshly cloned: packages/git-repos.txt brings the repo, but not the .so, which
+# has to be built against THIS machine's Hyprland version. It only happens once.
 if [ ! -f "$SO" ]; then
-    notify-send -u low "Shake to find" "Compilando dynamic-cursors por primera vez…" 2>/dev/null || true
+    notify-send -u low "Shake to find" "$(tr_ 'Compilando dynamic-cursors por primera vez…' 'Building dynamic-cursors for the first time…')" 2>/dev/null || true
     compilar || true
 fi
 
 salida=$(cargar)
 case "$salida" in
 *"version mismatch"*)
-    notify-send -u low "Shake to find" "Recompilando dynamic-cursors para este Hyprland…" 2>/dev/null || true
+    notify-send -u low "Shake to find" "$(tr_ 'Recompilando dynamic-cursors para este Hyprland…' 'Rebuilding dynamic-cursors for this Hyprland…')" 2>/dev/null || true
     compilar && salida=$(cargar)
     ;;
 esac
@@ -87,5 +95,5 @@ esac
 if cargado; then
     aplicar_config
 else
-    notify-send -u normal "Shake to find" "dynamic-cursors no pudo cargarse: ${salida:0:120}" 2>/dev/null || true
+    notify-send -u normal "Shake to find" "$(tr_ 'dynamic-cursors no pudo cargarse' 'dynamic-cursors could not load'): ${salida:0:120}" 2>/dev/null || true
 fi

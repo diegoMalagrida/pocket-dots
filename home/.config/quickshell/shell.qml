@@ -1,16 +1,17 @@
-// shell.qml — entrypoint. Instancia los componentes del sistema Quickshell.
-// El dashboard/Sidebar se retiró: su contenido vive en el centro de control
-// del notch (ControlPanel.qml). Super+N ahora cambia notch <-> isla.
+// shell.qml — entrypoint. Instantiates the components of the Quickshell system.
+// The dashboard/Sidebar was retired: its content lives in the notch's Control
+// Centre (ControlPanel.qml). Super+N now toggles notch <-> island.
 //
-// El Overview de pantalla completa TAMBIÉN se retiró (6-ago-2026): ahora es una
-// cara más del notch (OverviewPanel.qml), así que ya no es una ventana suelta y
-// no se instancia aquí. Su atajo, Super+Tab, no ha cambiado.
+// The full-screen Overview was ALSO retired (6 Aug 2026): it is now one more
+// face of the notch (OverviewPanel.qml), so it is no longer a separate window
+// and is not instantiated here. Its shortcut, Super+Tab, has not changed.
 import Quickshell
 
 Scope {
     id: root
-    TopShell {}     // barra + notch en una sola superficie (sustituye a waybar)
-    SettingsWindow {}   // app de Ajustes (ventana flotante, se lanza desde el notch)
+    TopShell {}     // bar + notch on a single surface (replaces waybar)
+    StageWindow {} // alternate visual workspace organiser
+    SettingsWindow {}   // Settings app (floating window, launched from the notch)
     MediaControls {}
     WallpaperPicker {}
 }

@@ -1,0 +1,51 @@
+# Restores power/control=on on the NVMe and its VMD tree, after TLP has run.
+# Written on 2026-09-14.
+#
+# WHY THIS IS NEEDED AND THE TLP CONFIGURATION IS NOT ENOUGH:
+# TLP has TWO chained bugs with the devices behind Intel's VMD, which live in
+# PCI domain 10000 and not in 0000:
+#
+#   1. In /usr/share/tlp/func.d/05-tlp-func-pm:88 it computes the address so:
+#          address=${device##/*/0000:}
+#      which trims the "/.../0000:" prefix. For a normal device
+#      (/sys/bus/pci/devices/0000:00:0e.0) it gives the short address
+#      "00:0e.0", which is what the manual documents. For one in domain 10000
+#      the pattern DOES NOT MATCH and it returns the WHOLE PATH:
+#      "/sys/bus/pci/devices/10000:e1:00.0".
+#      So neither RUNTIME_PM_DISABLE nor RUNTIME_PM_DENYLIST nor the per-driver
+#      denylist ever match the disk: TLP always applies the general value to it.
+#
+#   2. And it cannot be made up for by putting the whole path in the config,
+#      because TLP's validator (RE_PARAM in tlp-func-base:56) is
+#          ^[A-Z_]+[0-9]*=[][0-9a-zA-Z _.:-]*$
+#      which does NOT accept the slash "/". The line is dropped silently: it
+#      does not even show up in "tlp-stat -c".
+#
+# The two things together make it IMPOSSIBLE to exclude a VMD device from the
+# TLP configuration. Checked by hand all three times: set "on", run
+# "tlp start", and watch it go back to "auto".
+#
+# WHAT IT PREVENTS: on 14 Sep at 20:10 the laptop woke up fine from a 4 h 24 min
+# suspend and froze three seconds later; the journal stops dead, with no
+# shutdown and no panic, which is the signature of a disk that stops accepting
+# writes. The last message, 113 ms earlier, was TLP applying the power-saving
+# profile. The disk is a DRAM-less Samsung 980 behind the VMD, with a Host
+# Memory Buffer and a kernel quirk of its own ("D3 entry latency set to 8
+# seconds").
+[Unit]
+Description=Keep runtime PM off the NVMe and its VMD tree (TLP cannot exclude them)
+Documentation=file:///etc/tlp.d/99-nvme-antibloqueo.conf
+After=tlp.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+# The dash in front of each line: if a device does not exist (another SSD,
+# another machine), it carries on with the rest instead of failing the whole
+# unit.
+ExecStart=-/usr/bin/sh -c 'echo on > /sys/bus/pci/devices/10000:e1:00.0/power/control'
+ExecStart=-/usr/bin/sh -c 'echo on > /sys/bus/pci/devices/10000:e0:1c.4/power/control'
+ExecStart=-/usr/bin/sh -c 'echo on > /sys/bus/pci/devices/0000:00:0e.0/power/control'
+
+[Install]
+WantedBy=multi-user.target

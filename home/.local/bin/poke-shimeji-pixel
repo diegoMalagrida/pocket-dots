@@ -1,0 +1,2472 @@
+#!/usr/bin/env python3
+"""poke-shimeji-pixel — builds a shimeji out of YOUR pixel art sprites.
+
+The shimeji from shimejis.xyz are hand-drawn and clash with the rest of the
+desktop, which is all gen5 sprites. This takes the same animated sprite that
+pokefetch shows in the terminal (~/.cache/pokeanim/N.gif) and assembles it as a
+pet.
+
+    poke-shimeji-pixel pikachu        builds it, converts it and imports it
+    poke-shimeji-pixel 25 --escala 3  by number, forcing the upscale
+
+The BEHAVIOUR (walking, climbing, sitting, falling, being dragged by you) is not
+invented: it is reused from a shimeji that already works, kept in
+~/.local/share/shimejis/plantilla. Only its images are changed.
+
+The gen5 gifs do not carry "just the standing-still animation", as was believed
+here at first. Measuring the 1025 in ~/.cache/pokeanim: the median is 72
+hand-drawn frames, and they go up to 315 (#894 Regieleki). The flying ones OPEN
+AND CLOSE THEIR WINGS in there. Out of all that, ONE frame per pose was used and
+the rest thrown away, which is why the critter looked dead: standing, it was a
+still photo for ten seconds.
+
+The exception is EIGHT sprites that do not animate anything -- they are a png
+stuffed into a gif: the gen 9 paradoxes, Ogerpon and Pecharunt. For those there
+is no cycle to walk through, and a warning goes to the error output.
+
+Three different things are built now:
+
+  - the 46 POSTURES the format asks for, by deforming a frame (squash &
+    stretch), which is what worked and is kept: sitting, hanging from the
+    mouse, falling;
+  - the real animation BANKS -- breathing, moving and sitting-, which walk
+    through the gif's frames at the pace they were drawn at;
+  - and, for the ones that fly, a FLIGHT block that lifts them off the ground.
+
+On top of that each critter moves the way it should: fish jump, snakes
+undulate, the rest walk, and the stride comes from how big it is on screen.
+"""
+from __future__ import annotations
+import argparse, atexit, json, re, shutil, subprocess, sys, tempfile, zipfile
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+HOME = Path.home()
+DIR_GIF = HOME / ".cache" / "pokeanim"
+NOMBRES = HOME / ".cache" / "pokepalette" / "nombres.tsv"
+BASE = HOME / ".local" / "share" / "shimejis"
+PLANTILLA = BASE / "plantilla"
+CONV = BASE / "convertidos"
+# Which prototypes THIS script has built, and from which pokemon. It is needed
+# because the names clash: 'Shimeji.Charmander' may be the hand-drawn one
+# downloaded from shimejis.xyz or our pixel art one, and from outside they are
+# identical.
+REGISTRO = Path.home() / ".cache" / "pokepalette" / "shimejis-pixel.json"
+ALTO_OBJETIVO = 110   # FALLBACK: only used if the critter has no entry in the dex
+
+# ── THE SIZE COMES FROM THE CRITTER, NOT FROM THE DRAWING ────────────────────
+# This used to be one fixed height for all (110 px) and the scale was rounded to
+# an integer. The two together did the opposite of what they intended: since
+# integer rounding is a cliff one single pixel wide -- a sprite 73 px tall comes
+# out at 146 and one of 74 stays at 74 -- and big critters come drawn with more
+# pixels, they were precisely the ones that fell on the wrong side.
+# Measured over the 18 installed: the correlation between on-screen height and
+# real pokedex height was -0.078 (NEGATIVE), when the raw sprite's is +0.617.
+# So the information was in the drawing and the rounding destroyed it: Snorlax
+# was the SMALLEST critter on the desktop, Charizard came out smaller than
+# Charmander, and 46% of evolutions shrank the critter.
+#
+# Now the target comes from the pokedex entry, which is already on disk for all
+# 1025, and the scale goes in HALVES. With the new one: r = +0.883 and the
+# evolutions that shrink drop to 9%.
+DEX = HOME / ".cache" / "pokepalette" / "dex"
+ALTO_BASE = 100                  # how tall a "Pikachu"-sized critter comes out
+ALTO_MIN, ALTO_MAX = 64, 170     # floor and ceiling, in screen pixels
+TALLA_REF = 0.85                 # talla(0.4 m, 6 kg) = Pikachu = 1.0
+
+
+def talla(m: float, kg: float) -> float:
+    """A single 'length-like' number for the critter, from height AND weight.
+
+    With height alone, Rayquaza (7 m and slim) and Wailord (14.5 m) would cover
+    the screen, and Cosmoem (0.1 m and 999 kg) would be a speck. The sixth root
+    of weight is the cube root of a volume, that is, another length: mixing the
+    two, a long light critter does not gain as much and a short stocky one does
+    not lose as much.
+    """
+    return (max(m, 0.05) ** 0.5) * (max(kg, 0.05) ** (1 / 6))
+
+
+def alto_objetivo(num: int) -> int:
+    """How many pixels tall we want to SEE this pokemon.
+
+    The curve is a 0.35 power, very flattened on purpose: from Joltik (0.1 m) to
+    Wailord (14.5 m) there is a real factor of 145, and here it ends up at 2.7,
+    which is what fits on a desktop without one critter covering another.
+    """
+    try:
+        d = json.loads((DEX / f"{num}.json").read_text())
+        t = talla(float(d["m"]), float(d["kg"])) / TALLA_REF
+    except (OSError, ValueError, KeyError, TypeError):
+        return ALTO_OBJETIVO
+    return int(round(min(ALTO_MAX, max(ALTO_MIN, ALTO_BASE * t ** 0.35))))
+POSES = 46            # the ones the template references
+
+# THE ENGINE'S PACE. wl_shimeji advances one tick every 40 ms (usleep(40000) in
+# shimeji-overlay.c:391), that is 25 per second. Every Duration in the XML is
+# counted in ticks, so for the animation to run at the pace it was drawn at,
+# the gif's delays -which come in milliseconds- have to be converted to this
+# unit. Each one is not rounded on its own: the error is carried over, or a gif
+# at 100 ms per frame (2.5 ticks) would end up 20% too long or too short over
+# the whole cycle.
+TICK_MS = 40
+MAX_IDLE = 64         # cap on frames in the breathing cycle
+PASOS = 12            # frames in the walking cycle
+# The LEAST a standing-still cycle may last, in ticks (2.5 s). It is a floor,
+# not a target: of the 18 installed only Zapdos hits it, which did its own in
+# 0.88 s (see ritmo_minimo). The next fastest, Umbreon, is already at 3.48 and
+# is left alone.
+REPOSO_MIN = 62
+
+# WHAT EACH POSE IS, taken from reading the template's actions.xml and seeing
+# which image each action uses. Without this the 46 poses were gif frames
+# handed out in a cycle -- the critter glided along with its breathing
+# animation and you could tell it was not really walking.
+#
+# gen5 sprites only carry the standing-still animation, so movement is BUILT
+# here by deforming that frame: it is what any animator does with squash &
+# stretch. No rotating, which looks dirty in pixel art: it scales, shifts and
+# slants the rows (shear), which respect the pixel grid.
+#
+#   (dx, dy, fx, fy, shear[, patas])  on the base frame, anchored at the feet.
+#
+# The sixth field is optional and only the resting postures ask for it: how much
+# the LEGS are compressed relative to the body (1.00 = equally, which is how
+# everything was). Without it, sitting was a uniform scale and there was no
+# posture at all: see aplastar_por_franjas(), which explains what showed in
+# Umbreon and Machop.
+ZONA_PATAS = 0.62     # the legs start from here down (fraction of the height)
+POSE = {
+    1:  (0,  0, 1.00, 1.00,  0.00),   # Stand: the reference one
+    2:  (0, -3, 0.98, 1.02,  0.05),   # Walk, step A: rises and stretches
+    3:  (0, -1, 1.03, 0.97, -0.04),   # Walk, step B: drops and squashes
+    4:  (0,  0, 0.94, 1.08,  0.00),   # Falling: stretched through the air
+    5:  (2,  0, 1.00, 1.00,  0.10),   # Resisting: struggles to one side
+    6:  (-2, 0, 1.00, 1.00, -0.10),   # Resisting: and to the other
+    7:  (0, -2, 0.96, 1.05,  0.06),   # Pinched: hanging from the mouse
+    8:  (0, -2, 0.96, 1.05, -0.06),   # Pinched: swinging
+    9:  (0, -3, 0.95, 1.06,  0.09),   # Pinched
+    10: (0, -3, 0.95, 1.06, -0.09),   # Pinched
+    11: (0,  0, 1.06, 0.86,  0.00, 0.30),   # Sit: bottom on the floor
+    # The three WALL ones, which are no longer "just in case": the critter
+    # really grabs the edge (see PAREDES). They are anchored at the side, not at
+    # the feet (reanclar_por_borde), so the negative dx pulls it up to the wall
+    # and the NEGATIVE shear leans its body towards it -- on the right wall the
+    # engine mirrors the drawing and the lean flips to the other side by itself.
+    # 13 is the still grip (GrabWall); 12 and 14 are the climbing cycle, and
+    # they differ in how much it stretches, which is what reads as effort.
+    12: (-6,  0, 0.94, 1.06, -0.10),  # ClimbWall: a stroke
+    13: (-6, -2, 0.92, 1.08, -0.06),  # GrabWall: hanging, still
+    14: (-6,  0, 0.94, 1.06, -0.13),  # ClimbWall: the other stroke
+    15: (2,  0, 1.06, 0.86,  0.05, 0.30),   # SitAndSpinHead: sitting, looking
+    16: (0,  0, 1.06, 0.86,  0.00, 0.30),
+    17: (-2, 0, 1.06, 0.86, -0.05, 0.30),
+    # THE IMPACT. These three are the ones you see when you throw the critter,
+    # and they were overdone: a 112x84 frozen for eight ticks does not read as
+    # an impact, it reads as a broken sprite (diego: "se aplasta y esta raro",
+    # it squashes and looks odd, 13 Sep). The squash is still there -- without
+    # it, the landing has no weight -- but at half strength.
+    18: (0,  0, 1.06, 0.93,  0.00),   # Bouncing: the hit against the ground
+    19: (0, -3, 0.96, 1.05,  0.00),   # Bouncing: the bounce back up
+    20: (0,  0, 1.08, 0.90,  0.03, 0.35),   # Creep: crawling (and Tripping)
+    # Sprawl is the most lying-down posture there is and it was the one that
+    # showed least: on Lucario it is 126 px standing against 93 sprawled, that
+    # is, the same critter standing but shorter. With the legs at 0.18 the body
+    # really settles, and the shear -- which was at 0.00, with nothing to tilt
+    # the axis- leans the torso to one side, which is what tells "sprawled"
+    # apart from "crouched".
+    21: (0,  0, 1.12, 0.74,  0.12, 0.18),   # Sprawl: sprawled out
+    22: (0, -6, 0.92, 1.12,  0.00),   # Jumping: the jump
+    23: (0,  0, 0.96, 1.04,  0.00),   # ClimbCeiling (switched off)
+    24: (0,  0, 0.96, 1.04,  0.00),
+    25: (0,  0, 0.96, 1.04,  0.00),
+    26: (0, -1, 1.04, 0.88,  0.00, 0.30),   # SitAndLookAtMouse: looks at you
+    27: (2, -1, 1.04, 0.88,  0.06, 0.30),
+    28: (0, -1, 1.04, 0.88,  0.00, 0.30),
+    29: (-2,-1, 1.04, 0.88, -0.06, 0.30),
+    30: (0,  0, 1.05, 0.87,  0.00, 0.26),   # SitWithLegsUp: tucks them in more
+    # DANGLING legs do not bend as much as crossed ones: 0.55 is halfway
+    # between sitting (0.30) and standing (1.00), which is what a critter
+    # sitting on the edge with its feet hanging over does.
+    31: (0,  0, 1.04, 0.88,  0.00, 0.55),   # SitAndDangleLegs
+    32: (0, -1, 1.04, 0.89,  0.02, 0.55),   # ...swinging its legs
+    33: (0, -1, 1.04, 0.89, -0.02, 0.55),
+    34: (0, -2, 0.99, 1.01,  0.04),   # WalkWithIe (switched off)
+    35: (0, -1, 1.02, 0.98, -0.03),
+    36: (0,  0, 0.95, 1.06,  0.00),
+    37: (0, -3, 0.94, 1.07,  0.08),   # ThrowIe
+    38: (0, -2, 0.97, 1.04,  0.05),   # PullUpShimeji
+    39: (0, -3, 0.96, 1.05,  0.07),
+    40: (0, -4, 0.95, 1.06,  0.09),
+    41: (0, -5, 0.94, 1.07,  0.07),
+    42: (0,  0, 1.00, 1.00,  0.00),   # Divide (splitting: left alone)
+    43: (0,  0, 1.00, 1.00,  0.00),
+    44: (0,  0, 1.00, 1.00,  0.00),
+    45: (0,  0, 1.00, 1.00,  0.00),
+    46: (0,  0, 1.00, 1.00,  0.00),
+}
+
+# What makes the critter pay attention to you. In the template they come at
+# zero, so the pokemon ignored you: it walked, sat down and little else. With
+# this it follows you, sits down to watch you and turns its head when you come
+# close.
+INTERACCION = {
+    # ONE single way in. Frequency is a weight PER TRANSITION, not per time, so
+    # raising five behaviours at once did not give "more interaction": it gave a
+    # critter that kept changing its mind at every turn. The rest are entered
+    # through the <NextBehaviorList> chain, which is how the template is meant
+    # to work and which until now got lost in the conversion.
+    #
+    # 600 is NOT a random number: it is its weight against what it competes
+    # with. Standing on the ground, the eligible behaviours are the ones in the
+    # "ground" block (walking, running, sitting down on the way: 710) plus the
+    # posture ones (getting up, sitting down: 450). With the template's 100 it
+    # was picked 8% of the time -- a critter that pays attention one time in
+    # twelve and ignores you the rest. With 600 it comes out a third: it attends
+    # to you often and still has a life of its own. If one day you want it
+    # clingier, the useful ceiling is ~1200 (half of the time).
+    "ChaseMouse": 600,
+    # Splitting (a clone of the pokemon). Until now it NEVER actually happened:
+    # its action was discarded because of the disorder in actions.xml, so it was
+    # dead code. Fixing the order would make it really happen, and a second
+    # leader appearing on its own on the desktop reads as a bug, not as a joke
+    # -- besides, the team has ONE leader out for a walk. It is switched off on
+    # purpose: to get it back, just remove this line.
+    "SplitIntoTwo": 0,
+}
+
+# The weights INSIDE a chain, which is a different thing from the ones above:
+# here nothing competes with the rest of the world, it decides how long a
+# moment lasts.
+CADENAS = {
+    # THE WELL. After chasing you, the critter sits down to watch you
+    # (SitAndFaceMouse) and that behaviour chains INTO ITSELF with weight 100
+    # against 1 and 1: it exits 1% of the time, that is, about a hundred
+    # repetitions on average. Each repetition is nine stretches of watching and
+    # turning its head, so it stayed sitting without moving for MORE THAN TEN
+    # MINUTES. Seen from outside that is not "it is watching you": it is a hung
+    # critter, and it is half of what looked like broken interaction.
+    #
+    # With 30 out of 100 on the way out it keeps watching about three times, a
+    # good half minute, and then gets up and goes about its business.
+    "SitAndFaceMouse": {
+        "SitAndFaceMouse": 60,        # keep watching
+        "SitAndSpinHead": 10,         # turns its head (and watches again)
+        "SitWhileDanglingLegs": 30,   # the ONLY one back to the root list
+    },
+}
+
+# ── THE EDGES: WALLS YES, CEILING NO ─────────────────────────────────────────
+# All of this was switched off, and it had its reason: Hyprland does not clip
+# the subsurfaces that stick out of the layer, it DEFORMS them to cram them in
+# (hyprwm/Hyprland#9117, closed as "not planned"; live thread #10515), so the
+# critter got squashed right at the edge. Not any more: wl_shimeji clips on the
+# client side with wp_viewport (package pkgrel 3) and Hyprland carries the
+# stale-box fix (0.56.2-3.2), so the edge is reached in one piece.
+#
+# But without grips something else ugly remained, which is what diego reported
+# again on 13 Sep ("lo lanzo hacia los lados y se aplasta", I throw it sideways
+# and it gets squashed): on hitting a side the critter kept FALLING stuck to the
+# edge with the Falling pose, anchored at the centre, that is, half its width
+# off screen for the whole fall, and then it stayed there standing, cut in half
+# by the vertical, until another behaviour came up. Measured on video: ~5 s
+# half off.
+#
+# With the grip switched on, on touching the wall it sticks with GrabWall, which
+# reanclar_por_borde() anchors at the SIDE (0, ground): the whole drawing falls
+# INSIDE the screen. It also climbs a bit and jumps off the wall, which was what
+# diego was asking for ("igual si haces que pueda trepar", maybe if you make it
+# able to climb).
+PAREDES = {
+    # REACTIVE: what it can do when it is ALREADY on the wall. There they only
+    # compete with one another, so they keep the template's weights: holding
+    # on twice as much as letting go, and climbing as much as holding on.
+    "HoldOntoWall": 100,
+    "FallFromWall": 50,
+    "ClimbHalfwayAlongWall": 100,
+    "JumpFromLeftWall": 50,
+    "JumpFromRightWall": 50,
+    # GOING TO LOOK FOR the wall from the ground. The template sets these four
+    # at 100 each and they compete against the 710 of the ground block (walking,
+    # running, sitting): 400 out of 1110 is a critter that spends half its life
+    # in the corners. At 25 it comes up one transition in eleven -- it sidles up
+    # to the edge now and then, which is fun, but it still lives in the middle.
+    "GrabWorkAreaBottomLeftWall": 25,
+    "GrabWorkAreaBottomRightWall": 25,
+    "WalkAndGrabBottomLeftWall": 25,
+    "WalkAndGrabBottomRightWall": 25,
+}
+
+# The ceiling stays out, and not because of a technical fault: the layer's
+# "ceiling" is y=0, that is, the notch strip. A pokemon hanging from the bar
+# gets into the chrome, which is exactly what diego does not want there.
+# ClimbAlongWall is on this list even though it starts on the wall because it
+# ENDS up top: it climbs the whole side and carries on along the ceiling. With
+# --trepar all four are switched on.
+TECHO = (
+    "ClimbAlongWall", "ClimbAlongCeiling",
+    "HoldOntoCeiling", "FallFromCeiling",
+)
+
+# ── WHO FLIES ─────────────────────────────────────────────────────────────────
+# The flying type comes from ~/.cache/pokepalette/tipos.json, which is already
+# downloaded. But the type does not tell the whole story: Gengar is ghost and
+# levitates, Bronzong is steel and does too. Those go by hand, because the
+# Levitate ability is not in the types file and is not worth 1025 more requests
+# just for this.
+#
+# It was checked by looking at the sprites themselves: the ones that levitate
+# rise and fall on their own inside the gif (Gengar travels 12 px), so when they
+# are set to fly the animation already goes along with it.
+LEVITAN = {
+    92, 93, 94,        # Gastly, Haunter, Gengar
+    109, 110,          # Koffing, Weezing
+    200, 429,          # Misdreavus, Mismagius
+    201,               # Unown
+    329, 330,          # Vibrava, Flygon
+    337, 338,          # Lunatone, Solrock
+    343, 344,          # Baltoy, Claydol
+    355, 356,          # Duskull, Dusclops
+    358, 433,          # Chimecho, Chingling
+    380, 381,          # Latias, Latios
+    385, 386,          # Jirachi, Deoxys
+    436, 437,          # Bronzor, Bronzong
+    455,               # Carnivine
+    479,               # Rotom
+    480, 481, 482,     # Uxie, Mesprit, Azelf
+    487, 488,          # Giratina, Cresselia
+    602, 603, 604,     # Tynamo, Eelektrik, Eelektross
+    615,               # Cryogonal
+    635,               # Hydreigon
+    789, 790, 792,     # Cosmog, Cosmoem, Lunala
+    # 791 (Solgaleo) NO: it is a four-legged lion that walks on the ground. It
+    # was here by mistake and Lunala, which is the one with no legs, was left
+    # out.
+    #
+    # NO file can know about these TWO, and they are the ones that looked worst:
+    151,               # Mew. It is neither flying nor has Levitate -- it is
+                       # pure psychic with Synchronize-, so it came out with
+                       # the "anda" cycle: a Mew taking steps, with its tail
+                       # in the air and no feet to stand on. It meets the same
+                       # criterion that put Gengar here: in its gif the drawing
+                       # rises and falls 15 px, more than Gengar's 12 (measured
+                       # on the top edge of the crop, all 61 frames).
+    1025,              # Pecharunt. A mochi ball with chains: it has no legs,
+                       # and its ability is Poison Puppeteer, which does not
+                       # give it away either. Besides, its gif is ONE single
+                       # frame, so the "anda" cycle was pure deformation: it
+                       # rose 3 px and leaned as if taking a stride.
+}
+
+# ── THE ONES THAT DO NOT WALK ─────────────────────────────────────────────────
+# A Magikarp taking steps is ridiculous, and with the POSE table above that is
+# exactly what it did: the walking cycle suits a critter with legs and here
+# there are fish, snakes and things that do not even touch the ground.
+#
+# There is no way to tell from the sprite -- I tried with the drawing's
+# proportions and it separates nothing: Magikarp measures 47x64, taller than
+# wide, because it is drawn mid tail-flick. So it goes by hand, and the list is
+# SHORT on purpose: it has the cases that jar, and extending it means adding a
+# number.
+#
+# JUMPERS: the ones that move in bursts, with no step. The walking cycle is
+# swapped for a jumping one -- it crouches, pushes off, lands and squashes.
+SALTAN = {
+    129, 130,          # Magikarp, Gyarados
+    118, 119,          # Goldeen, Seaking
+    116, 117, 230,     # Horsea, Seadra, Kingdra
+    349, 350,          # Feebas, Milotic
+    318, 319,          # Carvanha, Sharpedo
+    320, 321,          # Wailmer, Wailord
+    339, 340,          # Barboach, Whiscash
+    369, 370,          # Relicanth, Luvdisc
+    456, 457,          # Finneon, Lumineon
+    550, 594,          # Basculin, Alomomola
+    170, 171,          # Chinchou, Lanturn
+    211, 223, 224,     # Qwilfish, Remoraid, Octillery
+    366, 367, 368,     # Clamperl, Huntail, Gorebyss
+    746, 779,          # Wishiwashi, Bruxish
+    846, 847,          # Arrokuda, Barraskewda
+    98, 99,            # Krabby, Kingler (they walk sideways; jumping suits them)
+}
+
+# CRAWLERS: the ones with no legs but with ground. They undulate sideways
+# instead of taking steps, and they do not lift off the ground when moving.
+REPTAN = {
+    23, 24,            # Ekans, Arbok
+    95, 208,           # Onix, Steelix
+    147, 148,          # Dratini, Dragonair
+    206, 336,          # Dunsparce, Seviper
+    843, 844,          # Silicobra, Sandaconda
+    497,               # Serperior: it coils up and has not one single leg.
+                       # Snivy (495) and Servine (496) NO, and this has been
+                       # re-checked frame by frame because the earlier comment
+                       # only talked about one: BOTH have two hind legs with
+                       # toes, drawn and visible throughout the gif (114 and 113
+                       # frames), and little arms crossed over the chest as
+                       # well. They walk upright; the legs are lost on evolving
+                       # into Serperior.
+    # Eelektrik (603) is not one either: it is in LEVITAN, which is where its
+    # ability and its sprite put it. A number in both tables is a bug, not a
+    # nuance -- see the check further down.
+}
+
+# THE ONES WITH FLYING TYPE THAT DO NOT TAKE OFF. The rule "flying type => it
+# flies" is handy and almost always right, but it lets in the running birds:
+# Doduo and Dodrio have no wings, and of Archen the pokedex itself says it could
+# not fly and hopped from branch to branch.
+NO_VUELAN = {
+    84, 85,            # Doduo, Dodrio
+    566, 567,          # Archen, Archeops
+    973,               # Flamigo
+}
+
+# ── WHO STANDS ON THE GROUND WHEN NOT FLYING ─────────────────────────────────
+# Flying and not standing on the ground are TWO DIFFERENT THINGS, and here they
+# were decided with the same boolean: if the critter took off, it was also given
+# the "flota" cycle for the time it spends on the ground -- which is most of the
+# time, because flying is one behaviour among many. Result: Charizard and Zapdos
+# crossed the screen at 100 px/s with their feet a finger's breadth off the
+# ground, with the gap visible underneath along the whole strip. That does not
+# read as flying: it reads as a badly placed sprite. And it was not two odd
+# cases: it took out every bird with legs in the pokedex.
+#
+# THE CRITERION is anatomical, not about the pose, and it was reviewed sprite by
+# sprite: the 109 of flying type, on contact sheets resting on the ground line.
+# In goes whoever has LEGS under the body -- the ones it uses to perch-, even if
+# its sprite is drawn in full flight. Out goes whoever reaches the bottom edge
+# of the drawing with wings, tail, a round body or a cloud: Zubat, Golbat,
+# Butterfree, the Hoppip line, Drifloon, Sigilyph, Mantine, Gligar, Woobat,
+# Swablu and Altaria (they are a cloud), Vivillon, Minior, Rayquaza (it is a
+# snake).
+#
+# That is 73 of the 109 flyers. A couple of warnings for whoever comes next:
+#   - 468 (Togekiss) and the four genies in Incarnate form -- 641 Tornadus,
+#     642 Thundurus, 645 Landorus and 905 Enamorus- look like candidates and
+#     are NOT: enlarged, the genies are a torso and a CLOUD from the waist down,
+#     and Togekiss is a body with wings without a single leg drawn. Those really
+#     float.
+#   - 84 and 85 (Doduo, Dodrio), 566 and 567 (Archen, Archeops) and 973
+#     (Flamigo) are also in NO_VUELAN. They are not redundant here: NO_VUELAN
+#     switches off the take-off and this table decides the ground cycle. If one
+#     day they are allowed to fly, the answer to "and meanwhile, what does it
+#     do" is already written.
+PISAN = {
+    6,                            # Charizard
+    16, 17, 18,                   # Pidgey, Pidgeotto, Pidgeot
+    21, 22,                       # Spearow, Fearow
+    83,                           # Farfetch'd
+    84, 85,                       # Doduo, Dodrio
+    123,                          # Scyther
+    142,                          # Aerodactyl
+    144, 145, 146,                # Articuno, Zapdos, Moltres
+    149,                          # Dragonite
+    163, 164,                     # Hoothoot, Noctowl
+    165, 166,                     # Ledyba, Ledian
+    169,                          # Crobat: four wings, but its two little hind
+                                  # legs hang underneath and it perches
+    176,                          # Togetic
+    177, 178,                     # Natu, Xatu
+    198,                          # Murkrow
+    225,                          # Delibird
+    227,                          # Skarmory
+    249, 250,                     # Lugia, Ho-Oh
+    276, 277,                     # Taillow, Swellow
+    278, 279,                     # Wingull, Pelipper
+    357,                          # Tropius (four legs)
+    373,                          # Salamence (four legs)
+    396, 397, 398,                # Starly, Staravia, Staraptor
+    430,                          # Honchkrow
+    441,                          # Chatot
+    519, 520, 521,                # Pidove, Tranquill, Unfezant
+    566, 567,                     # Archen, Archeops
+    580, 581,                     # Ducklett, Swanna
+    587,                          # Emolga (a squirrel: it glides, but walks)
+    627, 628,                     # Rufflet, Braviary
+    629, 630,                     # Vullaby, Mandibuzz
+    661, 662, 663,                # Fletchling, Fletchinder, Talonflame
+    701,                          # Hawlucha (fights standing up)
+    715,                          # Noivern. Noibat (714) NO: it is a ball with
+                                  # wings, it has nothing to stand on
+    717,                          # Yveltal
+    722, 723,                     # Rowlet, Dartrix
+    731, 732, 733,                # Pikipek, Trumbeak, Toucannon
+    741,                          # Oricorio (dances standing up)
+    797,                          # Celesteela (two bamboo legs)
+    821, 822, 823,                # Rookidee, Corvisquire, Corviknight
+    845,                          # Cramorant
+    931,                          # Squawkabilly
+    940, 941,                     # Wattrel, Kilowattrel
+    962,                          # Bombirdier
+    973,                          # Flamigo
+}
+
+# One table cannot contradict another: if a number is in two places, the
+# critter comes out with two different behaviours depending on who asks.
+assert not (SALTAN & REPTAN), tr("un pokemon no puede saltar y reptar", "A Pokémon cannot both jump and crawl")
+assert not (LEVITAN & REPTAN), tr("un pokemon no puede levitar y reptar",
+                                  "A Pokémon cannot both levitate and crawl")
+assert not (LEVITAN & SALTAN), tr("un pokemon no puede levitar y saltar",
+                                  "A Pokémon cannot both levitate and jump")
+# And this is the one that matters now that there are two tables for two
+# decisions: if a number were in LEVITAN and in PISAN at once, it would be given
+# flight for having no legs and the walking cycle for having them.
+assert not (LEVITAN & PISAN), tr("un pokemon no puede levitar y pisar",
+                                 "A Pokémon cannot both levitate and walk")
+assert not (SALTAN & PISAN), tr("un pokemon no puede saltar y pisar", "A Pokémon cannot both jump and walk")
+assert not (REPTAN & PISAN), tr("un pokemon no puede reptar y pisar", "A Pokémon cannot both crawl and walk")
+
+# The phases of the moving cycle, in the same format as the POSE table:
+# (dx, dy, escalaX, escalaY, inclinacion). Four phases per cycle.
+FASES = {
+    # The usual step: rises and stretches, drops and squashes.
+    "anda":   [(0, 0, 1.00, 1.00, 0.00), (0, -3, 0.98, 1.02, 0.05),
+               (0, 0, 1.00, 1.00, 0.00), (0, -1, 1.03, 0.97, -0.04)],
+    # Crouch, push-off, flight and squashed landing. The amplitude is twice
+    # that of the step because a jump you do not notice is not a jump.
+    "salta":  [(0, 0, 1.10, 0.86, 0.00), (0, -9, 0.92, 1.12, 0.00),
+               (0, -5, 0.96, 1.06, 0.00), (0, 0, 1.14, 0.82, 0.00)],
+    # Undulate: it stays stuck to the ground and what moves is the body from
+    # side to side. No rising, which is what gives away a "walking" snake.
+    "repta":  [(0, 0, 1.04, 0.96, 0.07), (0, 0, 1.00, 0.99, 0.00),
+               (0, 0, 1.04, 0.96, -0.07), (0, 0, 1.00, 0.99, 0.00)],
+    # Float: the ones that fly or levitate spend most of their time ON THE
+    # GROUND, because flying is one behaviour among many. With the walking cycle
+    # they took steps, which is exactly what they do not do. Here there is no
+    # step: the whole body rises and falls and never squashes -- nothing touches
+    # the ground.
+    "flota":  [(0, -2, 1.00, 1.00, 0.00), (0, -5, 0.99, 1.01, 0.00),
+               (0, -7, 1.00, 1.00, 0.00), (0, -5, 1.01, 0.99, 0.00)],
+}
+
+
+def locomocion(num: int, vuela: bool) -> str:
+    """Which cycle it moves along the ground with. It does NOT decide whether it
+    takes off: that is vuela.
+
+    The two questions -- "does it take off?" and "when it does not, does it
+    stand on the ground?"- were settled with the same boolean, and they are not
+    the same. Flying is one behaviour among many: eight times out of nine the
+    critter is on the ground, and what it does there is what shows most. A
+    Pidgeot gliding along with its talons in the air the whole time reads worse
+    than one that walks and takes to the air now and then.
+    """
+    if num in SALTAN:
+        return "salta"
+    if num in REPTAN:
+        return "repta"
+    if vuela and num not in PISAN:
+        return "flota"
+    return "anda"
+
+
+def zancada(num: int, alto_px: int) -> int:
+    """How many pixels it advances per tick: how FAST the critter is, not how big.
+
+    They all went at -2 px per tick however they came, so a Joltik crossed the
+    screen at the same pace as a Wailord. The fix back then took it from how tall
+    the sprite was DRAWN in the gif, and that is neither its size nor its speed:
+    it is how many pixels Game Freak gave it. Measured over the 18 installed it
+    came out exactly the reverse of what the entry says -- Snorlax (Speed 30,
+    460 kg) crossed at 75 px/s and Pikachu (Speed 90) at 50-, and against the
+    pokedex's base Speed the correlation over the 1025 was +0.353: next to
+    nothing.
+
+    The good data was already on disk: base Speed is stats[5], the last of the
+    entry's six. The ON-SCREEN height goes in too, but square-rooted: at the same
+    pixels per tick a big critter looks slower because it covers fewer body
+    lengths per second, and the root compensates for that without size eating
+    up speed. With this r = +0.922 over the 1025, and Snorlax stays at 25 px/s
+    against Pikachu's 50.
+
+    The height passed in is the already-scaled BODY's (alto_f), not the canvas:
+    the canvas is the box that wraps the 130 poses -- sprawled, legs in the air,
+    the jump's squash- and it measures between 3% and 20% more depending on
+    which postures it gets, which is noise from the POSE table and not from the
+    critter.
+    """
+    try:
+        vel = json.loads((DEX / f"{num}.json").read_text())["stats"][5]
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        vel = 70          # the pokedex average, for whoever has no entry
+    return max(1, min(5, round(2.0 * (vel / 70.0) * (alto_px / 110.0) ** 0.5)))
+
+
+# How much flying weighs against everything else. Standing on the ground in the
+# middle of the screen, the eligible ones add up to 1810 points: the ground
+# block (810, counting JumpFromBottomOfIE and PullUpShimeji and with the
+# climbing ones already switched off), the two posture ones (200+200) and
+# chasing the mouse (600).
+#
+# IT STARTED AT 250 and was raised after MEASURING IT. Recording a whole minute
+# of the leader on the desktop it did not fly once: it spent it sitting and
+# watching the mouse.
+#
+# AND HERE THE COMMENT WAS LYING. It said "con 500 sale el 23%" (with 500 it
+# comes out 23%) and below it said 350, which over those 1810 is 16.2% -- the
+# comment's number came from an old count with 1710 points and on top of that
+# from a value that was not the one written. Counted over the real tree:
+# 350 -> 16.2%, 500 -> 21.6%. It is raised to 500, which is what the reasoning
+# itself asked for, and the percentage noted is the measured one, not the
+# remembered one.
+#
+# Careful reading this 21.6% as "one flight every so many minutes": since the
+# postures last 250..750 ticks instead of 500..1500 (see main), the critter
+# decides almost twice as many times per minute, so in wall-clock time it flies
+# more often even though the weight was not touched. And CARACTER moves the
+# denominator per critter: each one's real share comes from its nerve and its
+# laziness.
+VUELO_FRECUENCIA = 500
+
+
+# ── EACH CRITTER'S CHARACTER ─────────────────────────────────────────────────
+# The 18 installed prototypes had EXACTLY the same behaviour table. The only
+# difference between Snorlax and Pikachu was DarUnVuelo in the four that fly:
+# both chased the mouse with the same 33.1% and sat down with the same 11.0%.
+# The team has a nature per critter -- the pokedex entry is on disk for all
+# 1025- and none of that reached the desktop.
+#
+# Two numbers, and they come from the entry so as not to write 1025 lines by
+# hand:
+#
+#   nervio  = how much it chases you and how much it walks. It comes from
+#             SPEED, which is literally "how much it moves" on the only scale
+#             the game defines. Median 65, p10 30, p90 105.
+#   pereza  = how much it stays put. It comes from WEIGHT, which is what it
+#             costs it to get up. Median 28 kg, from 0.1 to 999.
+#
+# Both curves are heavily flattened (square root and a 0.18 power) and bounded,
+# because what is wanted is that the difference SHOWS, not that Shuckle never
+# moves: the worst case still has half the urge to walk, never none.
+#
+# MEASURED over the behaviour tree, with the two that gave the problem its
+# name: Pikachu comes out at 1.13/0.71 from the entry and Snorlax at 0.50/1.80
+# from the table below. Chasing the mouse goes from 33.1% in BOTH to 36.8% in
+# Pikachu and 16.3% in Snorlax, and lying down to 2.3% against 5.9%. It is still
+# the same template: the only thing that changes is six numbers.
+#
+# NO CRITTER IS LEFT WITHOUT GROUND BEHAVIOURS, and not by luck: the curve is
+# bounded below at 0.5 and the hand-written table does not go under 0.30, so of
+# the 100 points of walking and running the lowest that comes out is 30
+# (Komala). The other 610 in the ground block are not even scaled. A zero there
+# would leave the critter nailed to the spot, which is worse than any lack of
+# character.
+CARACTER = {
+    # What the entry does NOT know, which is the ones speed describes backwards.
+    # The list is short on purpose: a long hand-written table is a table nobody
+    # maintains, and the rule above gets the rest right.
+    63:  (0.35, 1.7),   # Abra: sleeps 18 hours a day and has Speed 90
+    289: (0.40, 1.8),   # Slaking: the laziest pokemon in the game, Speed 100
+    775: (0.30, 1.8),   # Komala: never wakes up, not even when walking
+    143: (0.50, 1.8),   # Snorlax: its weight already makes it lazy, but it
+                        # also eats and sleeps; it has no reason to go after
+                        # the mouse
+}
+
+
+def caracter(num: int) -> tuple[float, float]:
+    """(nervio, pereza) of this pokemon. See the comment on CARACTER."""
+    if num in CARACTER:
+        return CARACTER[num]
+    try:
+        d = json.loads((DEX / f"{num}.json").read_text())
+        vel, kg = float(d["stats"][5]), float(d["kg"])
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        return 1.0, 1.0      # no entry, the usual one: nothing changes
+    nervio = min(1.6, max(0.5, (max(vel, 1) / 70) ** 0.5))
+    pereza = min(1.8, max(0.6, (max(kg, 0.1) / 40) ** 0.18))
+    return round(nervio, 2), round(pereza, 2)
+
+
+def resolver(txt: str) -> tuple[int, str]:
+    mapa = {}
+    if NOMBRES.exists():
+        for linea in NOMBRES.read_text().splitlines():
+            num, _, nom = linea.partition("\t")
+            if num.isdigit() and nom:
+                mapa[int(num)] = nom
+    txt = txt.strip().lower()
+    if txt.isdigit():
+        n = int(txt)
+        return n, mapa.get(n, str(n))
+    porn = {v: k for k, v in mapa.items()}
+    if txt in porn:
+        return porn[txt], txt
+    cand = sorted(n for n in porn if n.startswith(txt))
+    if len(cand) == 1:
+        return porn[cand[0]], cand[0]
+    if cand:
+        raise SystemExit(tr(f"'{txt}' es ambiguo: {', '.join(cand[:10])}",
+                            f"'{txt}' is ambiguous: {', '.join(cand[:10])}"))
+    raise SystemExit(tr(f"no conozco a '{txt}'", f"Unknown Pokémon '{txt}'"))
+
+
+def vuela_este(num: int) -> bool:
+    """Whether this pokemon gets to fly.
+
+    The type rules -- what is already downloaded in tipos.json- and the LEVITAN
+    table covers the ones that are not flyers but do not stand on the ground
+    either. If the types file is not there, nothing is invented: it does not
+    fly, which is how it used to be.
+
+    The dex's Levitate ability goes in as a COMPLEMENT, not as a substitute, and
+    it is worth writing down why: of the 32 that have it today, 31 were already
+    in LEVITAN and the only one it adds is Vikavolt (738), which was missing. The
+    other way round the count comes out terribly -- EIGHT of the ones in the
+    table lost Levitate through rule changes (Gengar, Dusclops, Jirachi, Deoxys,
+    Giratina, Cosmog, Cosmoem and Lunala) and still levitate in the sprite,
+    which is the only thing you see on screen. And there are things the entry
+    cannot say: Pecharunt has Poison Puppeteer and Mew is pure psychic, and both
+    float. That is why the table rules and the ability only adds.
+    """
+    if num in NO_VUELAN:
+        return False
+    tipos = Path.home() / ".cache" / "pokepalette" / "tipos.json"
+    try:
+        datos = json.loads(tipos.read_text())
+        if "flying" in datos.get("pokemon", {}).get(str(num), []):
+            return True
+    except (OSError, ValueError):
+        pass
+    if num in LEVITAN:
+        return True
+    try:
+        ficha = json.loads((DEX / f"{num}.json").read_text())
+        return any(h.get("clave") == "levitate" for h in ficha.get("habilidades", []))
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def con_margen(x: str, mx: int, my: int) -> str:
+    """Puts a SEATBELT on the XML's targets and limits.
+
+    The root problem: there are actions whose target is literally the edge
+    (TargetX="#{mascot.environment.workArea.left}"). The sprite's anchor is at
+    the FEET, that is, at its bottom-centre, so on getting there the drawing
+    sticks out half its width at the side and a whole height at the top. And a
+    subsurface that goes off screen is exactly what Hyprland clips badly
+    (hyprwm/Hyprland#9117, closed as 'not planned').
+
+    The solution is not to touch Hyprland or to crop images: it is that the
+    critter does NOT GO all the way to the edge. Each limit gets the margin its
+    own drawing takes up added to it, and since everything is expressed in
+    terms of workArea -which wl_shimeji computes per screen-, this holds for any
+    resolution, any scale and any number of monitors. The numbers the XML
+    already had (64, 100, 128...) are kept if they are already larger than the
+    margin.
+    """
+
+    W = "mascot.environment.workArea."
+    # 1. the bare limit: it gets its margin
+    x = x.replace(W + "left}", f"{W}left+{mx}}}")
+    x = x.replace(W + "right}", f"{W}right-{mx}}}")
+    x = x.replace(W + "top}", f"{W}top+{my}}}")
+    # 2. the limit with a number already set: the larger of the two wins
+    x = re.sub(re.escape(W) + r"left\+(\d+)",
+               lambda m: f"{W}left+{max(int(m.group(1)), mx)}", x)
+    x = re.sub(re.escape(W) + r"right-(\d+)",
+               lambda m: f"{W}right-{max(int(m.group(1)), mx)}", x)
+    x = re.sub(re.escape(W) + r"top\+(\d+)",
+               lambda m: f"{W}top+{max(int(m.group(1)), my)}", x)
+    # 3. the side-to-side runs: BOTH margins have to be subtracted
+    x = re.sub(re.escape(W) + r"width-(\d+)",
+               lambda m: f"{W}width-{max(int(m.group(1)), mx * 2)}", x)
+    # 4. THE MOUSE IS A TARGET TOO. It is little use not going to the edge on
+    #    your own if you then chase a cursor that is stuck to it: the chase
+    #    behaviour uses cursor.x as a direct target. It gets the same seatbelt,
+    #    clamped inside the usable area.
+    #
+    #    BUT ONLY WHERE IT IS A TARGET. Of the twenty-two times cursor.x appears
+    #    in the template, only six are targets; the other sixteen are
+    #    COMPARISONS -- "is the mouse to my right?"- and there the seatbelt lies:
+    #    with the mouse stuck to the left edge, the comparison ends up being
+    #    against the limit instead of against the mouse, and the critter
+    #    concludes you are to its right and TURNS AROUND. So it turns its back on
+    #    you just as you approach the edge, which is the opposite of what was
+    #    wanted. That is why the substitution is restricted to the target
+    #    attributes.
+    sujeto = (f"Math.min(Math.max(mascot.environment.cursor.x,"
+              f"{W}left+{mx}),{W}right-{mx})")
+
+    def _en_destino(m):
+        return m.group(1) + m.group(2).replace("mascot.environment.cursor.x", sujeto) + m.group(3)
+
+    x = re.sub(r'((?:TargetX|Gap)=")([^"]*)(")', _en_destino, x)
+    return x
+
+
+def reanclar_por_borde(x: str, lienzo_w: int, suelo: int, izquierdas=None) -> str:
+    """Gives each pose the anchor ITS EDGE ASKS FOR, not a single one for all.
+
+    How the engine places each sprite (environment.c:3304-3321, and the parser
+    NEGATES the anchor on load, mascot_config_parser.c:1129):
+
+        corner = mascot_point - ImageAnchor           (mirrored if it faces
+        right: corner_x = point_x - width + ImageAnchor_x)
+
+    So the anchor is THE POINT OF THE DRAWING THAT RESTS ON THE EDGE. With a
+    single anchor at the feet (bottom-centre), the ground poses work fine, but:
+
+      - on the CEILING the whole drawing ends up ABOVE the line. And the
+        ceiling here is the edge of the notch's bar: the overlay does not cover
+        the exclusive zone (measured: layer 0,32 1920x1048 with the 32 px bar),
+        so "above the ceiling" is OUTSIDE the parent surface, which is exactly
+        what Hyprland clips badly (hyprwm/Hyprland#9117; the live thread is
+        #10515). You saw the critter stuck in the bar and guillotined.
+      - on the WALL it sticks out half its width past the edge of the screen,
+        with the same broken clipping. Measured on the test throw: 54 of 108 px
+        outside during 4 seconds of grip and the whole fall after it.
+
+    Anchors per edge type, with the formula above in front of you:
+
+      - ceiling -> top-CENTRE (w/2, 0): the drawing hangs below the line.
+      - wall    -> (left edge of the DRAWING, ground): stuck to the edge on the
+        INSIDE. A single value works for both walls because the engine mirrors
+        the anchor along with the drawing -- with the sprite flipped, the point
+        touching the right wall comes out at point_x + anchor_x - left, so
+        putting the anchor at the left of the drawing fits both-, and the fall
+        always ends FACING the wall it touches (fall.c:134,
+        looking_right = velocity_x > 0).
+      - the rest -> the feet, as always.
+
+    THE LEFT EDGE THING IS NOT A DETAIL. The wall anchor used to be a fixed 0,
+    that is, the edge of the CANVAS, which is shared by all 46 poses and is
+    therefore stretched by the widest frame of all. In Gengar the canvas is
+    widened on the left by its sideways hop, so shime13 -- the gripping pose-
+    starts at x=22: the critter stayed gripping 22 px away from the wall,
+    floating. Machop and Lucario start at x=6 and that is why it did not show
+    on them. With the anchor on EACH pose's box, whatever touches the wall
+    really touches it.
+
+    First everything is overwritten with the ground anchor (including the "0,0"
+    the flight poses come with: con_margen already adds their margin) and then
+    the <Action> blocks with a ceiling or wall BorderType are corrected. Those
+    four blocks (Grab/Climb of Ceiling and Wall) do not nest actions, so the .*?
+    does not swallow too much.
+    """
+    izquierdas = izquierdas or {}
+    x = re.sub(r'ImageAnchor="[^"]*"', f'ImageAnchor="{lienzo_w//2},{suelo}"', x)
+
+    def _pared(pose: str) -> str:
+        # each <Pose> is anchored at the left of ITS image, not the canvas's
+        img = re.search(r'Image="/?([^"]+)"', pose)
+        izq = izquierdas.get(img.group(1), 0) if img else 0
+        return re.sub(r'ImageAnchor="[^"]*"', f'ImageAnchor="{izq},{suelo}"', pose)
+
+    for borde, arreglo in (("Ceiling", lambda p: re.sub(
+            r'ImageAnchor="[^"]*"', f'ImageAnchor="{lienzo_w//2},0"', p)),
+            ("Wall", _pared)):
+        patron = re.compile(
+            r'(<Action\b[^>]*BorderType="%s"[^>]*>)(.*?)(</Action>)' % borde, re.S)
+        x = patron.sub(
+            lambda m: m.group(1)
+            + re.sub(r"<Pose\b[^>]*>", lambda p: arreglo(p.group(0)), m.group(2))
+            + m.group(3),
+            x)
+    return x
+
+
+def apartarse_del_filo(x: str, margen: int) -> str:
+    """If the throw leaves it stuck to a side, make it walk away from there.
+
+    The bug diego reports as "lo lanzo hacia los lados y se aplasta" (I throw it
+    sideways and it gets squashed): on hitting a side the critter falls stuck to
+    the edge and LANDS there, with mascot.X right on the border. Ground poses
+    are anchored at the feet, that is, at the CENTRE of the drawing, so half its
+    width ends up off screen; and the ground branch of Fall/Thrown finishes with
+    a 100-200 tick Stand, which is 4-8 seconds of half a pokemon cut by the
+    vertical. Measured on video.
+
+    The wall grip (PAREDES) does not cover it: it only kicks in if the fall ENDS
+    on the wall, and when the critter reaches the edge through the air it keeps
+    going down stuck to it all the way to the ground, so it ends up on the
+    ground, not on the wall.
+
+    So one more step is slipped into that same branch: if it has ended up less
+    than half a width from the edge, it walks inwards. Walking, not in one jump
+    -- an Offset there looks like a teleport.
+    """
+    paso = (
+        '<ActionReference Name="Walk" '
+        'TargetX="${mascot.anchor.x &lt; mascot.environment.workArea.left+%d'
+        ' ? mascot.environment.workArea.left+%d'
+        ' : mascot.environment.workArea.right-%d}" '
+        'Condition="${mascot.anchor.x &lt; mascot.environment.workArea.left+%d'
+        ' || mascot.anchor.x &gt; mascot.environment.workArea.right-%d}" />'
+    ) % (margen, margen, margen, margen, margen)
+    # The TWO ground branches (Fall's and Thrown's) are the only ones that write
+    # Bouncing with no space before the slash; the other thirteen times it
+    # appears in the template they carry "Bouncing />". If that ever changes, a
+    # warning is printed and the XML is left as it was instead of putting the
+    # step where it does not belong.
+    aguja = '<ActionReference Name="Bouncing"/>'
+    if x.count(aguja) != 2:
+        print(tr(f"   aviso: no encuentro las dos ramas de rebote ({x.count(aguja)});"
+                 " el bicho podra quedarse medio fuera al lanzarlo contra un lateral",
+                 f"   Warning: could not find both bounce branches ({x.count(aguja)}); "
+                 "the Pokémon may stay partly off screen when thrown against an edge"),
+              file=sys.stderr)
+        return x
+    return x.replace(aguja, aguja + "\n\t\t\t\t\t" + paso)
+
+
+def agarre_mas_corto(x: str) -> str:
+    """Shortens the edge grip: from 20-60 seconds to 4-12.
+
+    The Shimeji-ee template sticks the critter to the edge with
+    Duration="${500+Math.random()*1000}", and those are TICKS at 25 per second:
+    from twenty seconds to a minute nailed there. Gripping is fine -- it is what
+    stops it falling half off screen -- but a minute without moving does not
+    read as "it is holding on", it reads as hung, which is the same mistake as
+    the SitAndFaceMouse well (see CADENAS).
+    """
+    return re.sub(
+        r'(<ActionReference Name="Grab(?:Wall|Ceiling)"[^>]*?Duration=")'
+        r'\$\{500\+Math\.random\(\)\*1000\}(")',
+        r"\g<1>${100+Math.random()*200}\g<2>", x)
+
+
+def pesos_de_cadena(x: str, conducta: str, pesos: dict) -> str:
+    """Changes the weights in ONE behaviour's chain, without touching the rest.
+
+    It has to be restricted to that behaviour's block because the same name
+    appears in several chains: SitAndFaceMouse is referenced from ChaseMouse,
+    from SitAndSpinHead and from itself, and there each weight means something
+    different.
+    """
+    m = re.search(r'(<Behavior Name="%s"[^>]*>)(.*?)(</Behavior>)' % re.escape(conducta),
+                  x, re.S)
+    if not m:
+        return x
+    cuerpo = m.group(2)
+    for nombre, p in pesos.items():
+        cuerpo = re.sub(
+            r'(<BehaviorReference Name="%s"[^>]*?Frequency=")\d+(")' % re.escape(nombre),
+            r"\g<1>" + str(p) + r"\g<2>", cuerpo)
+    return x[:m.start(2)] + cuerpo + x[m.end(2):]
+
+
+def ordenar_por_dependencias(x: str) -> str:
+    """Puts each <Action> after the ones it uses.
+
+    wl_shimeji's reader resolves references against the actions it has ALREADY
+    read (mascot_config_parser.c:777, `for i < *count`), so an action that names
+    another one defined further down is discarded whole. In XML order means
+    nothing, so the template had no reason to take care of it, and it does not:
+    SplitIntoTwo names Divided, which comes six lines later. In the log that
+    shows up as "Action Divided is not defined!" and the behaviour disappears.
+
+    It is reordered instead of naming Divided by hand because the fault is not
+    that particular action's: it belongs to any template written without a
+    single-pass reader in mind. If it already comes well ordered, this touches
+    nothing -- the walk is stable and keeps the original order between
+    independent actions.
+    """
+    m = re.search(r"(<ActionList[^>]*>)(.*)(</ActionList>)", x, re.S)
+    if not m:
+        return x
+    cuerpo = m.group(2)
+
+    # The top-level blocks, counting depth: <Action> nests up to three times
+    # and splitting at the nearest closing tag would cut it in half.
+    bloques, prof, ini = [], 0, None
+    for t in re.finditer(r"<Action\b[^>]*?/>|<Action\b[^>]*?>|</Action>", cuerpo):
+        s = t.group(0)
+        if s.endswith("/>"):
+            if prof == 0:
+                bloques.append((t.start(), t.end()))
+            continue
+        if s.startswith("</"):
+            prof -= 1
+            if prof == 0 and ini is not None:
+                bloques.append((ini, t.end()))
+                ini = None
+        else:
+            if prof == 0:
+                ini = t.start()
+            prof += 1
+    if not bloques:
+        return x
+
+    trozos = [cuerpo[a:b] for a, b in bloques]
+    # A name may be defined INSIDE another block; what has to be moved is the
+    # top-level block that contains it, so the index goes by name, not by
+    # block.
+    dueno = {}
+    for i, t in enumerate(trozos):
+        for n in re.findall(r'<Action\b[^>]*?\bName="([^"]+)"', t):
+            dueno.setdefault(n, i)
+    usa = [{dueno[n] for n in re.findall(r'<ActionReference\b[^>]*?\bName="([^"]+)"', t)
+            if n in dueno and dueno[n] != i}
+           for i, t in enumerate(trozos)]
+
+    salida, puestos = [], set()
+    quedan = list(range(len(trozos)))
+    while quedan:
+        listos = [i for i in quedan if usa[i] <= puestos]
+        if not listos:
+            # Cycle: two actions that name each other. There is none in the
+            # template and reordering would not fix it; the original order is
+            # kept and the reader is left to warn, rather than hanging here.
+            salida += quedan
+            break
+        salida += listos
+        puestos |= set(listos)
+        quedan = [i for i in quedan if i not in puestos]
+
+    if salida == list(range(len(trozos))):
+        return x
+
+    # The gaps (indentation, line breaks, comments) stay where they were: what
+    # moves is the block, not the shape of the file.
+    huecos = [cuerpo[bloques[i][1]:bloques[i + 1][0]] for i in range(len(bloques) - 1)]
+    nuevo = [cuerpo[:bloques[0][0]]]
+    for pos, i in enumerate(salida):
+        nuevo.append(trozos[i])
+        if pos < len(huecos):
+            nuevo.append(huecos[pos])
+    nuevo.append(cuerpo[bloques[-1][1]:])
+    return x[:m.start(2)] + "".join(nuevo) + x[m.end(2):]
+
+
+def aplastar_por_franjas(g, fy: float, pat: float):
+    """Squashes MORE AT THE BOTTOM THAN AT THE TOP: the legs bend and the body
+    comes down whole.
+
+    Uniform vertical scaling (fy over the whole drawing) is no good for sitting,
+    and it showed on the 18 installed: Umbreon 'sitting' was all four legs
+    stretched out with its belly 7 px lower, Machop had the same standing
+    Machop in Stand, Sit, SitWithLegsUp, SitWithLegsDown, Sprawl and Creep. What
+    a critter does when it sits is not shrink: it bends its legs and leaves the
+    body almost the same.
+
+    So the factor goes PER ROW: 'pat' is how much the legs are compressed
+    relative to the body (1.00 = as before, everything equally; 0.30 = the
+    bottom row at under a third). From ZONA_PATAS down the factor ramps down to
+    pat, and the whole is normalised so that the total height is still exactly
+    fy: the silhouette takes up what it already took up and what changes is the
+    DISTRIBUTION, which is what reads as posture.
+
+    It is done in whole rows and without interpolating -- the source row is
+    repeated or skipped, like NEAREST-, because this is pixel art: blending two
+    rows invents colours that are not in the sprite's palette.
+    """
+    from PIL import Image
+    from bisect import bisect_right
+    an, al = g.size
+    if al < 2:
+        return g
+    if g.mode != "RGBA":
+        g = g.convert("RGBA")   # below, it counts four bytes per pixel
+    # each source row's factor, 1.0 at the top and 'pat' on the bottom one
+    base = [1.0 if (i + .5) / al <= ZONA_PATAS
+            else 1.0 - (1.0 - pat) * ((i + .5) / al - ZONA_PATAS) / (1.0 - ZONA_PATAS)
+            for i in range(al)]
+    esc = fy * al / sum(base)
+    corte, acum = [0.0], 0.0
+    for b in base:
+        acum += b * esc
+        corte.append(acum)
+    alto = max(1, int(round(acum)))
+    crudo, paso = g.tobytes(), an * 4
+    filas = []
+    for j in range(alto):
+        i = min(al - 1, max(0, bisect_right(corte, (j + .5) * acum / alto) - 1))
+        filas.append(crudo[i * paso:(i + 1) * paso])
+    return Image.frombytes("RGBA", (an, alto), b"".join(filas))
+
+
+def deformar(fr, lienzo_w: int, lienzo_h: int, suelo: int,
+             dx: int, dy: int, fx: float, fy: float, shear: float,
+             pat: float = 1.0, pegado: bool = False):
+    """Places the frame on the canvas, already deformed and resting on its feet.
+
+    All with NEAREST and with integer shifts: it is pixel art and any
+    interpolation blurs it. The shear slants the top rows relative to the bottom
+    ones -- the feet stay nailed to the ground and the body leans to one side,
+    which is what a critter does when taking a step. It is used instead of
+    rotating because rotating pixel art leaves dirty edges.
+
+    'pat' squashes the legs more than the body (see aplastar_por_franjas). With
+    1.00 -- what the poses that do not ask for it carry- nothing is touched and
+    the result is pixel for pixel the usual one.
+
+    'pegado' rests the DRAWING on the ground line instead of the canvas. It is
+    needed because the gif carries its own bounce: in Mudkip (258) there are
+    frames of the resting cycle where Game Freak already lifts the legs 7 px (14
+    on screen at 2x), and sitting still there for 20-60 seconds that is a
+    floating critter. It is only asked for where the critter HAS to touch the
+    ground; the ones that levitate leave it off, because there their own bounce
+    is exactly what is wanted (Gengar rises and falls 16 px inside its gif).
+    """
+    from PIL import Image
+    an, al = fr.size
+    if abs(pat - 1.0) > 0.001:
+        # the width goes separately: here only the height is shared out in bands
+        ancho = max(1, int(round(an * fx)))
+        g = fr.resize((ancho, al), Image.NEAREST) if ancho != an else fr
+        g = aplastar_por_franjas(g, fy, pat)
+    else:
+        nueva = (max(1, int(round(an * fx))), max(1, int(round(al * fy))))
+        g = fr.resize(nueva, Image.NEAREST) if nueva != (an, al) else fr
+
+    if abs(shear) > 0.001:
+        gw, gh = g.size
+        extra = int(abs(shear) * gh) + 2
+        ancho2 = gw + extra * 2
+        # the shift grows with HEIGHT: 0 at the feet, maximum at the top
+        g = g.transform((ancho2, gh), Image.AFFINE,
+                        (1, shear, -extra - shear * gh, 0, 1, 0),
+                        resample=Image.NEAREST)
+
+    lienzo = Image.new("RGBA", (lienzo_w, lienzo_h), (0, 0, 0, 0))
+    gw, gh = g.size
+    x = (lienzo_w - gw) // 2 + dx
+    y = suelo - gh + dy          # anchored at the FEET, not at the centre
+    if pegado:
+        b = g.getbbox()
+        if b:
+            y += gh - b[3]       # the air underneath does not count as a foot
+    lienzo.paste(g, (x, y), g)
+    return lienzo
+
+
+def respirar(pose: tuple, i: int, n: int, amp: float = 0.03) -> tuple:
+    """The same posture, breathing: a +-3% height wave along the bank.
+
+    The resting banks walk through the gif, so the critter already breathes on
+    its own... except when the gif does NOT animate. Then the bank is N copies of
+    the same image -- measured on Pecharunt (1025): 'magick compare -metric AE
+    sit2.png sit1.png' gives 0 differing pixels -- and sitting is once again the
+    frozen still that this section exists to get rid of. The walking cycle
+    already defended itself against that by varying the deformation by index
+    (fases[i % 4]); this is the same for the still postures.
+
+    The wave is a sine over the length of the bank, so it closes on its own
+    whatever N is and it need not be a multiple of anything. The width goes the
+    opposite way to the height (at 60%) so that it looks like air and not a
+    zoom.
+    """
+    import math
+    if n < 2:
+        return pose
+    s = math.sin(2 * math.pi * i / n)
+    dx, dy, fx, fy, sh, *resto = pose
+    return (dx, dy, fx * (1 - amp * 0.6 * s), fy * (1 + amp * s), sh, *resto)
+
+
+def ritmo_minimo(ts: list, minimo: int) -> list:
+    """Stretches a cycle that is too short until it lasts 'minimo' ticks, without
+    distorting it.
+
+    Zapdos (145) did its resting cycle in 0.88 s when the other seventeen
+    installed take between 3.5 and 10 -- four times faster than the next one,
+    eleven times faster than Snorlax-, and with the largest amplitude of all
+    (26 px). On the biggest critter on the screen, perched for twenty seconds or
+    a minute, that does not read as a legendary bird: it reads as a nervous
+    twitch.
+
+    ALL the durations are multiplied by the same factor, so the rhythm it was
+    drawn with is respected; the only thing that changes is the speed. The
+    rounding error is carried over to the next frame, just as in fotogramas().
+    """
+    total = sum(ts)
+    if total <= 0 or total >= minimo:
+        return ts
+    k = minimo / total
+    salida, resto = [], 0.0
+    for t in ts:
+        v = t * k + resto
+        n = max(1, int(round(v)))
+        resto = v - n
+        salida.append(n)
+    return salida
+
+
+def frames(gif: Path) -> list:
+    from PIL import Image, ImageSequence
+    im = Image.open(gif)
+    return [f.convert("RGBA").copy() for f in ImageSequence.Iterator(im)]
+
+
+def clave(fr) -> bytes:
+    """The identity of the DRAWING, not of the object.
+
+    The same frames are read twice -- frames() for the postures and
+    fotogramas() for the banks-, so the md5 serves as a bridge between the two
+    lists: what is decided by looking at one is applied to the other without
+    measuring again.
+
+    The PREMULTIPLIED one ("RGBa") is hashed, not the bare RGBA, and it is not a
+    detail: a transparent pixel in the gif keeps the colour of whatever palette
+    index it had, and that colour changes from frame to frame without anything
+    showing. With the raw md5, Mew (151) seemed to have 36 different drawings
+    when it has 16, and Lucario (448) 36 when it has 16 -- so neither
+    consecutive repeats nor repeated loops were detected. Premultiplying zeroes
+    the colour of what cannot be seen, which is exactly what makes two
+    identical drawings hash the same.
+    """
+    import hashlib
+    return hashlib.md5(fr.convert("RGBa").tobytes()).digest()
+
+
+def desvio_lateral(fs: list) -> dict:
+    """How much to move each drawing in X so the critter does not wander off.
+
+    One of these gifs is not always just breathing: inside it may carry a whole
+    SIDEWAYS movement. Gengar (94) spends its first 20 frames still -- the
+    centre of mass moves 0.5 px- and in the next 17 it hops from side to side:
+    15.9 px measured, 21% of its width. Since the Sit, Sprawl and step banks
+    SAMPLE the cycle, those two extremes land on consecutive poses and the hop
+    turns into a teleport: 15.3 px between two Sprawl poses -- 30 on screen at
+    the x2 it gets-, twice per second, and Sprawl lasts between 20 and 60 s.
+    It is cancelled by bringing each frame to the mean centre of mass.
+    ONLY IN X, and here is the reason: the VERTICAL bounce is what makes Gengar
+    levitate and Zubat flap rising and falling -- the same thing the comment on
+    the air crop in main() defends-, so Y is not touched by a single pixel.
+    Measured, the largest jump between two consecutive poses of the Sprawl bank,
+    before -> after: Gengar 15.25 -> 0.75 | Rayquaza 7.65 -> 0.65 |
+    Eevee 4.49 -> 0.87. Magikarp keeps its flapping because its own is vertical
+    (7.15 px per pose in Y, untouched) and Machop (0.23) and Umbreon (0.06) do
+    not even notice: their drift was already less than half a pixel and rounds
+    to zero.
+    """
+    from PIL import Image
+    centros = {}
+    for f in fs:
+        h = clave(f)
+        if h in centros:
+            continue
+        a = f.split()[-1]
+        an = a.size[0]
+        # Each column summed up in one pixel: that value IS the column's weight
+        # and PIL works it out in C. Measured against the exact centroid on 8
+        # gifs, the error does not exceed 0.03 px -- well below the whole pixel
+        # that ends up being moved.
+        col = a.resize((an, 1), Image.BOX).tobytes()
+        peso = sum(col)
+        if peso:
+            centros[h] = sum(x * v for x, v in enumerate(col)) / peso
+    if not centros:
+        return {}
+    # The mean over the DISTINCT drawings, not over the frames: there are gifs
+    # that repeat a stretch three times (see sin_repeticiones) and that would
+    # bias the reference towards the repeated stretch.
+    ref = sum(centros.values()) / len(centros)
+    return {h: int(round(ref - c)) for h, c in centros.items()}
+
+
+def encuadrar(fr, caja, dx: int, margen: int):
+    """Crops to the common box and moves the drawing dx px sideways.
+
+    The canvas is widened by 'margen' px per side BEFORE moving. Without that
+    the shift would cut the critter off at one side: there are frames whose
+    drawing reaches right up to the edge of the common box -- that is why the
+    box is the union of all of them- and pushing it inside would tear a strip
+    off it. Whatever canvas is left over is cropped later by main()'s final
+    box, which measures the real drawing.
+    """
+    from PIL import Image
+    g = fr.crop(caja) if caja else fr
+    if not margen:
+        return g
+    an, al = g.size
+    lienzo = Image.new("RGBA", (an + margen * 2, al), (0, 0, 0, 0))
+    lienzo.paste(g, (margen + dx, 0), g)
+    return lienzo
+
+
+# ── THE REAL ANIMATION ────────────────────────────────────────────────────────
+# The 46 poses above are POSTURES: one fixed still per situation. For sitting,
+# hanging from the mouse or falling they are fine, because there the critter is
+# still anyway. The problem is that the template uses that same still for
+# STANDING: <Action Name="Stand"> is ONE single image with Duration="250", that
+# is, ten seconds frozen, and standing is how the pokemon spends almost all of
+# its time. That is what looked dead.
+#
+# And it is not that material is missing: measuring the 1025 gifs in
+# ~/.cache/pokeanim, they carry between 37 and 108 frames each (median 72)
+# drawn by Game Freak. The flying-type ones also OPEN AND CLOSE THEIR WINGS in
+# there -- Butterfree goes from 30 to 61 px wide, Zubat from 24 to 43 tall,
+# Gengar rises and falls 12 px. All but one were being thrown away.
+#
+# So besides the postures, BANKS of consecutive frames are built and the actions
+# are rewritten to walk through them. The engine raises no objection:
+# frame_count is uint16 (mascot.h:256) and the converter accepts any image name,
+# not just shimeN (shimejictl:894, which only changes its extension).
+
+
+def sin_repeticiones(crudos: list) -> list:
+    """Removes the STRETCHES of the gif that had already appeared before as they
+    are.
+
+    Some gifs are not a clean cycle but the cycle repeated. Mew (151) carries 60
+    frames that are 16 of intro plus a loop of 20 played two-and-a-bit times;
+    Charmander (4) repeats its stretch from 9 to 17 three times in a row. Since
+    the banks are sampled by index, the three passes always land on the SAME
+    phase and Mew's walking cycle ended up with 4 distinct drawings out of 12
+    -- the tail jumped from curled to stretched every 3 ticks-, and 4 of
+    Charmander's 12 were the same drawing. Removing the repetition before
+    sampling, both come out with 12 distinct drawings, and on the way about 40
+    of the prototype's 155 files are saved.
+
+    The repeated stretch is required to have TWO frames or more. With just one
+    it would wreck back-and-forth animations, which are the norm in pixel art:
+    Umbreon (197) goes 0,1,2,3,4,3,2,1,0 and its four return frames are the same
+    drawings as the outward ones. A stretch of two or more repeated IN THE SAME
+    ORDER is no longer a return, it is a second pass.
+
+    And the seam is required to EXIST in the gif. It is the condition anyone
+    overlooks and it is paid for on screen: removing a stretch, the last frame
+    left becomes followed by the one that came after the stretch, and that pair
+    may never have existed. Measured on Machop (66), which is fine today: without
+    the condition its resting cycle went from 7.7 px of maximum jump between
+    frames to 10.3 -- it skipped the downswing of a chop and landed somewhere
+    else in the animation. So the stretch is only dropped if the drawing left in
+    front of it is the same one that came before the next one in the gif, or if
+    the stretch reaches the end and what it repeats is the beginning (there the
+    seam is the gif's own loop).
+    """
+    hs = [clave(g) for g, _ms in crudos]
+    n = len(hs)
+    salida, vistos, i = [], [], 0
+    while i < n:
+        # the longest stretch that starts at i and is already stored in 'vistos'
+        largo, desde = 0, 0
+        for j in range(len(vistos)):
+            k = 0
+            while (j + k < len(vistos) and i + k < n
+                   and vistos[j + k] == hs[i + k]):
+                k += 1
+            if k > largo:
+                largo, desde = k, j
+        # from the longest downwards: maybe only a shorter stretch closes
+        for k in range(largo, 1, -1):
+            if (i + k < n and vistos[-1] == hs[i + k - 1]) or \
+               (i + k == n and desde == 0):
+                i += k
+                break
+        else:
+            salida.append(crudos[i])
+            vistos.append(hs[i])
+            i += 1
+    return salida
+
+
+# THE ONES THAT DO NOT ANIMATE. Eight sprites in the pokedex are a png stuffed
+# inside a gif (the gen 9 paradoxes -- 990, 991, 993, 1010, 1022, 1023-,
+# Ogerpon and Pecharunt), and with them Stand was ONE image of Duration="250":
+# ten seconds as a statue, and standing is where a Pecharunt spends almost its
+# whole life. The script already detected it and warned on stderr, but did
+# nothing.
+#
+# Since there is no cycle to copy, one is built with the same squash & stretch
+# the rest of the file uses: it breathes in stretching and rising one pixel,
+# holds at the top and breathes out squashing. Six phases over six copies of the
+# same drawing, 7 ticks each -- 1.7 s per breath.
+#   (dx, dy, fx, fy, shear), one phase per frame.
+RESPIRA = [
+    (0,  0, 1.00, 1.00, 0.00),
+    (0, -1, 1.00, 1.01, 0.00),
+    (0, -1, 1.00, 1.02, 0.00),
+    (0, -1, 1.00, 1.01, 0.00),
+    (0,  0, 1.00, 1.00, 0.00),
+    (0,  0, 1.00, 0.99, 0.00),
+]
+
+
+def fotogramas(gif: Path) -> list:
+    """The gif's frames with their duration ALREADY in ticks, with no
+    consecutive repeats.
+
+    A gif repeats a frame to mark a pause. Duplicating the image for each
+    repetition bloats the prototype without anything different showing, so the
+    repeat is not stored: its time is added to the previous one, which is
+    exactly the same on screen and takes half the space.
+
+    And before that, the two lies the gif carries from the factory are cleaned
+    up: the long delay on the first frame, which is the encoder's doing and not
+    the animation's, and the repeated stretches (see sin_repeticiones). Both
+    were paid for by whoever sampled the cycle afterwards.
+    """
+    from PIL import Image, ImageSequence
+    import statistics
+
+    brutos = [(f.convert("RGBA").copy(), f.info.get("duration") or 100)
+              for f in ImageSequence.Iterator(Image.open(gif))]
+
+    # THE LONG DELAY ON THE FIRST FRAME. It is an encoder habit and it is not
+    # animation: Mew's (151) lasts 600 ms with the rest at 100, that is, 15 ticks
+    # against 2-3, and it looked like slamming on the brakes. Each frame is
+    # capped at 3x the gif's median, which lets through the pauses they DID draw
+    # -- Gengar's odd 200 ms over a median of 100, 258's 180 over one of 60- and
+    # only cuts what falls out of the whole cycle's rhythm.
+    #
+    # The cap is applied BEFORE merging consecutive repeats, on purpose: a pause
+    # drawn as five identical 100 ms frames still adds up to 500, because that
+    # one is a real pause.
+    tope_ms = 3 * statistics.median([ms for _g, ms in brutos])
+
+    crudos: list = []
+    anterior = None
+    for g, ms in brutos:
+        ms = min(ms, tope_ms)
+        h = clave(g)
+        if h == anterior and crudos:
+            crudos[-1][1] += ms
+            continue
+        anterior = h
+        crudos.append([g, ms])
+
+    # The sprites that do not animate: a single frame and no cycle to walk
+    # through. Six copies are returned so that main() puts RESPIRA's breathing
+    # on top of them -- this used to be a single 250-tick image.
+    if len(crudos) == 1:
+        return [(crudos[0][0], 7)] * 6
+
+    crudos = sin_repeticiones(crudos)
+
+    # The rounding error travels to the next frame so that the cycle lasts what
+    # it should. CAREFUL with the 1-tick floor: a gif at 10 ms per frame asks for
+    # 0.25 ticks and gets 1, so the debt grows without anyone paying it and the
+    # whole cycle runs long -- measured, 126 gifs ran over by more than 20% and
+    # the worst by four times. It is fixed by letting 'resto' go NEGATIVE and be
+    # collected on the following frames: the ones that do not fit are skipped
+    # (duration 0) instead of stretching the cycle.
+    salida, resto = [], 0.0
+    for g, ms in crudos:
+        credito = ms + resto
+        n = max(0, int(round(credito / TICK_MS)))
+        resto = credito - n * TICK_MS
+        if n == 0:
+            # it does not get a frame of its own: the previous one keeps its time
+            if salida:
+                continue
+            n = 1
+            resto = credito - TICK_MS
+        salida.append((g, n))
+    return salida
+
+
+def mejor_ventana(fs: list, tope: int) -> int:
+    """Where to start taking 'tope' consecutive frames that also close.
+
+    Any loose stretch of a longer animation is seen to jerk when it goes back to
+    the start, so taking the first twelve and calling it done will not do. The
+    len(fs) possible windows are scored by how noticeable their seam is -- how
+    much the drawing changes from the last frame to the first- divided by how
+    much it changes from one frame to the next INSIDE the window. Dividing is
+    what avoids the trap: the stillest stretch of the gif always has the
+    cheapest seam, and without normalising that one would always be picked,
+    which is back to walking on a frozen image.
+    """
+    from PIL import ImageChops, ImageStat
+    n = len(fs)
+
+    def dif(a, b):
+        return sum(ImageStat.Stat(
+            ImageChops.difference(fs[a % n][0], fs[b % n][0])).sum)
+
+    seguidos = [dif(i, i + 1) for i in range(n)]
+    mejor, punto = 0, None
+    for s in range(n):
+        dentro = sum(seguidos[(s + k) % n] for k in range(tope - 1)) / (tope - 1)
+        p = dif(s + tope - 1, s) / (dentro + 1)
+        if punto is None or p < punto:
+            mejor, punto = s, p
+    return mejor
+
+
+def recortar_ciclo(fs: list, tope: int, ventana: bool = False) -> list:
+    """Brings the cycle down to 'tope' frames, spreading the loss evenly.
+
+    Frames are removed instead of cutting the end because a cut cycle does not
+    close: the critter would jump when going back to the start. When one is
+    removed its time is given to the one that stays, so the cycle lasts the same
+    and still closes where it started.
+
+    With ventana=True, 'tope' CONSECUTIVE frames are taken instead of spread
+    ones. It is what the step asks for: spreading the twelve over a cycle of 63
+    plays in half a second a gesture Game Freak drew for 6.7 s, and that is
+    Eevee's (133) whiplash -- 11.6 px of centre of mass in ONE tick while
+    running, 5.5 times faster than its own breathing-, Umbreon's (9.0 px) and
+    Rayquaza's (384) uncoiling crammed into four poses. Consecutive, each engine
+    tick advances one gif frame and the gesture goes at the pace it was drawn
+    at. The window is chosen by mejor_ventana() so that the loop closes.
+    """
+    if len(fs) <= tope:
+        return fs
+    if ventana:
+        ini = mejor_ventana(fs, tope)
+        return [fs[(ini + i) % len(fs)] for i in range(tope)]
+    paso = len(fs) / tope
+    salida = []
+    for i in range(tope):
+        ini, fin = int(round(i * paso)), int(round((i + 1) * paso))
+        trozo = fs[ini:max(fin, ini + 1)]
+        salida.append((trozo[0][0], sum(t for _, t in trozo)))
+    return salida
+
+
+def xml_poses(nombres: list, duraciones: list, ancla: str, vel=(0, 0)) -> str:
+    """The <Pose> elements of an animation, with the template's indentation."""
+    vx, vy = vel
+    return "\n".join(
+        f'\t\t\t\t<Pose Image="/{n}" ImageAnchor="{ancla}" '
+        f'Velocity="{vx},{vy}" Duration="{d}" />'
+        for n, d in zip(nombres, duraciones))
+
+
+def poner_animacion(x: str, accion: str, poses: str) -> str:
+    """Changes the <Animation> elements of ONE action, leaving the rest of the
+    XML the same.
+
+    It is restricted to that action's block because the same <Animation>
+    appears in forty places and a global substitution would take out all the
+    postures.
+
+    ALL of the action's <Animation> elements, not the first. An action may carry
+    several: one with a Condition and another without, which is the "otherwise,
+    this". In the template it happens in three (SitAndLookAtMouse, ClimbWall and
+    Pinched), and with count=1 half the work was left undone: SitAndLookAtMouse
+    changed shime26's block and left shime11's untouched, so the critter stayed
+    frozen precisely when the mouse was in the bottom half of the screen -- half
+    of the time, in the action the behaviour tree reaches most (ChaseMouse has
+    600 of the root's 700 points).
+
+    The Condition is kept as it is: what changes is WHAT gets painted, not when
+    each block is chosen.
+    """
+    m = re.search(r'(<Action\b[^>]*\bName="%s"[^>]*>)(.*?)(</Action>)'
+                  % re.escape(accion), x, re.S)
+    if not m:
+        return x
+    cuerpo = re.sub(
+        r"<Animation\b([^>]*)>.*?</Animation>",
+        lambda a: f"<Animation{a.group(1)}>\n{poses}\n\t\t\t</Animation>",
+        m.group(2), flags=re.S)
+    return x[:m.start(2)] + cuerpo + x[m.end(2):]
+
+
+# Where the behaviour comes from. Nothing is invented: it is that of a shimeji
+# that already works (cachomon's Eevee), which comes with the 46 poses and the
+# mandatory actions already tested. Here only its images are swapped for the
+# gen5 sprites.
+PLANTILLA_URL = "https://sprites.shimejis.xyz/directory/pokemon-eevee-by-cachomon"
+
+
+def asegurar_plantilla() -> None:
+    if PLANTILLA.joinpath("actions.xml").exists() and PLANTILLA.joinpath("behaviors.xml").exists():
+        return
+    import urllib.request
+    PLANTILLA.mkdir(parents=True, exist_ok=True)
+    for f in ("actions", "behaviors"):
+        try:
+            # with urllib's User-Agent the website answers 403; it has to look
+            # like a browser for it to serve the files.
+            pet = urllib.request.Request(
+                f"{PLANTILLA_URL}/{f}.xml",
+                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"})
+            with urllib.request.urlopen(pet, timeout=20) as r:
+                PLANTILLA.joinpath(f"{f}.xml").write_bytes(r.read())
+        except Exception as e:
+            raise SystemExit(tr(f"no pude bajar la plantilla de comportamiento ({e})",
+                                f"Could not download the behaviour template ({e})"))
+    print(tr(f"plantilla de comportamiento descargada en {PLANTILLA}",
+             f"Behaviour template downloaded to {PLANTILLA}"), file=sys.stderr)
+
+
+# ── FLIGHT ────────────────────────────────────────────────────────────────────
+# A Type="Move" action WITHOUT a BorderType is the only way to fly this engine
+# has, and it works because without an edge nothing is checked: move.c:108-117
+# does not look at the ground and there is no gravity anywhere except inside the
+# embedded Fall action. The critter moves exactly what its poses' Velocity
+# values say and stays wherever you leave it.
+#
+# TWO TRAPS in wl_shimeji, both checked in its code:
+#
+#   1. Each axis's displacement is only applied if THAT axis has a target
+#      (wl_move.c:215-252), and the action does not end until it reaches BOTH
+#      (wl_move.c:122-124). In the original Shimeji one was enough. So here
+#      every flight reference carries TargetX and TargetY, always.
+#   2. The signs go the opposite way to what one would write: a NEGATIVE
+#      velocity_x is "move forward where you are facing" (the engine mirrors it
+#      according to lookRight) and a NEGATIVE velocity_y is going UP, because
+#      internally Y grows upwards from the ground (mascot.c:1513-1523).
+#
+# THE LANDING is the last leg, and it has to come down to the EXACT ground. It
+# was tried leaving it eight pixels up, thinking the Fall behaviour would finish
+# off the final drop, and that is exactly what does not happen: 8 px from the
+# edge the engine does not consider you on the ground (floor.isOn is false), and
+# in the air the only behaviour with any weight is chasing the mouse --
+# everything else in the root is at zero-, so at the end of the flight the
+# critter stayed floating and went after the cursor. Standing on the ground,
+# the share of behaviours goes back to normal.
+#
+# And SPEED matters more than it seems: at 3 px per tick, crossing a 1920
+# screen takes twenty-five seconds, and with three legs the flight lasted more
+# than a minute. At 6 px per tick and two legs it comes down to a good half
+# minute, which is a stroll, not a house move.
+#
+# And no new images are needed: the gen5 sprites of the flyers ALREADY carry the
+# flapping drawn in (Butterfree goes from 30 to 61 px wide inside its gif), so
+# the flight reuses the breathing cycle's frames, only played faster.
+
+# ── INVOKABLE BEHAVIOURS ──────────────────────────────────────────────────────
+# Actions no critter picks on its own (Frequency 0): they exist so that other
+# programs can request them over the socket with 'shimejictl set-behavior'.
+#
+#   Sobresalto      poke-mood: the jump it gives when a notification arrives.
+#                   It was sold as "pega un bote y te mira" (jumps and looks at
+#                   you) and that was not true: it was three Bouncing in a row,
+#                   0.96 s of a little squashed-stretched shiver with
+#                   Velocity="0,0" and the same anchor. It did not leave the
+#                   ground BY A SINGLE PIXEL. Being, as it is, the critter's
+#                   only reaction to a notification, it was easy to miss.
+#                   Now it starts with Jumping -- which already exists as
+#                   Embedded Class=Jump and the template uses eight times for
+#                   the wall jumps-, with TargetY 70 px above where it is: it
+#                   goes up, falls, bounces (there the Bouncing does fit, since
+#                   that is what it is: a landing) and turns to look at you. It
+#                   carries TargetX as well as TargetY because wl_shimeji does
+#                   not end a movement until it reaches BOTH axes
+#                   (wl_move.c:122-124).
+#   Combate*        poke-battle: the choreography goes in separate PHASES
+#                   (corner, round, finish) and it is the director that chains
+#                   them. The first version was a single long sequence per
+#                   critter and it drifted out of sync: each one started from
+#                   wherever it was, that initial offset dragged through the
+#                   whole show and they clashed anywhere but in the centre --
+#                   it looked silly. With phases, the director waits until BOTH
+#                   are parked in their corner (facing each other, via Look) and
+#                   gives the next order at the same time: from the corners the
+#                   distances to the centre are mirror images and they arrive
+#                   together.
+#
+# They are built ENTIRELY with ActionReference to actions that already exist
+# (Dash, Bouncing, Stand, Run): zero new images, and the dependency reorderer
+# puts them where the single-pass reader will find them.
+_A = "mascot.environment.workArea"
+INVOCABLES_ACCIONES = """
+		<Action Name="Sobresalto" Type="Sequence" Loop="false">
+			<ActionReference Name="Jumping" TargetX="${mascot.anchor.x}"
+				TargetY="${mascot.anchor.y-70}" />
+			<ActionReference Name="Bouncing" />
+			<ActionReference Name="Look" LookRight="${mascot.anchor.x &lt; mascot.environment.cursor.x}" />
+			<ActionReference Name="SitAndLookAtMouse" Duration="60" />
+		</Action>
+
+		<Action Name="CombateRinconIzq" Type="Sequence" Loop="false">
+			<ActionReference Name="Dash" TargetX="${%(A)s.left+120}" />
+			<ActionReference Name="Look" LookRight="true" />
+			<ActionReference Name="Stand" Duration="1500" />
+		</Action>
+		<Action Name="CombateRinconDer" Type="Sequence" Loop="false">
+			<ActionReference Name="Dash" TargetX="${%(A)s.right-120}" />
+			<ActionReference Name="Look" LookRight="false" />
+			<ActionReference Name="Stand" Duration="1500" />
+		</Action>
+
+		<Action Name="CombateAsaltoIzq" Type="Sequence" Loop="false">
+			<ActionReference Name="Dash" TargetX="${%(A)s.left+%(A)s.width/2-45}" />
+			<ActionReference Name="Bouncing" />
+			<ActionReference Name="Dash" TargetX="${%(A)s.left+120}" />
+			<ActionReference Name="Look" LookRight="true" />
+			<ActionReference Name="Stand" Duration="1500" />
+		</Action>
+		<Action Name="CombateAsaltoDer" Type="Sequence" Loop="false">
+			<ActionReference Name="Dash" TargetX="${%(A)s.left+%(A)s.width/2+45}" />
+			<ActionReference Name="Bouncing" />
+			<ActionReference Name="Dash" TargetX="${%(A)s.right-120}" />
+			<ActionReference Name="Look" LookRight="false" />
+			<ActionReference Name="Stand" Duration="1500" />
+		</Action>
+
+		<Action Name="CombateFinalIzq" Type="Sequence" Loop="false">
+			<ActionReference Name="Dash" TargetX="${%(A)s.left+%(A)s.width/2-45}" />
+			<ActionReference Name="Bouncing" />
+			<ActionReference Name="Run" TargetX="${%(A)s.right-260}" />
+			<ActionReference Name="Stand" Duration="1500" />
+		</Action>
+		<Action Name="CombateFinalDer" Type="Sequence" Loop="false">
+			<ActionReference Name="Dash" TargetX="${%(A)s.left+%(A)s.width/2+45}" />
+			<ActionReference Name="Bouncing" />
+			<ActionReference Name="Run" TargetX="${%(A)s.right-110}" />
+			<ActionReference Name="Stand" Duration="1500" />
+		</Action>
+""" % {"A": _A}
+
+INVOCABLES_CONDUCTAS = """
+		<Behavior Name="Sobresalto" Frequency="0" />
+		<Behavior Name="CombateRinconIzq" Frequency="0" />
+		<Behavior Name="CombateRinconDer" Frequency="0" />
+		<Behavior Name="CombateAsaltoIzq" Frequency="0" />
+		<Behavior Name="CombateAsaltoDer" Frequency="0" />
+		<Behavior Name="CombateFinalIzq" Frequency="0" />
+		<Behavior Name="CombateFinalDer" Frequency="0" />
+"""
+
+
+def xml_invocables(x: str) -> str:
+    i = x.rfind("</ActionList>")
+    return x[:i] + INVOCABLES_ACCIONES + "\n\t" + x[i:] if i > 0 else x
+
+
+def xml_invocables_conducta(x: str) -> str:
+    i = x.rfind("</BehaviorList>")
+    return x[:i] + INVOCABLES_CONDUCTAS + "\n\t" + x[i:] if i > 0 else x
+
+
+# The targets' margin is written as "+64" and "-128" on purpose: they are the
+# numbers con_margen() knows how to recognise and raise to whatever the critter
+# takes up.
+AREA = "mascot.environment.workArea"
+DESTINO_X = f"${{{AREA}.left+64+Math.random()*({AREA}.width-128)}}"
+ALTURA_VUELO = f"${{{AREA}.top+64+Math.random()*({AREA}.height/3)}}"
+# Down to the EXACT ground, not a hand's breadth above it. 8 px from the edge,
+# floor.isOn() is false -it requires the engine to consider you on the edge- and
+# at the end of the sequence the critter stays in the air with hardly any
+# eligible behaviour. Standing on the ground, the landing chains into normal
+# life.
+ALTURA_SUELO = f"${{{AREA}.bottom}}"
+
+VUELO_ACCIONES = """
+		<Action Name="Volar" Type="Move">
+			<Animation Condition="#{{TargetY &lt; mascot.anchor.y}}">
+{sube}
+			</Animation>
+			<Animation>
+{baja}
+			</Animation>
+		</Action>
+
+		<Action Name="Cernerse" Type="Stay">
+			<Animation>
+{cierne}
+			</Animation>
+		</Action>
+
+		<Action Name="DarUnVuelo" Type="Sequence" Loop="false">
+			<ActionReference Name="Volar" TargetX="{dx}" TargetY="{alto}" />
+			<ActionReference Name="Cernerse" Duration="${{75+Math.random()*75}}" />
+			<ActionReference Name="Volar" TargetX="{dx}" TargetY="{suelo}" />
+		</Action>
+"""
+
+
+def xml_vuelo(x: str, nombres: list) -> str:
+    """Puts the flight actions into actions.xml.
+
+    They go at the end of the ActionList and where does not matter:
+    ordenar_por_dependencias() relocates them afterwards, which is what it is
+    there for -- DarUnVuelo names Volar and Cernerse, and the engine's reader is
+    single-pass.
+    """
+    bloque = VUELO_ACCIONES.format(
+        sube=xml_poses(nombres, [2] * len(nombres), "0,0", (-6, -4)),
+        baja=xml_poses(nombres, [2] * len(nombres), "0,0", (-6, 4)),
+        cierne=xml_poses(nombres, [3] * len(nombres), "0,0", (0, 0)),
+        dx=DESTINO_X, alto=ALTURA_VUELO, suelo=ALTURA_SUELO)
+    i = x.rfind("</ActionList>")
+    return x[:i] + bloque + "\n\t" + x[i:] if i > 0 else x
+
+
+def xml_vuelo_conducta(x: str, frecuencia: int) -> str:
+    """Opens the door to flight from the ground.
+
+    It hangs off the block of ground behaviours -- one that already lives there
+    is looked up and it goes next to it- instead of the root of the list: at the
+    root it would also be eligible IN THE AIR, and a critter that decides to
+    take off while falling reads as a bug.
+    """
+    ancla = '<Behavior Name="WalkAlongWorkAreaFloor"'
+    i = x.find(ancla)
+    if i < 0:
+        return x
+    nuevo = f'<Behavior Name="DarUnVuelo" Frequency="{frecuencia}" />\n\t\t\t'
+    return x[:i] + nuevo + x[i:]
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("pokemon", help=tr("nombre o numero", "name or number"))
+    p.add_argument("--escala", type=float, default=0, help=tr("aumento, admite medios (0 = el que pida su talla)",
+                                                              "scale, including half steps (0 = based on its size)"))
+    p.add_argument("--nombre", help=tr("como llamarlo (por defecto, el del pokemon)",
+                                       "what to call it (defaults to the Pokémon name)"))
+    p.add_argument("--gif", help=tr("usa este gif en vez del de la cache (p.ej. el variocolor)",
+                                    "use this GIF instead of the cached one (e.g. a shiny)"))
+    p.add_argument("--trepar", action="store_true",
+                   help=tr("deja que trepe tambien por el TECHO (las paredes ya van de serie: ver PAREDES)",
+                           "also allow climbing on the CEILING (walls are enabled by default: see PAREDES)"))
+    p.add_argument("--probar", action="store_true",
+                   help=tr("fabrica y convierte pero NO importa: para pasar el pokedex entero",
+                           "build and convert but DO NOT import: for processing the whole Pokédex"))
+    p.add_argument("--vuela", action="store_true", help=tr("que vuele aunque no le toque",
+                                                           "make it fly even if it normally would not"))
+    p.add_argument("--no-vuela", action="store_true", help=tr("que no vuele aunque le toque",
+                                                              "prevent it from flying even if it normally would"))
+    args = p.parse_args()
+
+    asegurar_plantilla()
+
+    if args.escala < 0:
+        raise SystemExit(tr("la escala es un aumento: tiene que ser 0 o mas", "The scale must be 0 or greater"))
+    num, nombre = resolver(args.pokemon)
+    vuela = args.vuela or (vuela_este(num) and not args.no_vuela)
+    modo = locomocion(num, vuela)
+    gif = Path(args.gif).expanduser() if args.gif else DIR_GIF / f"{num}.gif"
+    if not gif.exists():
+        raise SystemExit(tr(f"no tengo el sprite animado de #{num} ({gif}); prueba 'poke-sprites'",
+                            f"No animated sprite for #{num} ({gif}); try 'poke-sprites'"))
+
+    from PIL import Image
+    fs = frames(gif)
+
+    # THE AIR THE GIF CARRIES. Many sprites do not reach the edge of their own
+    # canvas -- the gen 6 onwards ones come in a 96x96 square with the critter
+    # floating inside-, and since here it is anchored by the bottom edge, that
+    # gap turned into a pokemon walking on air: 87 species like that measured,
+    # up to 27 px in Grubbin, more than half its height.
+    #
+    # The gap is cropped BEFORE anything else, and with a box COMMON to all the
+    # frames, not each one's own. It is the difference between removing the air
+    # and wrecking the animation: if each frame were cropped on its own, they
+    # would all end up stuck to the ground and the sprite's own bounce would be
+    # lost, which is exactly what makes Gengar levitate and Zubat flap rising
+    # and falling.
+    comun = None
+    for f in fs:
+        b = f.getbbox()
+        if not b:
+            continue
+        comun = b if comun is None else (min(comun[0], b[0]), min(comun[1], b[1]),
+                                         max(comun[2], b[2]), max(comun[3], b[3]))
+    # AND WITH THE AIR GONE, THE SIDEWAYS TRIP. See desvio_lateral(): the common
+    # crop keeps the sprite's bounce, which is what is wanted, but it also keeps
+    # the side-to-side hops some gifs carry, and the banks that sample the cycle
+    # turn those into a teleport. It is cancelled only in X -- Y is exactly the
+    # bounce the paragraph above defends- and the same shift is later applied to
+    # the cycle, which comes from the same gif: that is why the table goes by the
+    # drawing's md5 and not by position in the list.
+    desvios = desvio_lateral(fs)
+    margen = max((abs(d) for d in desvios.values()), default=0)
+    fs = [encuadrar(f, comun, desvios.get(clave(f), 0), margen) for f in fs]
+
+    w, h = fs[0].size
+    # THE CRITTER'S HEIGHT IS NOT THE CANVAS'S HEIGHT. The common box above
+    # keeps the bounce of the WHOLE cycle, which is what is wanted for drawing,
+    # but measuring the scale against it leaves short precisely the ones that
+    # move most: Gengar's canvas carries 16 px of levitation inside and Zapdos's
+    # 26 of flapping, and those pixels are not critter. Measured over the 18
+    # installed, the error against the target went from -27% (Rayquaza) to -19%
+    # (Charizard) in the ones that bounce and from -0% (Umbreon) to +3% (Machop)
+    # in the ones that do not. Charizard even came out SMALLER than Charmeleon,
+    # which is exactly the nonsense this came to fix.
+    #
+    # The median of each frame's height IS the critter's height: the
+    # correlation with the dex size rises from +0.654 to +0.819.
+    altos = sorted(b[3] - b[1] for b in (f.getbbox() for f in fs) if b)
+    h_bicho = altos[len(altos) // 2] if altos else h
+    objetivo = alto_objetivo(num)
+    # In HALVES, not in integers: with an integer scale the jump from x1 to x2
+    # doubles the critter in one go and the error against the target reaches
+    # 33%. Measured over the 1025: integer r=0.756 err 12.2% | half r=0.883 err
+    # 6.4%.
+    escala = args.escala or max(1.0, round(objetivo / h_bicho * 2) / 2)
+    if h * escala > 200:          # hard cap: no critter may cover the screen
+        escala = max(1.0, escala - 0.5)
+    # capitalize() ONLY on the name that comes from the pokedex, never on the one
+    # the caller gives: 'UmbreonShiny'.capitalize() is 'Umbreonshiny', and then
+    # the prototype was saved under one name and poke-leader-shimeji looked for it
+    # under another -- rebuilding it on every pass and never getting to summon
+    # it.
+    etiqueta = args.nombre or nombre.capitalize()
+
+    tmp = Path(tempfile.mkdtemp())
+    # Make sure it gets cleaned up whatever happens. Up to 150 PNGs are written
+    # in here, and if something blows up along the way -- an empty sprite, a
+    # full disk- they were left hanging in /tmp with nobody to collect them.
+    # With atexit there is no need to wrap two hundred lines in a try.
+    atexit.register(shutil.rmtree, tmp, True)
+    img_dir = tmp / "img" / etiqueta
+    (tmp / "conf").mkdir(parents=True)
+    (img_dir / "conf").mkdir(parents=True)
+
+    ancho_f, alto_f = int(round(w * escala)), int(round(h * escala))
+
+    # It is drawn first on a roomy canvas and AFTERWARDS cropped to the minimum
+    # that contains the 46 poses. Working the canvas out by eye from the table's
+    # extremes left 28 px of air on each side -- and the air is exactly what
+    # makes Hyprland deform the critter as it nears the edge, long before it has
+    # got there. Cropping, the margin is the one really needed.
+    holgura = int(alto_f * 0.35) + 10
+    lienzo_w = ancho_f + holgura * 2
+    lienzo_h = int(alto_f * 1.25) + 10
+    suelo = lienzo_h - 1          # the line the feet rest on
+
+    # 'pat' and 'pegado' are optional: the poses that do not carry them are
+    # painted exactly as always (see deformar).
+    def pintar(fr, dx, dy, fx, fy, sh, pat=1.0, pegado=False):
+        g = fr.resize((ancho_f, alto_f), Image.NEAREST)
+        return deformar(g, lienzo_w, lienzo_h, suelo, dx, dy, fx, fy, sh, pat, pegado)
+
+    # 1. THE POSTURES. One still per situation, as always: sitting, hanging from
+    #    the mouse, falling. There the critter is still and a fixed image will do.
+    imagenes = {}
+    for i in range(1, POSES + 1):
+        # The base frame rotates through the gif so that the sprite's breathing
+        # animation stays alive underneath the deformation.
+        # the tuple may carry a sixth field (patas): it is passed through as is
+        imagenes[f"shime{i}.png"] = pintar(fs[(i - 1) % len(fs)],
+                                           *POSE.get(i, (0, 0, 1.0, 1.0, 0.0)))
+
+    # 2. THE BREATHING CYCLE. The gif as it is, without deforming anything: it
+    #    is the animation Game Freak drew and no squash & stretch improves it.
+    ciclo = recortar_ciclo(fotogramas(gif), MAX_IDLE)
+    # the same framing as the postures: the air crop and, on top, the sideways
+    # shift that cancels the hops (see the paragraph above).
+    ciclo = [(encuadrar(fr, comun, desvios.get(clave(fr), 0), margen), t)
+             for fr, t in ciclo]
+    idle_n = [f"anim{i}.png" for i in range(1, len(ciclo) + 1)]
+    idle_t = [t for _, t in ciclo]
+    # The eight sprites that do not animate arrive here as six copies of the
+    # same drawing (see fotogramas()): their breathing comes from the RESPIRA
+    # table, which is the only place in the cycle where anything is deformed.
+    # The rest go as they are.
+    estatua = len({clave(fr) for fr, _t in ciclo}) == 1
+    for i, (n, (fr, _t)) in enumerate(zip(idle_n, ciclo)):
+        imagenes[n] = pintar(fr, *(RESPIRA[i % len(RESPIRA)] if estatua
+                                   else (0, 0, 1.0, 1.0, 0.0)))
+
+    # 3. THE WALKING CYCLE. The template alternates neutral/step A/neutral/step
+    #    B over a frozen image. That four-phase sway is kept, but applied to
+    #    frames that ADVANCE: the critter takes the step and also keeps moving
+    #    inside.
+    #    And the twelve come from a CONSECUTIVE window of the cycle, not spread
+    #    across all of it: spread out, each engine tick eats five gif frames and
+    #    the gesture plays five times faster than it was drawn -- it is Eevee's,
+    #    Umbreon's and Rayquaza's whiplash. See recortar_ciclo().
+    andar = recortar_ciclo(ciclo, PASOS, ventana=True)
+    fases = FASES[modo]
+    # With a gif that does not animate (all its frames identical) the cycle ends
+    # up as one, and then the movement has to come ENTIRELY from the
+    # deformation, which is what the old script did with shime1/2/3. Without
+    # this a Pecharunt crossed the screen like a decal, without moving a pixel.
+    if len(andar) == 1:
+        andar = andar * 4
+    # The phases go four at a time (fases[i % 4]); if the bank is not a multiple
+    # of four, a phase is skipped when the cycle closes and you see a jerk.
+    andar = andar[:len(andar) - len(andar) % 4] or andar
+    paso_n = [f"paso{i}.png" for i in range(1, len(andar) + 1)]
+    for i, (n, (fr, _t)) in enumerate(zip(paso_n, andar)):
+        imagenes[n] = pintar(fr, *fases[i % 4])
+
+    # 3b. FLIGHT uses no images of its own: they are the same frames as the
+    #     breathing cycle, which is where the flyers already carry the flapping.
+    #     Only twelve spread-out ones are taken and played faster.
+    # Spread across the whole cycle, not the first twelve: truncating leaves the
+    # flapping half done and the loop closes with a jerk. It is the same
+    # criterion recortar_ciclo() applies to the frames.
+    if len(idle_n) <= 12:
+        vuelo_n = idle_n
+    else:
+        vuelo_n = [idle_n[round(i * len(idle_n) / 12)] for i in range(12)]
+
+    # 4. THE RESTING POSTURES BREATHE TOO. Sit was another ten-second still
+    #    image, and it is where it stays longest: completely still there it
+    #    reads as the program having hung, not as the critter resting.
+    #
+    #    And it is not just Sit. Lying down lasts between twenty seconds and a
+    #    minute (Duration="${500+Math.random()*1000}"), so sprawled or with its
+    #    legs dangling is where a fixed still shows MOST. Each posture gets its
+    #    own bank, with the deformation that defines it.
+    #
+    #    Six frames and not twelve: the body is still and the only thing that
+    #    moves is the sprite's breathing, so with half it looks the same and the
+    #    prototype does not bloat for four postures almost nobody looks at
+    #    closely.
+    reposo = recortar_ciclo(ciclo, 6)
+    # A sprite that does not animate (the eight from gen 9 that are a png inside
+    # a gif) leaves the bank at ONE frame, and sitting is once again the fixed
+    # still that this section exists to get rid of. It is duplicated so that
+    # respirar()'s built breathing has somewhere to live, just as the walking
+    # cycle does with its four phases.
+    # The duration is not duplicated along with the frame: that of the only one
+    # there is, is the 250 ticks of "this does not animate" (fotogramas()), and
+    # four copies of that would be forty seconds of breathing. A normal cycle is
+    # shared out among the four.
+    if len(reposo) == 1:
+        reposo = [(reposo[0][0], max(1, REPOSO_MIN // 4))] * 4
+    # The rhythm it was drawn with, not an invented one: recortar_ciclo()
+    # already gives each frame that stays the time of the ones it removes, so
+    # these durations are the gif's. They used to be thrown away and a fixed 3
+    # put for all, which played Snorlax's cycle (9 s) in 1.4 -- six times faster
+    # sitting than standing.
+    reposo_t = ritmo_minimo([t for _, t in reposo], REPOSO_MIN)
+    # Make the drawing really rest on the ground. The gif carries its own bounce
+    # and here the critter sits for between 20 and 60 seconds: in Mudkip there
+    # are frames with 14 px of air underneath (at 2x) and it would look like it
+    # was floating. Not the ones that levitate, since there the bounce is the
+    # whole point.
+    pegado = modo != "flota"
+    sent_n = [f"sit{i}.png" for i in range(1, len(reposo) + 1)]
+    for i, (n, (fr, _t)) in enumerate(zip(sent_n, reposo)):
+        imagenes[n] = pintar(fr, *respirar(POSE[11], i, len(reposo)), pegado=pegado)
+
+    # posture -> (which pose defines it, prefix of its images)
+    POSTURAS = {
+        "SitAndLookUp":    (26, "mira"),
+        # THE POSTURE IT SPENDS ITS LIFE IN, and it was the only resting one
+        # left out of this table. ChaseMouse has 600 of the root's 700 points
+        # (86%), its only exit is SitAndFaceMouse, which is ten repetitions in
+        # a row and a 60% chance of chaining again: on average, more than a
+        # minute straight in this action. And pose 26 already existed, with the
+        # comment in place; SitAndLookUp was taking the bank.
+        "SitAndLookAtMouse": (26, "miraraton"),
+        "SitWithLegsUp":   (30, "parriba"),
+        "SitWithLegsDown": (31, "pabajo"),
+        "Sprawl":          (21, "tumba"),
+        # GRIPPING THE WALL, which was the last ten-second still left alive:
+        # <Action Type="Stay" BorderType="Wall"> with ONE 250-tick pose. And it
+        # is not a corner case: PAREDES raises to 100 each of the four
+        # behaviours that go looking for the wall from the ground, so the
+        # critter spends a good part of the time there.
+        #
+        # The wall anchor is rewritten by reanclar_por_borde() at the left edge
+        # of EACH image, so the new bank anchors itself: it goes by file name
+        # against 'izquierdas', not by pose number.
+        "GrabWall":        (13, "pared"),
+        # And the ceiling likewise. Today it does not show -- the CEILING
+        # behaviours go at Frequency 0 unless --trepar-, but the day someone
+        # switches it on they would find the only ten-second still left alive.
+        # The ceiling anchor is top-centre for every pose in the block, it does
+        # not depend on the file name.
+        "GrabCeiling":     (23, "techo"),
+    }
+    bancos_reposo, por_pose = {}, {}
+    for accion, (pose, pref) in POSTURAS.items():
+        # Two actions that share a pose share images: SitAndLookUp and
+        # SitAndLookAtMouse are both 26, and drawing them twice means six extra
+        # identical PNGs in every prototype.
+        if pose not in por_pose:
+            nombres = [f"{pref}{i}.png" for i in range(1, len(reposo) + 1)]
+            for i, (n, (fr, _t)) in enumerate(zip(nombres, reposo)):
+                imagenes[n] = pintar(fr, *respirar(POSE[pose], i, len(reposo)),
+                                     pegado=pegado)
+            por_pose[pose] = nombres
+        bancos_reposo[accion] = por_pose[pose]
+
+    # 4b. THE STRUGGLE. Resisting is the only thing you see while you hold it
+    #     with the mouse, and of its 266 ticks 150 -- 56%- were ONE FIXED
+    #     IMAGE: it struggles 0.8 s, freezes 2 s, struggles 1.6 s, freezes 4 s.
+    #     And both pauses were shime1, the pose of standing there calmly, so for
+    #     more than half the time you drag it the animation seemed to have hung.
+    #
+    #     No pauses are needed here at all: the struggle is built as a bank,
+    #     with the same gif frames leaning to one side and the other (poses 5
+    #     and 6, dx +-2 and shear +-0.10, which is what already defined the
+    #     struggle). That way there is not a single frozen tick and it also
+    #     keeps breathing underneath.
+    forc_n = [f"forc{i}.png" for i in range(1, len(reposo) * 2 + 1)]
+    for i, n in enumerate(forc_n):
+        fr, _t = reposo[i % len(reposo)]
+        imagenes[n] = pintar(fr, *POSE[5 if i % 2 == 0 else 6])
+
+    caja = None
+    for im in imagenes.values():
+        b = im.getbbox()
+        if not b:
+            continue
+        caja = b if caja is None else (min(caja[0], b[0]), min(caja[1], b[1]),
+                                       max(caja[2], b[2]), max(caja[3], b[3]))
+    if caja is None:
+        raise SystemExit(tr("las poses han salido vacias", "The generated poses are empty"))
+    # While at it, note where EACH drawing starts inside the common canvas: it
+    # is the anchor of the wall poses (see reanclar_por_borde).
+    izquierdas = {}
+    for n, im in imagenes.items():
+        g = im.crop(caja)
+        b = g.getbbox()
+        izquierdas[n] = b[0] if b else 0
+        g.save(img_dir / n)
+
+    # THE ANCHORING, and there was a bug here that showed on screen. It was
+    # computed by subtracting from the big canvas's ground what had been
+    # cropped at the top (suelo - caja[1]), and that keeps the CANVAS's line,
+    # not the DRAWING's. Since many sprites do not reach the bottom edge of their
+    # own canvas -- they have spare transparency underneath-, the critter was
+    # anchored at a point that had air, and it walked floating: 87 species like
+    # that measured, with a median of 11 px and up to 27 in Grubbin, more than
+    # half its height.
+    #
+    # The crop box is already, by definition, the rectangle that contains the
+    # last painted pixel of the 130 images. So the feet are on its bottom edge,
+    # and that is the anchor.
+    lienzo_w = caja[2] - caja[0]
+    lienzo_h = caja[3] - caja[1]
+    suelo = lienzo_h
+
+    for f in ("actions", "behaviors"):
+        x = (PLANTILLA / f"{f}.xml").read_text(encoding="utf-8")
+
+        # THE BUG THAT BROKE EVERYTHING. The template writes <NextBehavior>,
+        # which is what the original Shimeji called it; the converter only
+        # recognises <NextBehaviorList> (shimejictl:1098) and the branch has NO
+        # else, so the seven behaviour chains were thrown away SILENTLY -- the
+        # prototype came out with next_behavior_list_count: 0 and the critter
+        # chained nothing: it jumped from one behaviour to another at random,
+        # which is exactly what looked like "broken interaction".
+        x = x.replace("<NextBehavior ", "<NextBehaviorList ") \
+             .replace("<NextBehavior>", "<NextBehaviorList>") \
+             .replace("</NextBehavior>", "</NextBehaviorList>")
+        if f == "actions":
+            # Flight goes in BEFORE sorting: its three actions name each other
+            # and the engine's reader is single-pass, so they have to go through
+            # the same reordering as the rest. And also before the re-anchoring
+            # and con_margen, which give them the right anchor and the edge
+            # seatbelt without having to repeat them here.
+            if vuela:
+                x = xml_vuelo(x, vuelo_n)
+            x = xml_invocables(x)
+            x = agarre_mas_corto(x)
+            # The margin is half the drawing's width plus a smidgen: it is what
+            # sticks out when the anchor is in the centre (see the function).
+            x = apartarse_del_filo(x, lienzo_w // 2 + 8)
+            x = ordenar_por_dependencias(x)
+            # THE POSTURES LASTED HALF A MINUTE. StandUp and SitDown take 11.0%
+            # of the decisions each, and both ask for exactly the same thing:
+            # Duration="${500+Math.random()*1000}", that is, 500 to 1500 ticks,
+            # which at 25 per second is FROM TWENTY TO SIXTY SECONDS still. And
+            # it is not just those two: the four "walk to one side and sit down"
+            # ones -- another 400 points of the ground block- end in the same
+            # long Sit, and ChaseMouse also ends up sitting. Adding it up, more
+            # than half of the decisions led into a static half-minute posture:
+            # the critter was standing still longer than it was doing anything.
+            #
+            # They are cut in half: 250..750 ticks, ten to thirty seconds. It is
+            # still a real rest -- it does not leave a nervous critter- but the
+            # decisions per minute double, which is what makes it look alive.
+            #
+            # It goes AFTER agarre_mas_corto() on purpose: that one already left
+            # the wall and ceiling Grab* at ${100+Math.random()*200}, so they no
+            # longer match this pattern. The other way round, the grip would go
+            # from 4-12 s to 10-30 s without anyone noticing.
+            x = x.replace("${500+Math.random()*1000}", "${250+Math.random()*500}")
+            # THE ACTIONS THAT WERE FROZEN. Stand and Sit were one image with
+            # Duration="250" -ten seconds at 25 ticks/s- and Walk alternated two
+            # fixed stills. Now all four walk through the banks.
+            #
+            # The anchor does not matter here: reanclar_por_borde() rewrites it
+            # later in the whole file, these included (they are ground actions).
+            #
+            # The step's ticks do not come from the gif, on purpose. The rest of
+            # the animation respects the rhythm it was drawn with, but the step
+            # is ANOTHER thing: it has to match how much ground moves underneath,
+            # and if it does not match you see it skate.
+            a = "0,0"
+            # The resting durations come from the gif (reposo_t), with the
+            # REPOSO_MIN floor so that nobody goes in jerks: they were at a fixed
+            # 3 and 6 ticks, which sped up the slow ones' cycle by up to six
+            # times.
+            x = poner_animacion(x, "Stand",
+                                xml_poses(idle_n, ritmo_minimo(idle_t, REPOSO_MIN), a))
+            x = poner_animacion(x, "Sit", xml_poses(sent_n, reposo_t, a))
+            for accion, nombres in bancos_reposo.items():
+                x = poner_animacion(x, accion, xml_poses(nombres, reposo_t, a))
+            v = zancada(num, alto_f)   # alto_f = the already-scaled body
+            # THE STEP IS MEASURED IN BODIES, NOT IN PIXELS. The walking cycle is
+            # four phases (fases[i % 4]), so each cycle advances 4*t*v px. With t
+            # fixed at 3 that came out between 0.10 and 0.57 body heights
+            # depending on the critter -- a sixfold difference- and that is why
+            # some walked and others skated. Fixing the step at 0.30 heights and
+            # solving for t, the spread closes to 0.21-0.48.
+            #
+            # The 10-tick cap (0.4 s per drawing) keeps a slow, big critter from
+            # freezing; the floor of 2, because at 1 tick Game Freak's drawings
+            # play at three times their pace (they come at 2-8 ticks, mean 3.3).
+            t = max(2, min(10, round(0.30 * alto_f / (4 * v))))
+            if modo == "salta":
+                # A push-off that lasts as long as a step does not read as a
+                # push-off, it reads as a tremor.
+                t = max(t, 4)
+            # RUNNING IS SPEEDING UP THE LEGS, NOT LENGTHENING THE STRIDE. Run
+            # used to be the same drawings at t-2 ticks and at twice the speed:
+            # the cycle got 33% shorter while the ground went twice as fast, that
+            # is, the legs at 1.5x the ground -- skating, but backwards. Now the
+            # speed comes from the cadence (v*t/t_correr), so the stride measures
+            # the same walking as running: 734 of the 1025 hit 1.00 exactly and
+            # the rest stay between 0.80 and 1.33, against 0.67 for all of them.
+            #
+            # The v+1 is for the ones already at 2 ticks walking: there the
+            # cadence has nothing more to give, and a run at the same speed as
+            # the stroll is not a run.
+            t_correr = max(2, t // 2)
+            v_correr = max(v + 1, round(v * t / t_correr))
+            x = poner_animacion(x, "Walk", xml_poses(paso_n, [t] * len(paso_n), a, (-v, 0)))
+            x = poner_animacion(x, "Run", xml_poses(paso_n, [t_correr] * len(paso_n), a, (-v_correr, 0)))
+            # WHAT YOU SEE WHEN YOU PICK IT UP WITH THE MOUSE. Resisting now
+            # walks through the struggle bank (see step 4b): two passes over the
+            # same frames, the first fast and the second at twice the time per
+            # frame. It reads as struggling and getting tired, and it is ~144
+            # ticks without ONE SINGLE frozen image, against the 266 from before
+            # with 150 stuck on the neutral standing pose.
+            x = poner_animacion(x, "Resisting",
+                                xml_poses(forc_n + forc_n,
+                                          [4] * len(forc_n) + [8] * len(forc_n), a))
+            # DASH, the most visible run the critter does: it is what you see in
+            # ChaseMouse (600 of the 1810 points competing on the ground) and in
+            # poke-battle's three fights. It came from the template with four
+            # slots -- shime1, shime2, shime1, shime3- and shime1 is the
+            # UNDEFORMED standing pose: it crossed at 200 px/s with the same still
+            # it has when stopped. And that -8 was identical in all 18, right
+            # after zancada() had gone to the trouble of giving each one its own:
+            # Snorlax charged at the same speed as Pikachu.
+            #
+            # Now it is the walking bank at -v*4, capped at 12 px per tick (300
+            # px/s). The cap is not decorative: without it, a critter with stride
+            # 4 would go at 16 px per tick and cross a 1920 screen in five
+            # seconds, which no longer reads as running but as a jump in
+            # position.
+            x = poner_animacion(x, "Dash",
+                                xml_poses(paso_n,
+                                          [2 if modo == "salta" else 1] * len(paso_n),
+                                          a, (-min(v * 4, 12), 0)))
+        # Anchoring by edge type: feet for the ground, top-centre for the
+        # ceiling, the edge for the wall. It used to be ONE single global
+        # anchor, and that was the throw bug: see reanclar_por_borde().
+        x = reanclar_por_borde(x, lienzo_w, suelo, izquierdas)
+        # The margin comes from the drawing, not from the screen: half a width
+        # at the sides (the anchor is in the centre) and a whole height at the
+        # top (the anchor is at the feet, so the body grows upwards).
+        x = con_margen(x, lienzo_w // 2 + 4, lienzo_h + 4)
+        if f == "behaviors":
+            # The wall ones ALWAYS go in (see PAREDES): they are the ones that
+            # keep the critter from staying half outside when it hits a side.
+            # The ceiling ones only if asked for by hand.
+            if not args.trepar:
+                for b in TECHO:
+                    x = re.sub(r'(<Behavior Name="' + re.escape(b) + r'"[^>]*?Frequency=")\d+(")',
+                               r"\g<1>0\g<2>", x)
+            # make it grab the sides instead of staying half outside
+            for b, frec in PAREDES.items():
+                x = re.sub(r'(<Behavior Name="' + re.escape(b) + r'"[^>]*?Frequency=")\d+(")',
+                           r"\g<1>" + str(frec) + r"\g<2>", x)
+            # make it pay attention to you
+            for b, frec in INTERACCION.items():
+                x = re.sub(r'(<Behavior Name="' + re.escape(b) + r'"[^>]*?Frequency=")\d+(")',
+                           r"\g<1>" + str(frec) + r"\g<2>", x)
+            # and make whatever it does next come to an end
+            for b, pesos in CADENAS.items():
+                x = pesos_de_cadena(x, b, pesos)
+            # NOBODY PICKED LYING DOWN. LieDown comes at Frequency 0 at the root
+            # AND at 0 inside the ground condition, so the critter never decides
+            # to lie down. Careful, that is not the same as it not happening: it
+            # was reached ON THE REBOUND, because SitDown carries a <NextBehavior
+            # Add="true"> with LieDown at 100 and crawling chains into it at 1.
+            # Counted over the tree, that gives 1.9% of the transitions. With a
+            # weight of its own it rises to 2.5% and, above all, it stops
+            # depending on having gone through something else first.
+            #
+            # It goes here, in the ground block -- the same place DarUnVuelo
+            # hangs from- and not at the root: at the root it would also be
+            # eligible in the air and on the wall, which is exactly the bug that
+            # was fixed for flight.
+            #
+            # Low on purpose: lying down is a gesture that wears out if
+            # repeated, and its <NextBehaviorList> already leads back to SitDown
+            # or to crawling, so it does not leave the critter in a dead end.
+            #
+            # And THE CHARACTER, in the same place where everything else is
+            # rewritten. Until now the 18 prototypes came out with the SAME
+            # table: the only difference between Snorlax and Pikachu was
+            # DarUnVuelo. See CARACTER: nervio multiplies how much it chases you
+            # and how much it walks, pereza how much it stays put. The base
+            # weights are the ones above (INTERACCION and the template), so if
+            # they are changed there, the count follows here.
+            nervio, pereza = caracter(num)
+            for b, base, k in (
+                ("ChaseMouse",             INTERACCION.get("ChaseMouse", 600), nervio),
+                ("WalkAlongWorkAreaFloor", 100, nervio),
+                ("RunAlongWorkAreaFloor",  100, nervio),
+                ("StandUp",                200, pereza),
+                ("SitDown",                200, pereza),
+                ("LieDown",                 60, pereza),
+            ):
+                # max(1, ...) is not paranoia: a 0 here leaves the critter
+                # without that behaviour, and with the ground ones at zero it gets
+                # nailed to the spot. Measured over the 1025, the lowest walking
+                # and running come out at is 30.
+                x = re.sub(r'(<Behavior Name="%s"[^>]*?Frequency=")\d+(")' % re.escape(b),
+                           r"\g<1>" + str(max(1, round(base * k))) + r"\g<2>", x)
+            if vuela:
+                x = xml_vuelo_conducta(x, VUELO_FRECUENCIA)
+            x = xml_invocables_conducta(x)
+        (tmp / "conf" / f"{f}.xml").write_text(x, encoding="utf-8")
+        (img_dir / "conf" / f"{f}.xml").write_text(x, encoding="utf-8")
+
+    # TEST MODE. It goes the whole way -- deforming, writing the XML, packaging
+    # and converting- and stops just before importing, in a separate directory
+    # that is deleted on exit. It is for running all 1025 through here and
+    # seeing which ones break without filling the system with throwaway
+    # prototypes.
+    if args.probar:
+        pru = Path(tempfile.mkdtemp(prefix="poke-prueba-"))
+        try:
+            z = pru / f"{etiqueta}.zip"
+            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+                for ruta in tmp.rglob("*"):
+                    if ruta.is_file():
+                        zf.write(ruta, ruta.relative_to(tmp))
+            shutil.rmtree(tmp)
+            r = subprocess.run(["shimejictl", "convert", str(z), "-O", str(pru), "-f"],
+                               input="A\n", capture_output=True, text=True)
+            if "Converted" not in (r.stdout + r.stderr):
+                print(tr(f"CONVERSION FALLIDA: {(r.stderr or r.stdout)[-300:]}",
+                         f"CONVERSION FAILED: {(r.stderr or r.stdout)[-300:]}"), file=sys.stderr)
+                return 2
+            # The real .wlshm is checked, not the XML: what matters is what
+            # reaches the engine, and in between there is a converter that
+            # silently drops what it does not understand (that is how a flight
+            # action without a single pose slipped through, which compiled but
+            # did not exist).
+            wl = pru / f"Shimeji.{etiqueta}.wlshm"
+            datos = wl.read_bytes()[512:]
+            import io, tarfile
+            with tarfile.open(fileobj=io.BytesIO(datos)) as tf:
+                acc = json.loads(tf.extractfile("actions.json").read())
+                con = json.loads(tf.extractfile("behaviors.json").read())
+            acciones = acc if isinstance(acc, list) else acc.get("actions", [])
+            porn = {a.get("name"): a for a in acciones}
+            vacias = [n for n, a in porn.items()
+                      if a.get("type") in ("Stay", "Move", "Animate")
+                      and not a.get("content_count")]
+            conductas = {b.get("name"): b for b in con.get("definitions", [])}
+            print(json.dumps({
+                "num": num, "nombre": etiqueta, "fotogramas": len(fs),
+                "sprite": f"{w}x{h}", "escala": escala,
+                "imagenes": len(imagenes), "zip_kb": z.stat().st_size // 1024,
+                "poses_quieto": len(idle_n), "poses_paso": len(paso_n),
+                "vuela": vuela, "modo": modo, "zancada": zancada(num, alto_f),
+                "vuelo_ok": bool(vuela and porn.get("Volar", {}).get("content_count")
+                                 and porn.get("Cernerse", {}).get("content_count")
+                                 and conductas.get("DarUnVuelo", {}).get("frequency")),
+                "acciones_vacias": vacias,
+            }, ensure_ascii=False))
+            return 0 if not vacias else 3
+        finally:
+            shutil.rmtree(pru, ignore_errors=True)
+
+    BASE.mkdir(parents=True, exist_ok=True)
+    CONV.mkdir(parents=True, exist_ok=True)
+    z = BASE / f"{etiqueta}.zip"
+    if z.exists():
+        z.unlink()
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+        for ruta in tmp.rglob("*"):
+            if ruta.is_file():
+                zf.write(ruta, ruta.relative_to(tmp))
+    shutil.rmtree(tmp)
+
+    r = subprocess.run(["shimejictl", "convert", str(z), "-O", str(CONV), "-f"],
+                       input="A\n", capture_output=True, text=True)
+    if "Converted" not in (r.stdout + r.stderr):
+        print(r.stdout[-500:], r.stderr[-500:], file=sys.stderr)
+        raise SystemExit(tr("no se pudo convertir", "Conversion failed"))
+    # IMPORT WITHOUT TALKING TO THE DAEMON, which is the only thing that does
+    # not crash.
+    #
+    # 'shimejictl prototypes import' goes through the protocol and when it
+    # finishes it sends a ReloadPrototype: the daemon does
+    # mascot_prototype_unlink and dies with SEGV. Measured on 2026-09-26: every
+    # rebuild of the 18 left 18 dumps of 1.9 MB in /var/lib/systemd/coredump,
+    # and every crash took down ALL the live critters, not just the one being
+    # regenerated.
+    #
+    # The 2026-09-14 attempt -- stopping the service before importing- did NOT
+    # work, and the reason was hidden: shimejictl creates the Client (and with it
+    # STARTS the daemon) before looking at which subcommand you asked for, so the
+    # import itself brought back to life what had just been stopped.
+    # '--do-not-start' is no shortcut either: with no live daemon it makes any
+    # subcommand fail, convert included.
+    #
+    # The real cure is that importing is not talking to anyone: it is
+    # EXTRACTING. A .wlshm is 512 bytes of header (WLPK, name and version)
+    # followed by a tar, and the installed prototype is that tar extracted in
+    # ~/.local/share/wl_shimeji/shimejis/Shimeji.<name>/ -- checked file by
+    # file. And there is no index to update: the overlay's config only holds
+    # options, it discovers the prototypes by scanning the directory.
+    import io, tarfile
+    destino = Path.home() / ".local/share/wl_shimeji/shimejis" / f"Shimeji.{etiqueta}"
+    fuente = CONV / f"Shimeji.{etiqueta}.wlshm"
+    datos = fuente.read_bytes()
+    if datos[:4] != b"WLPK":
+        raise SystemExit(tr(f"{fuente.name} no parece un prototipo: falta la marca WLPK",
+                            f"{fuente.name} does not look like a prototype: the WLPK marker is missing"))
+    # It is extracted alongside and renamed: if the tar blows up halfway, the
+    # prototype that already worked stays whole in its place.
+    nuevo = destino.parent / f".{destino.name}.nuevo"
+    viejo = destino.parent / f".{destino.name}.viejo"
+    shutil.rmtree(nuevo, ignore_errors=True)
+    nuevo.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(datos[512:])) as tf:
+        try:
+            tf.extractall(nuevo, filter="data")
+        except TypeError:       # the filter does not exist before Python 3.12
+            tf.extractall(nuevo)
+    shutil.rmtree(viejo, ignore_errors=True)
+    if destino.exists():
+        destino.rename(viejo)
+    nuevo.rename(destino)
+    shutil.rmtree(viejo, ignore_errors=True)
+
+    # If an overlay is running it keeps the old version in memory until it
+    # restarts, and that is exactly what is wanted: better a critter with the
+    # prototype from a minute ago than the whole daemon on the floor.
+    try:
+        vivo = subprocess.run(["systemctl", "--user", "is-active", "wl_shimeji.service"],
+                              capture_output=True, text=True, timeout=5)
+        if (vivo.stdout or "").strip() == "active":
+            print(tr(f"   {etiqueta} esta guardado, pero el overlay sigue con la "
+                     f"version anterior en memoria: se vera al proximo arranque.",
+                     f"   {etiqueta} is saved, but the overlay still has the previous version in memory: it will appear on the next start."),
+                  file=sys.stderr)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    # Record it AFTER importing: if something failed, it must not appear as done.
+    try:
+        reg = json.loads(REGISTRO.read_text()) if REGISTRO.exists() else {}
+    except ValueError:
+        reg = {}
+    reg[etiqueta] = num
+    REGISTRO.parent.mkdir(parents=True, exist_ok=True)
+    tmp = REGISTRO.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(reg, ensure_ascii=False, indent=0))
+    tmp.replace(REGISTRO)
+
+    if len(ciclo) == 1:
+        print(tr(f"   aviso: el sprite de #{num} no anima -- un solo fotograma-, asi "
+                 f"que este se queda quieto de verdad. No es cosa del generador.",
+                 f"   Warning: sprite #{num} has only one frame, so this Pokémon will stay still. This comes from the sprite itself."),
+              file=sys.stderr)
+    print(tr(f"{etiqueta} listo  (#{num}, {len(fs)} fotogramas, sprite {w}x{h} a {escala}x)",
+             f"{etiqueta} ready  (#{num}, {len(fs)} frames, sprite {w}x{h} at {escala}x)"))
+    print(tr(f"   sacalo con:  shimejictl summon {etiqueta}",
+             f"   Summon it with:  shimejictl summon {etiqueta}"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

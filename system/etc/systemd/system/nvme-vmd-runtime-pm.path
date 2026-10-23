@@ -1,0 +1,25 @@
+# Watches TLP to restore the NVMe's runtime PM as soon as TLP overrides it.
+# Written on 2026-09-14. The full reason why is in the .service unit next door.
+#
+# TLP rewrites /run/tlp/run.conf EVERY TIME it is applied: at boot, when the
+# power is plugged in or unplugged, on resume from suspend, and every time
+# tlp-pd changes profile because Diego touches it in the notch's Ajustes >
+# Sistema (Settings > System). Watching that file is the way to hook into all
+# of those moments with a single unit, instead of chasing each trigger
+# separately.
+#
+# There is no risk of a loop: the service writes to /sys, not to /run/tlp.
+[Unit]
+Description=Watches TLP to put back runtime PM for the NVMe and the VMD tree
+Documentation=file:///etc/systemd/system/nvme-vmd-runtime-pm.service
+
+[Path]
+PathChanged=/run/tlp/run.conf
+PathModified=/run/tlp/run.conf
+# Apply it at boot too, even if the file already exists and has not changed:
+# otherwise, between boot and the first profile change the disk stays on
+# 'auto', which is exactly the window in which it hangs on wake-up.
+MakeDirectory=no
+
+[Install]
+WantedBy=multi-user.target

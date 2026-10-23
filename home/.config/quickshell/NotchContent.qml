@@ -1,7 +1,7 @@
-// NotchContent.qml — lo que se ve DENTRO del notch, según el modo.
-// Recibe el rectángulo completo del notch (franja de barra + bulto); cada modo
-// es una capa que aparece/desaparece con opacidad, así el morfeo lo hace la
-// forma de TopShell y el contenido solo se funde.
+// NotchContent.qml — what you see INSIDE the notch, depending on the mode.
+// It receives the notch's full rectangle (bar strip + bulge); each mode is a
+// layer that appears/disappears with opacity, so the morph is done by
+// TopShell's shape and the content only cross-fades.
 import Quickshell
 import QtQuick
 import QtQuick.Layouts
@@ -10,23 +10,23 @@ Item {
     id: root
     property int barH: 32
 
-    // Sobreescribible A PROPOSITO: TopShell le pasa la cara de reposo en las
-    // pantallas que no tienen el foco. Por defecto, la que mande ShellState.
+    // Overridable ON PURPOSE: TopShell passes it the idle face on the screens
+    // that do not have focus. By default, whatever ShellState says.
     property string mode: ShellState.mode
 
     // ─────────────── idle / media ───────────────
-    // Estructura fija de dos polos, para que nada salte al cambiar de estado:
-    //   IZQUIERDA (siempre): el reloj.
-    //   DERECHA (contextual): batería en reposo, carátula + picos con música.
-    // La batería está AQUÍ y solo aquí: se quitó de la barra para no repetirla.
+    // Fixed two-pole structure, so nothing jumps when the state changes:
+    //   LEFT (always): the clock.
+    //   RIGHT (contextual): battery at rest, cover art + peaks with music.
+    // The battery is HERE and only here: it left the bar to avoid repeating it.
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "media" || root.mode === "idle"
 
-        // ---- hora (+ fecha si está activada) ----
-        // Centrada: en reposo solo hay un dato, así que anclarla a un lado
-        // dejaría el notch descompensado. Con música se aparta a la izquierda
-        // para dejar sitio a la carátula y a los picos.
+        // ---- time (+ date if enabled) ----
+        // Centred: at rest there is only one piece of data, so anchoring it to
+        // a side would leave the notch lopsided. With music it moves left to
+        // make room for the cover art and the peaks.
         Row {
             anchors {
                 horizontalCenter: parent.horizontalCenter
@@ -38,19 +38,71 @@ Item {
             }
             spacing: 11
 
-            Text {
+            // Inner row with spacing 0 ON PURPOSE: the gap between the
+            // pokemon and the time goes INSIDE the sprite's width, not in the
+            // outer row's spacing. If it were left in the spacing, putting on
+            // a pokemon would make the time jump a hard 11 px instead of
+            // moving along with the sprite as it comes in.
+            Row {
                 anchors.verticalCenter: parent.verticalCenter
-                text: Qt.formatDateTime(ShellState.now, "HH:mm")
-                color: "#ffffff"
-                font.family: Appearance.fontUI
-                font.pixelSize: Config.clockSize
-                font.weight: Font.DemiBold
-                font.features: ({ "tnum": 1 })   // dígitos de ancho fijo: no baila al cambiar de minuto
+                spacing: 0
+
+                // ---- the pokemon you are wearing ----
+                // Only there if 'poke-theme wear' has left something: the rest
+                // of the time it measures 0 and is neither seen nor takes room.
+                Item {
+                    id: pokeSlot
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: 22
+                    width: ShellState.pokeWorn ? pokeSprite.implicitWidth + Appearance.gapM : 0
+                    // Without this the row would still reserve its spacing when
+                    // there is no pokemon, and the time would be off-centre.
+                    visible: width > 0.5
+                    clip: true
+                    Behavior on width {
+                        SpringAnimation {
+                            spring: Appearance.sprTight
+                            damping: Appearance.dmpTight
+                            epsilon: Appearance.eppPx
+                        }
+                    }
+
+                    AnimatedImage {
+                        id: pokeSprite
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        source: ShellState.pokeWornSprite
+                        // Decoded straight at the final height: rescaling a 63 px
+                        // sprite to 22 on each of its 40 frames costs more and
+                        // looks worse.
+                        sourceSize.height: 22
+                        height: 22
+                        fillMode: Image.PreserveAspectFit
+                        // Still when not visible: there is no point decoding
+                        // frames for nobody.
+                        playing: pokeSlot.visible
+                        opacity: ShellState.pokeWorn ? 1 : 0
+                        Behavior on opacity {
+                            NumberAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic }
+                        }
+                    }
+                }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: Appearance.clockNudge(Config.clockSize)
+                    text: Qt.formatDateTime(ShellState.now, "HH:mm")
+                    color: Colors.label
+                    font.family: Appearance.fontClock
+                    font.pixelSize: Appearance.clockPixelSize(Config.clockSize)
+                    font.weight: Font.DemiBold
+                    font.features: ({ "tnum": 1 })   // fixed-width digits: no jitter when the minute changes
+                }
             }
 
             Column {
                 anchors.verticalCenter: parent.verticalCenter
-                // fundido en vez de aparecer/desaparecer de golpe al sonar música
+                // fade instead of popping in/out abruptly when music starts
                 opacity: (Config.showDate && !ShellState.mediaLive) ? 1 : 0
                 visible: opacity > 0.01
                 Behavior on opacity { NumberAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
@@ -59,23 +111,23 @@ Item {
                     height: 12
                     verticalAlignment: Text.AlignVCenter
                     text: ShellState.capitalize(ShellState.now.toLocaleDateString(ShellState.loc, "dddd"))
-                    color: "#d0d0d0"
+                    color: Colors.label
                     font.family: Appearance.fontUI
-                    font.pixelSize: 10
+                    font.pixelSize: Appearance.fsXXS
                     font.weight: Font.Medium
                 }
                 Text {
                     height: 12
                     verticalAlignment: Text.AlignVCenter
                     text: ShellState.now.toLocaleDateString(ShellState.loc, I18n.tr("d 'de' MMMM"))
-                    color: "#7f7f7f"
+                    color: Colors.label2
                     font.family: Appearance.fontUI
-                    font.pixelSize: 10
+                    font.pixelSize: Appearance.fsXXS
                 }
             }
         }
 
-        // ---- polo derecho en reposo: batería ----
+        // ---- right pole at rest: battery ----
         Row {
             anchors { right: parent.right; rightMargin: 15; verticalCenter: parent.verticalCenter }
             spacing: 6
@@ -87,7 +139,7 @@ Item {
                 text: ShellState.battIcon
                 color: ShellState.ac ? Colors.ok
                     : ShellState.batt < 15 ? Colors.crit
-                    : ShellState.batt < 30 ? Colors.warn : "#d0d0d0"
+                    : ShellState.batt < 30 ? Colors.warn : Colors.label
                 font.family: Appearance.font; font.pixelSize: Appearance.fsM
             }
             Text {
@@ -95,14 +147,15 @@ Item {
                 text: ShellState.batt + "%"
                 color: ShellState.ac ? Colors.ok
                     : ShellState.batt < 15 ? Colors.crit
-                    : ShellState.batt < 30 ? Colors.warn : "#d0d0d0"
+                    : ShellState.batt < 30 ? Colors.warn : Colors.label
                 font.family: Appearance.fontUI
-                font.pixelSize: 11
+                font.pixelSize: Appearance.fsXS
                 font.weight: Font.Medium
+                font.features: ({ "tnum": 1 })   // the % must not change width as the charge drops
             }
         }
 
-        // ---- polo derecho con música: carátula + picos ----
+        // ---- right pole with music: cover art + peaks ----
         Row {
             anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
             spacing: 9
@@ -113,14 +166,14 @@ Item {
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 22; height: 22; radius: 7
-                color: "#171717"
+                color: Colors.fill3
                 clip: true
                 Image {
                     anchors.fill: parent
                     source: (ShellState.player && ShellState.player.trackArtUrl) ? ShellState.player.trackArtUrl : ""
                     fillMode: Image.PreserveAspectCrop
-                    // Sin sourceSize la carátula se decodifica a su resolución
-                    // nativa (600-1000 px) para pintar 22-34 px; 64 sobra.
+                    // Without sourceSize the cover art is decoded at its native
+                    // resolution (600-1000 px) to paint 22-34 px; 64 is plenty.
                     sourceSize.width: 64
                     visible: status === Image.Ready
                 }
@@ -128,34 +181,34 @@ Item {
                     anchors.centerIn: parent
                     visible: !(ShellState.player && ShellState.player.trackArtUrl)
                     text: Icons.play; color: ShellState.mediaAccent
-                    font.family: Appearance.font; font.pixelSize: 11
+                    font.family: Appearance.font; font.pixelSize: Appearance.fsXS
                     Behavior on color { ColorAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
                 }
             }
 
-            // EL CAJÓN DE LAS BARRAS ES FIJO, no un Row que se ajusta solo.
+            // THE BARS' BOX IS FIXED, not a Row that sizes itself.
             //
-            // Con un Row, la altura del Row es la de su hijo más alto, y cada
-            // barra se centraba respecto a ese Row. O sea: cada vez que la barra
-            // más alta cambiaba, cambiaba el cajón, y con él la posición
-            // vertical de LAS OCHO a la vez. Un golpe de bombo movía toda la
-            // tira, no solo su barra — el temblor de conjunto que se veía por
-            // encima del movimiento de cada barra.
+            // With a Row, the Row's height is that of its tallest child, and
+            // each bar was centred on that Row. In other words: every time the
+            // tallest bar changed, the box changed, and with it the vertical
+            // position of ALL EIGHT at once. A kick drum hit moved the whole
+            // strip, not just its bar — the collective tremor you could see on
+            // top of each bar's own movement.
             //
-            // Aquí el cajón mide 18 px pase lo que pase, y cada barra vive en su
-            // hueco: 4 de ancho + 4 de hueco = 8 px de paso. Una barra no puede
-            // mover a sus vecinas.
+            // Here the box is 18 px no matter what, and each bar lives in its
+            // slot: 4 wide + 4 gap = 8 px pitch. One bar cannot move its
+            // neighbours.
             Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: ShellState.bands * 8 - 4
                 height: 18
 
                 Repeater {
-                    // Una barra por banda de cava: graves a la izquierda,
-                    // agudos a la derecha. Sin Behavior, y probado que es lo
-                    // correcto: el movimiento ya lo lleva el seguidor por
-                    // fotograma de ShellState; una animación aquí se reinicia
-                    // con cada dato, no termina nunca, y solo mete tirones.
+                    // One bar per cava band: bass on the left, treble on the
+                    // right. No Behavior, and it has been tested that this is
+                    // right: the motion is already carried by ShellState's
+                    // per-frame follower; an animation here restarts with
+                    // every sample, never finishes, and only adds judder.
                     model: ShellState.bands
                     Rectangle {
                         required property int index
@@ -164,33 +217,33 @@ Item {
                         color: ShellState.mediaAccent
                         Behavior on color { ColorAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
 
-                        // ALTURA CONTINUA, CON DECIMALES. Aquí hubo un tiempo un
-                        // redondeo a píxel entero con histéresis de 0,7 px, y era
-                        // justo lo que hacía que esto no fuese fluido: en un
-                        // recorrido de solo 14 px (4→18) eso deja quince alturas
-                        // posibles, así que la barra se quedaba QUIETA y luego
-                        // PEGABA UN SALTO del 7% del recorrido de golpe. Encima,
-                        // al centrarse, cada salto cambiaba la paridad de la
-                        // altura y con ella el reparto subpíxel de las tapas
-                        // redondeadas: la barra alternaba entre nítida y borrosa
-                        // en cada escalón. Eso es literalmente el parpadeo.
+                        // CONTINUOUS HEIGHT, WITH DECIMALS. There was once a
+                        // rounding to whole pixels here with 0.7 px hysteresis,
+                        // and it was exactly what kept this from being smooth:
+                        // over a travel of only 14 px (4→18) that leaves fifteen
+                        // possible heights, so the bar stayed STILL and then
+                        // JUMPED 7% of its travel all at once. On top of that,
+                        // being centred, each jump flipped the parity of the
+                        // height and with it the subpixel split of the rounded
+                        // caps: the bar alternated between sharp and blurry on
+                        // every step. That is literally the flicker.
                         //
-                        // (Está medido y anotado en scripts/cava.conf: cuantizar
-                        // dejaba el visualizador MÁS parado, 2,6 px/s frente a
-                        // 4,4. El redondeo se coló después de esa medición.)
+                        // (It is measured and noted in scripts/cava.conf:
+                        // quantising left the visualiser MORE static, 2.6 px/s
+                        // against 4.4. The rounding crept in after that test.)
                         //
-                        // Un Rectangle con radius se dibuja con antialiasing, así
-                        // que sí sabe pintar medio píxel: el borde se reparte
-                        // entre dos filas. Eso NO es parpadeo, es exactamente el
-                        // mecanismo con el que una pantalla enseña movimiento más
-                        // fino que su propia rejilla. Lo que parpadeaba era el
-                        // escalón, no el decimal.
+                        // A Rectangle with radius is drawn antialiased, so it
+                        // can paint half a pixel: the edge is split across two
+                        // rows. That is NOT flicker, it is exactly the
+                        // mechanism by which a screen shows motion finer than
+                        // its own grid. What flickered was the step, not the
+                        // decimal.
                         antialiasing: true
-                        // El suelo es el ancho: en reposo cada barra es un
-                        // punto redondo, no una pastilla achatada.
+                        // The floor is the width: at rest each bar is a round
+                        // dot, not a squashed pill.
                         height: Math.max(4, 18 * (ShellState.levels[index] || 0))
-                        // Crece hacia los dos lados desde el centro del cajón,
-                        // que es una constante: la referencia no se mueve nunca.
+                        // It grows both ways from the centre of the box, which
+                        // is a constant: the reference never moves.
                         y: (18 - height) / 2
                     }
                 }
@@ -198,15 +251,15 @@ Item {
         }
     }
 
-    // ─────────────── peek (hover): el reloj de reposo, con más detalle ───────────────
-    // Misma fila centrada que en idle, pero la fecha se escribe entera y se
-    // añade la batería: al pasar el ratón, el reloj "se despliega".
+    // ─────────────── peek (hover): the idle clock, in more detail ───────────────
+    // Same centred row as in idle, but the date is written out in full and the
+    // battery is added: on hover, the clock "unfolds".
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "peek"
 
-        // Centrada igual que en reposo: al pasar el ratón el grupo crece y se
-        // recentra, en vez de saltar de un anclaje a otro.
+        // Centred just as at rest: on hover the group grows and re-centres,
+        // instead of jumping from one anchor to another.
         Row {
             anchors {
                 horizontalCenter: parent.horizontalCenter
@@ -215,12 +268,23 @@ Item {
             }
             spacing: 13
 
+            // THE PEEK CLOCK FOLLOWS THE SETTING, NOT THE OTHER WAY ROUND.
+            //
+            // It was pinned at 21 while the idle one uses Config.clockSize,
+            // which is 17 by default. So the peek was 4 px bigger, and that is
+            // fine -- what was wrong is that it was a fixed number: if you
+            // raise the clock size in Settings above 21, on hover it SHRINKS,
+            // which is exactly the opposite of what a peek does.
+            // Now the +4 step holds whatever the size is.
+            readonly property int pxPeek: Config.clockSize + 4
+
             Text {
                 anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenterOffset: Appearance.clockNudge(parent.pxPeek)
                 text: Qt.formatDateTime(ShellState.now, "HH:mm")
-                color: "#ffffff"
-                font.family: Appearance.fontUI
-                font.pixelSize: 21
+                color: Colors.label
+                font.family: Appearance.fontClock
+                font.pixelSize: Appearance.clockPixelSize(parent.pxPeek)
                 font.weight: Font.DemiBold
                 font.features: ({ "tnum": 1 })
             }
@@ -232,18 +296,18 @@ Item {
                     height: 14
                     verticalAlignment: Text.AlignVCenter
                     text: ShellState.capitalize(ShellState.now.toLocaleDateString(ShellState.loc, "dddd"))
-                    color: "#e0e0e0"
+                    color: Colors.label
                     font.family: Appearance.fontUI
-                    font.pixelSize: 11
+                    font.pixelSize: Appearance.fsXS
                     font.weight: Font.Medium
                 }
                 Text {
                     height: 14
                     verticalAlignment: Text.AlignVCenter
                     text: ShellState.now.toLocaleDateString(ShellState.loc, I18n.tr("d 'de' MMMM 'de' yyyy"))
-                    color: "#8a8a8a"
+                    color: Colors.label2
                     font.family: Appearance.fontUI
-                    font.pixelSize: 11
+                    font.pixelSize: Appearance.fsXS
                 }
             }
         }
@@ -257,7 +321,7 @@ Item {
                 text: ShellState.battIcon
                 color: ShellState.ac ? Colors.ok
                     : ShellState.batt < 15 ? Colors.crit
-                    : ShellState.batt < 30 ? Colors.warn : "#d0d0d0"
+                    : ShellState.batt < 30 ? Colors.warn : Colors.label
                 font.family: Appearance.font; font.pixelSize: Appearance.fsL
             }
             Text {
@@ -265,24 +329,39 @@ Item {
                 text: ShellState.batt + "%"
                 color: ShellState.ac ? Colors.ok
                     : ShellState.batt < 15 ? Colors.crit
-                    : ShellState.batt < 30 ? Colors.warn : "#d0d0d0"
+                    : ShellState.batt < 30 ? Colors.warn : Colors.label
                 font.family: Appearance.fontUI
-                font.pixelSize: 12
+                font.pixelSize: Appearance.fsS
                 font.weight: Font.Medium
+                font.features: ({ "tnum": 1 })
             }
         }
     }
 
-    // ─────────────── activity: OSD de volumen / brillo ───────────────
+    // ─────────────── activity: volume / brightness OSD ───────────────
     NotchLayer {
         id: osd
         anchors.fill: parent
         active: root.mode === "activity"
 
         readonly property bool isVol: ShellState.activity === "volume"
-        readonly property int value: isVol ? (ShellState.muted ? 0 : ShellState.vol) : Math.max(0, ShellState.bright)
-        // mismo motivo: el notch se ensancha al entrar en modo OSD, así que el
-        // carril crece; animar el ancho haría que la barra fuese detrás
+        // THE LEVEL IS NOT FAKED: THE ICON ALREADY SAYS IT IS MUTED.
+        //
+        // This was `muted ? 0 : vol`, and raising the volume does NOT unmute
+        // (hyprland.lua:627 and :629 are different keys). So with the sound
+        // muted you pressed up, the OSD showed 0%, you pressed again, 0%, and
+        // on unmuting you got slapped at 140%. The mute icon was already right
+        // here below, so this notice never lied about the mute: it lied about
+        // the LEVEL, which is the only thing there is to show. It is what
+        // impasto's OsdService.qml:51-58 documents.
+        //
+        // In the sliders (SettingsAudio.qml:123, ControlPanel.qml:50) the
+        // `muted ? 0 : vol` stays, and rightly so: moving them calls
+        // setVolume(), which unmutes. Here there is nothing to move.
+        readonly property int value: isVol ? ShellState.vol : Math.max(0, ShellState.bright)
+        readonly property bool callado: isVol && ShellState.muted
+        // same reason: the notch widens on entering OSD mode, so the track
+        // grows; animating the width would make the bar lag behind
         property real shown: osd.value
         Behavior on shown { NumberAnimation { duration: Appearance.mQuick; easing.type: Easing.OutCubic } }
 
@@ -296,7 +375,7 @@ Item {
                         : ShellState.vol > 55 ? Icons.volHigh
                         : ShellState.vol > 20 ? Icons.volMed : Icons.volLow)
                     : Icons.brightness
-                color: "#ffffff"
+                color: Colors.label
                 font.family: Appearance.font; font.pixelSize: Appearance.fsL
             }
             Rectangle {
@@ -304,16 +383,24 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 5
                 radius: 3
-                color: "#2c2c2c"
+                color: Colors.fill3
                 Rectangle {
                     width: osdTrack.width * Math.max(0, Math.min(1, osd.shown / 100))
                     height: parent.height; radius: parent.radius
                     color: osd.isVol ? Colors.accent : Colors.warn
+                    // Now that the bar tells the real level, you need to tell
+                    // "playing at 40" apart from "at 40 but muted". The icon
+                    // says it; this repeats it without hiding the value.
+                    opacity: osd.callado ? 0.35 : 1
+                    Behavior on opacity { NumberAnimation { duration: Appearance.mQuick } }
                 }
             }
             Text {
                 text: Math.round(osd.shown) + "%"
-                color: "#cccccc"
+                // label4 is the level reserved for what is unavailable, and with
+                // the sound muted the level is exactly that: there, but silent.
+                color: osd.callado ? Colors.label4 : Colors.label
+                Behavior on color { ColorAnimation { duration: Appearance.mQuick } }
                 Layout.preferredWidth: 34
                 horizontalAlignment: Text.AlignRight
                 font.family: Appearance.font; font.pixelSize: Appearance.fsXS
@@ -321,12 +408,12 @@ Item {
         }
     }
 
-    // ─────────────── ws: escritorio al que acabas de saltar ───────────────
-    // Solo sale con el GESTO de la rueda horizontal sobre el notch, nunca con
-    // Super+1..0. No es una omisión: con el atajo ya sabes a dónde vas porque
-    // acabas de teclear el número, y el indicador de la barra está justo al
-    // lado. Con la rueda no hay número que teclear y estás mirando el notch, así
-    // que es el único caso en que el gesto necesita acuse de recibo.
+    // ─────────────── ws: the workspace you just jumped to ───────────────
+    // It only shows with the horizontal-wheel GESTURE over the notch, never with
+    // Super+1..0. Not an omission: with the shortcut you know where you are going
+    // because you just typed the number, and the bar indicator is right beside
+    // it. With the wheel there is no number to type and you are looking at the
+    // notch, so it is the only case where the gesture needs an acknowledgement.
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "ws"
@@ -338,27 +425,27 @@ Item {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: I18n.tr("Escritorio")
-                color: "#8a8a8a"
+                color: Colors.label3
                 font.family: Appearance.fontUI
-                font.pixelSize: 12
+                font.pixelSize: Appearance.fsS
                 font.weight: Font.Medium
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: String(ShellState.activeWs)
-                color: Colors.accent
+                color: Colors.accentInk
                 font.family: Appearance.fontUI
                 font.pixelSize: 20
                 font.weight: Font.DemiBold
-                font.features: ({ "tnum": 1 })   // del 9 al 10 el grupo no debe recolocarse
+                font.features: ({ "tnum": 1 })   // from 9 to 10 the group must not shift
             }
         }
     }
 
-    // ─────────────── charge: has enchufado o desenchufado ───────────────
-    // El único aviso del notch que NO provocas tú. El resto (OSD, peek, paneles)
-    // sale porque acabas de hacer algo; esto sale porque acaba de pasar algo, y
-    // por eso se queda un poco más en pantalla que un OSD: no estabas mirando.
+    // ─────────────── charge: you have plugged in or unplugged ───────────────
+    // The only notch notice you do NOT trigger. The rest (OSD, peek, panels)
+    // appear because you just did something; this one because something just
+    // happened, so it lingers a little longer than an OSD: you were not looking.
     NotchLayer {
         id: chargeLayer
         anchors.fill: parent
@@ -366,7 +453,7 @@ Item {
 
         readonly property color tone: ShellState.ac ? Colors.ok
             : ShellState.batt < 15 ? Colors.crit
-            : ShellState.batt < 30 ? Colors.warn : "#ffffff"
+            : ShellState.batt < 30 ? Colors.warn : Colors.label
 
         Row {
             anchors.centerIn: parent
@@ -381,12 +468,12 @@ Item {
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                // "Con batería" y no "Desenchufado": lo que importa no es que
-                // hayas quitado un cable, es de qué estás tirando ahora.
+                // "Con batería" (On battery) and not "Desenchufado" (Unplugged):
+                // what matters is not that a cable came out, but what you run on.
                 text: ShellState.ac ? I18n.tr("Cargando") : I18n.tr("Con batería")
-                color: "#e6e6e6"
+                color: Colors.label
                 font.family: Appearance.fontUI
-                font.pixelSize: 13
+                font.pixelSize: Appearance.fsM
                 font.weight: Font.Medium
             }
             Text {
@@ -402,12 +489,12 @@ Item {
         }
     }
 
-    // ─────────────── btpair: emparejando un aparato ───────────────
-    // La única cara que sale por delante de un panel abierto, porque al otro
-    // lado hay un aparato con un temporizador corriendo. Dos formas:
-    //   · "display"  -> BlueZ nos da el código y lo tecleas TÚ en el teclado.
-    //                   No hay nada que contestar, solo que leer.
-    //   · el resto   -> hay que decir sí o no, y hay dos botones.
+    // ─────────────── btpair: pairing a device ───────────────
+    // The only face that comes out in front of an open panel, because on the
+    // other end there is a device with a timer running. Two forms:
+    //   · "display"  -> BlueZ gives us the code and YOU type it on the keyboard.
+    //                   There is nothing to answer, only something to read.
+    //   · the rest   -> you have to say yes or no, and there are two buttons.
     NotchLayer {
         id: btLayer
         anchors.fill: parent
@@ -425,9 +512,9 @@ Item {
 
                 Text {
                     text: ShellState.btKind === "display" ? Icons.keyboard : Icons.btPair
-                    color: Colors.accent
+                    color: Colors.accentInk
                     font.family: Appearance.font
-                    font.pixelSize: 22
+                    font.pixelSize: Appearance.fsXL
                 }
 
                 ColumnLayout {
@@ -436,7 +523,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: ShellState.btName.length > 0 ? ShellState.btName : I18n.tr("Aparato desconocido")
-                        color: "#ffffff"
+                        color: Colors.label
                         elide: Text.ElideRight
                         font.family: Appearance.fontUI
                         font.pixelSize: 14
@@ -449,43 +536,48 @@ Item {
                                 : ShellState.btKind === "authorize"
                                     ? I18n.tr("Quiere emparejarse con este equipo")
                                     : I18n.tr("¿Sale este mismo código en el aparato?")
-                        color: "#8a8a8a"
+                        color: Colors.label2
                         elide: Text.ElideRight
                         font.family: Appearance.fontUI
-                        font.pixelSize: 11
+                        font.pixelSize: Appearance.fsXS
                     }
                 }
 
-                // El código, en cifras grandes: es lo que hay que comparar de un
-                // vistazo con lo que enseña el aparato. tnum para que no baile
-                // al ir tecleando.
+                // The code, in large digits: it is what you compare at a glance
+                // with what the device shows. tnum so it does not jitter as you
+                // type.
                 Text {
                     visible: ShellState.btCode.length > 0
                     text: ShellState.btCode
-                    color: "#ffffff"
+                    color: Colors.label
                     font.family: Appearance.fontUI
-                    font.pixelSize: 22
+                    font.pixelSize: Appearance.fsXL
                     font.weight: Font.DemiBold
                     font.letterSpacing: 2
                     font.features: ({ "tnum": 1 })
                 }
             }
 
-            // Progreso de tecleo: BlueZ va diciendo cuántos dígitos llevas.
-            // Es la única señal de que el teclado está hablando con el equipo.
+            // Typing progress: BlueZ keeps reporting how many digits you have
+            // typed. It is the only sign the keyboard is talking to the machine.
             Rectangle {
                 visible: ShellState.btKind === "display" && ShellState.btEntered >= 0
                 Layout.fillWidth: true
                 Layout.preferredHeight: 3
                 radius: 2
-                color: "#242424"
+                color: Colors.fill3
                 Rectangle {
+                    // The fraction, not the width: the rail stretches with the
+                    // notch as it opens, and animating the width makes the code
+                    // progress seem to advance by itself. See PokeTeamPanel.
+                    property real p: Math.min(1, ShellState.btEntered
+                            / Math.max(1, ShellState.btCode.length))
+                    Behavior on p { NumberAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
+
                     height: parent.height
                     radius: parent.radius
                     color: Colors.accent
-                    width: parent.width * Math.min(1, ShellState.btEntered
-                            / Math.max(1, ShellState.btCode.length))
-                    Behavior on width { NumberAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
+                    width: parent.width * p
                 }
             }
 
@@ -510,7 +602,7 @@ Item {
                         color: modelData.ok
                             ? (btBtnMa.containsMouse ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.34)
                                                      : Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.20))
-                            : (btBtnMa.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.06))
+                            : (btBtnMa.containsMouse ? Colors.fill2 : Colors.fill3)
                         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
                         RowLayout {
@@ -519,15 +611,15 @@ Item {
                             spacing: 7
                             Text {
                                 text: modelData.ico
-                                color: modelData.ok ? Colors.accent : "#b0b0b0"
+                                color: modelData.ok ? Colors.accentInk : Colors.label2
                                 font.family: Appearance.font
-                                font.pixelSize: 13
+                                font.pixelSize: Appearance.fsM
                             }
                             Text {
                                 text: modelData.txt
-                                color: modelData.ok ? "#ffffff" : "#b0b0b0"
+                                color: modelData.ok ? Colors.label : Colors.label2
                                 font.family: Appearance.fontUI
-                                font.pixelSize: 12
+                                font.pixelSize: Appearance.fsS
                                 font.weight: Font.Medium
                             }
                         }
@@ -545,7 +637,7 @@ Item {
         }
     }
 
-    // ─────────────── track: "ahora suena" ───────────────
+    // ─────────────── track: "now playing" ───────────────
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "track"
@@ -558,14 +650,14 @@ Item {
                 Layout.preferredWidth: 34; Layout.preferredHeight: 34
                 Layout.alignment: Qt.AlignVCenter
                 radius: 9
-                color: "#171717"
+                color: Colors.fill3
                 clip: true
                 Image {
                     anchors.fill: parent
                     source: (ShellState.player && ShellState.player.trackArtUrl) ? ShellState.player.trackArtUrl : ""
                     fillMode: Image.PreserveAspectCrop
-                    // Sin sourceSize la carátula se decodifica a su resolución
-                    // nativa (600-1000 px) para pintar 22-34 px; 64 sobra.
+                    // Without sourceSize the cover art is decoded at its native
+                    // resolution (600-1000 px) to paint 22-34 px; 64 is plenty.
                     sourceSize.width: 64
                     visible: status === Image.Ready
                 }
@@ -573,7 +665,7 @@ Item {
                     anchors.centerIn: parent
                     visible: !(ShellState.player && ShellState.player.trackArtUrl)
                     text: "󰎈"; color: ShellState.mediaAccent
-                    font.family: Appearance.font; font.pixelSize: 16
+                    font.family: Appearance.font; font.pixelSize: Appearance.fsL
                     Behavior on color { ColorAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
                 }
             }
@@ -585,21 +677,21 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: ShellState.player ? (ShellState.player.trackTitle || "") : ""
-                    color: "#ffffff"; elide: Text.ElideRight
+                    color: Colors.label; elide: Text.ElideRight
                     font.family: Appearance.font; font.pixelSize: Appearance.fsXS; font.bold: true
                 }
                 Text {
                     Layout.fillWidth: true
                     text: ShellState.player ? (ShellState.player.trackArtist || "") : ""
-                    color: "#9a9a9a"; elide: Text.ElideRight
-                    font.family: Appearance.font; font.pixelSize: 10
+                    color: Colors.label2; elide: Text.ElideRight
+                    font.family: Appearance.font; font.pixelSize: Appearance.fsXXS
                 }
             }
 
-            // Mismo cajón fijo y misma altura continua que en el polo derecho
-            // (ver allí el porqué), aquí sobre 22 px de alto. Va con implicit*
-            // porque el padre es un RowLayout: es el layout quien reparte, y lo
-            // que le decimos es cuánto pedimos, no cuánto medimos.
+            // Same fixed box and same continuous height as in the right pole
+            // (see the why there), here over 22 px of height. It uses implicit*
+            // because the parent is a RowLayout: the layout is what hands out
+            // space, and what we tell it is how much we ask for, not our size.
             Item {
                 Layout.alignment: Qt.AlignVCenter
                 implicitWidth: ShellState.bands * 8 - 4
@@ -622,9 +714,9 @@ Item {
         }
     }
 
-    // ─────────────── notif: aviso emergente ───────────────
-    // Al llegar una notificación el notch se estira y la enseña unos segundos,
-    // como una live activity. Luego se queda en el centro de control.
+    // ─────────────── notif: pop-up notice ───────────────
+    // When a notification arrives the notch stretches and shows it for a few
+    // seconds, like a live activity. Then it stays in the Control Centre.
     NotchLayer {
         id: notifLayer
         anchors.fill: parent
@@ -635,12 +727,12 @@ Item {
         MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
-            // Si el aviso trae acciones, pulsarlo HACE ESO en vez de abrir el
-            // centro de control: es lo que espera cualquiera al ver un aviso
-            // con algo que hacer detrás. La captura de pantalla manda una
-            // acción "Editar" que abre la foto en satty
-            // (~/.config/hypr/scripts/notify-shot.sh); el resto de avisos, que
-            // no traen ninguna, siguen abriendo el centro de control como antes.
+            // If the notice carries actions, clicking it DOES THAT instead of
+            // opening the Control Centre: it is what anyone expects from a
+            // notice with something to do behind it. The screenshot sends an
+            // "Editar" (Edit) action that opens the picture in satty
+            // (~/.config/hypr/scripts/notify-shot.sh); the other notices, which
+            // carry none, still open the Control Centre as before.
             onClicked: {
                 const n = notifLayer.n;
                 const acts = n ? n.actions : null;
@@ -674,29 +766,29 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: notifLayer.n ? (notifLayer.n.summary || "") : ""
-                    color: "#ffffff"; elide: Text.ElideRight
-                    font.family: Appearance.fontUI; font.pixelSize: 12; font.weight: Font.DemiBold
+                    color: Colors.label; elide: Text.ElideRight
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsS; font.weight: Font.DemiBold
                 }
                 Text {
                     Layout.fillWidth: true
                     visible: text.length > 0
                     text: notifLayer.n ? (notifLayer.n.body || "") : ""
-                    color: "#9a9a9a"; elide: Text.ElideRight
+                    color: Colors.label2; elide: Text.ElideRight
                     textFormat: Text.StyledText
-                    font.family: Appearance.fontUI; font.pixelSize: 10
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
                 }
             }
 
             Text {
                 Layout.alignment: Qt.AlignVCenter
                 text: notifLayer.n ? (notifLayer.n.appName || "") : ""
-                color: Colors.accent
-                font.family: Appearance.fontUI; font.pixelSize: 9; font.weight: Font.Medium
+                color: Colors.accentInk
+                font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS; font.weight: Font.Medium
             }
         }
     }
 
-    // ─────────────── toast: aviso breve (copiado al portapapeles) ───────────────
+    // ─────────────── toast: brief notice (copied to clipboard) ───────────────
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "toast"
@@ -707,81 +799,365 @@ Item {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: ShellState.toastIcon
-                color: Colors.accent
+                color: Colors.accentInk
                 font.family: Appearance.font; font.pixelSize: 17
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: ShellState.toastText
-                color: "#ffffff"
-                font.family: Appearance.fontUI; font.pixelSize: 13; font.weight: Font.Medium
+                color: Colors.label
+                font.family: Appearance.fontUI; font.pixelSize: Appearance.fsM; font.weight: Font.Medium
             }
         }
     }
 
-    // ─────────────── launcher: lanzador de aplicaciones ───────────────
+    // ─────────────── launcher: application launcher ───────────────
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "launcher"
-        origin: -1   // el boton de Arch esta a la izquierda
-        LauncherPanel { anchors.fill: parent }
+        origin: -1   // the Arch button is on the left
+        // The same condition as the layer: if this screen is not showing the
+        // launcher, its copy ignores everything. See the LauncherPanel block.
+        LauncherPanel { anchors.fill: parent; enPantalla: root.mode === "launcher" }
     }
 
-    // ─────────────── overview: mapa de escritorios ───────────────
-    // Nace en el CENTRO (origin 0) y no por un lado: no lo abre ningún botón de
-    // la barra, lo abre Super+Tab. Lo que no has pedido desde un sitio concreto
-    // no tiene por qué venir de un sitio concreto.
+    // ─────────────── overview: workspace map ───────────────
+    // It is born in the CENTRE (origin 0) and not from a side: no bar button
+    // opens it, Super+Tab does. What you did not ask for from a particular
+    // place has no reason to come from a particular place.
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "overview"
         OverviewPanel { anchors.fill: parent }
     }
 
-    // ─────────────── control: centro de control ───────────────
+    // ─────────────── control: Control Centre ───────────────
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "control"
-        origin: 1   // la campana de notificaciones esta a la derecha
+        origin: 1   // the notification bell is on the right
         ControlPanel { anchors.fill: parent }
     }
 
-    // ─────────────── system: una mirada tranquila al equipo ───────────────
+    // ─────────────── system: a calm look at the machine ───────────────
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "system"
-        origin: 1   // nace del botón Tu equipo del centro de control
+        origin: 1   // born from the Control Centre's "Tu máquina" (Your machine) button
         PerformancePanel { anchors.fill: parent }
     }
 
-    // ─────────────── network: selector de red ───────────────
+    // ─────────────── network: network picker ───────────────
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "network"
-        origin: 1   // se abre desde el panel de control, a la derecha
+        origin: 1   // opens from the control panel, on the right
         NetworkPanel { anchors.fill: parent }
     }
 
-    // ─────────────── bluetooth: dispositivos ───────────────
+    // ─────────────── bluetooth: devices ───────────────
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "bluetooth"
-        origin: 1   // se abre desde el panel de control, a la derecha
+        origin: 1   // opens from the control panel, on the right
         BluetoothPanel { anchors.fill: parent }
     }
 
-    // ─────────────── power: menú de encendido ───────────────
+    // ─────────────── power: power menu ───────────────
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "power"
-        origin: 1   // su icono esta a la derecha
+        origin: 1   // its icon is on the right
         PowerPanel { anchors.fill: parent }
     }
 
-    // ─────────────── calendar: calendario del mes ───────────────
+    // ─────────────── calendar: the month's calendar ───────────────
     NotchLayer {
         anchors.fill: parent
         active: root.mode === "calendar"
-        origin: 1   // se abre desde el centro de control, a la derecha
+        origin: 1   // opens from the Control Centre, on the right
         CalendarPanel { anchors.fill: parent }
+    }
+
+    // ─────────────── github: contributions and latest commits ───────────────
+    NotchLayer {
+        anchors.fill: parent
+        active: root.mode === "github"
+        origin: 1   // also comes out of a Control Centre card
+        GithubPanel { anchors.fill: parent }
+    }
+
+    // ─────────────── the pokemon team ───────────────
+    NotchLayer {
+        anchors.fill: parent
+        active: root.mode === "poke"
+        origin: 1   // comes out of the Control Centre, like github
+        PokeTeamPanel { anchors.fill: parent }
+    }
+
+    // ─────────────── evolution: the ceremony ───────────────
+    // The notch's only festive face. The sprite alternates between the old
+    // form and the new one faster and faster —the rhythm of the original
+    // game— and settles on the new one with a scale overshoot. No sound on
+    // purpose: Diego chose animation, not a shout.
+    NotchLayer {
+        id: capaEvo
+        anchors.fill: parent
+        active: root.mode === "evo"
+
+        Item {
+            id: evo
+            anchors.fill: parent
+            // The queue is shared with the shiny, so the type has to be
+            // checked here: without this filter a shiny would ALSO start this
+            // rite underneath —invisible, but with its 5 s Timer advancing the
+            // queue a second time and eating whatever came next— and the
+            // sprite would be left asking for an aGif that does not exist.
+            readonly property var datos: (ShellState.pokeEvo && ShellState.pokeEvo.tipo !== "shiny")
+                                         ? ShellState.pokeEvo : null
+            property bool nueva: false      // which form is shown right now
+            property bool revelado: false
+
+            // The ceremony starts when a NEW evolution arrives, not when the
+            // face opens: that way a second chained evolution (ShellState's
+            // queue) restarts the rite even though the mode has not changed.
+            Connections {
+                target: ShellState
+                function onPokeEvoChanged() {
+                    if (!evo.datos)
+                        return;
+                    evo.nueva = false;
+                    evo.revelado = false;
+                    alterna.intervalo = 420;
+                    alterna.interval = 420;
+                    alterna.restart();
+                    // `fin` is NO LONGER started by hand: its `running` hangs
+                    // off evo.active, so a restart() here would break the
+                    // binding and leave the clock running behind a panel again.
+                }
+            }
+
+            Timer {
+                id: alterna
+                property real intervalo: 420
+                interval: 420
+                repeat: true
+                running: false
+                onTriggered: {
+                    if (evo.revelado)
+                        return;
+                    evo.nueva = !evo.nueva;
+                    // speeds up as in the game: each round a little shorter,
+                    // and on reaching the floor the new form is revealed.
+                    intervalo = intervalo * 0.8;
+                    if (intervalo <= 70) {
+                        evo.revelado = true;
+                        evo.nueva = true;
+                        alterna.stop();
+                    } else {
+                        interval = intervalo;
+                        restart();
+                    }
+                }
+            }
+            // Moves on to the next in the queue (or lets the face expire).
+            //
+            // THE CLOCK ONLY RUNS WHILE THE CEREMONY IS VISIBLE.
+            //
+            // It used to be `running: false` and was started by hand from
+            // onPokeEvoChanged, ignoring `root.mode` and `visible`. And
+            // NotchLayer is NOT a Loader -it only animates opacity/scale/slide-,
+            // so the Item always exists on both screens and this Timer kept
+            // counting behind any panel: open the Control Centre mid-evolution
+            // and the ceremony was used up without you ever seeing it. Tied to
+            // `evo.active`, it stops when covered and starts over when
+            // uncovered, so it is seen whole. Exact twin in the shiny one.
+            Timer {
+                id: fin
+                interval: 5000
+                running: capaEvo.active && ShellState.pokeEvo !== null
+                onTriggered: ShellState.pokeEvoSiguiente()
+            }
+
+            // the halo: an accent circle that pulses with the flicker
+            Rectangle {
+                anchors.centerIn: forma
+                width: 100; height: 100; radius: 50
+                color: Colors.accent
+                opacity: evo.revelado ? 0 : (evo.nueva ? 0.28 : 0.10)
+                Behavior on opacity { NumberAnimation { duration: Appearance.mQuick } }
+            }
+
+            AnimatedImage {
+                id: forma
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: 22
+                source: evo.datos ? (evo.nueva ? evo.datos.aGif : evo.datos.deGif) : ""
+                sourceSize.height: 72
+                height: 72
+                fillMode: Image.PreserveAspectFit
+                // still during the flicker, alive once revealed
+                playing: evo.revelado
+                cache: true      // alternates two sources without reloading from disk
+                scale: evo.revelado ? 1 : 0.92
+                Behavior on scale {
+                    NumberAnimation { duration: Appearance.mInScale; easing.type: Easing.OutBack; easing.overshoot: Appearance.mInOvershoot }
+                }
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: forma.bottom
+                anchors.topMargin: 12
+                width: parent.width - 40
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: !evo.datos ? ""
+                    : evo.revelado
+                        ? I18n.tr("¡{0} evolucionó en {1}!", evo.datos.de, evo.datos.a)
+                        : I18n.tr("¡{0} está evolucionando!", evo.datos.de)
+                color: Colors.label
+                // The Game Boy font for the Game Boy moment. It renders accents
+                // and opening marks (checked glyph by glyph when installing it).
+                font.family: evo.revelado ? Appearance.fontClock : Appearance.fontUI
+                font.pixelSize: evo.revelado ? Appearance.fsL : Appearance.fsM
+                lineHeight: Appearance.leading(evo.revelado ? Appearance.fsL : Appearance.fsM)
+                lineHeightMode: Text.FixedHeight
+                opacity: evo.revelado ? 1 : 0.75
+                Behavior on opacity { NumberAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
+            }
+        }
+    }
+
+    // ─────────────── variocolor (shiny): the burst ───────────────
+    // The other festive face, and the little sister of the one above: they
+    // share queue, width and height. A shiny comes up 1 time in 64 and until
+    // now nobody noticed —the only sign was a 9 px ✦ in a row of the panel—,
+    // so what was missing was not information, it was a moment.
+    //
+    // There is nothing to guess here (it does not alternate two forms like the
+    // evolution): the creature ALREADY is what it is, and what is told is your
+    // luck. So it is a single burst that comes FROM THE SPRITE (law 6: nothing
+    // appears out of thin air) with the scale overshoot of an evolution reveal.
+    NotchLayer {
+        id: capaShiny
+        anchors.fill: parent
+        active: root.mode === "shiny"
+
+        Item {
+            id: vario
+            anchors.fill: parent
+            readonly property var datos: (ShellState.pokeEvo && ShellState.pokeEvo.tipo === "shiny")
+                                         ? ShellState.pokeEvo : null
+            property bool revelado: false
+
+            // Same as the evolution: the rite starts with the DATA, not with
+            // the face, so that a second chained shiny relaunches it even
+            // though the notch's mode has not changed.
+            Connections {
+                target: ShellState
+                function onPokeEvoChanged() {
+                    if (!vario.datos)
+                        return;
+                    vario.revelado = false;
+                    arranca.restart();
+                    eco.restart();
+                    // `caduca` hangs off capaShiny.active: never set by hand.
+                }
+            }
+
+            // The face takes mStagger to start and mIn to be fully there, i.e.
+            // a PANEL coming in: firing the burst earlier wastes it against a
+            // layer that is still growing, and you only see half of it.
+            Timer {
+                id: arranca
+                interval: Appearance.mInScale
+                onTriggered: { vario.revelado = true; chispas.disparo++; }
+            }
+            // A second wave and that is it. The first is the blast and this is
+            // the echo, just as the previous one is fading (a whole burst is
+            // two FORMS: the stagger of the waves plus the travel). A third
+            // would already be a loop by another name, which is what law 7
+            // forbids.
+            Timer {
+                id: eco
+                interval: Appearance.mInScale + Appearance.mShape * 2
+                onTriggered: chispas.disparo++
+            }
+            // moves on to the next in the queue (or lets the face expire)
+            // Same case as the evolution's `fin`, and for the same reason:
+            // NotchLayer is not a Loader, so this clock ran behind any panel
+            // and ate the burst without showing it. A shiny comes up 1 in
+            // 64.
+            Timer {
+                id: caduca
+                interval: 3400
+                running: capaShiny.active && ShellState.pokeEvo !== null
+                onTriggered: ShellState.pokeEvoSiguiente()
+            }
+
+            AnimatedImage {
+                id: bicho
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: 26
+                source: vario.datos ? vario.datos.gif : ""
+                sourceSize.height: 72
+                height: 72
+                fillMode: Image.PreserveAspectFit
+                playing: true
+                scale: vario.revelado ? 1 : Appearance.mScaleFrom
+                Behavior on scale {
+                    NumberAnimation { duration: Appearance.mInScale; easing.type: Easing.OutBack; easing.overshoot: Appearance.mInOvershoot }
+                }
+            }
+
+            // The burst goes IN FRONT of the sprite and BEHIND the text:
+            // sparkles over 16 px lettering make it unreadable just in the
+            // second you want to read the name. The box is wider than it is
+            // tall on purpose —the face measures 520×168— so the sparkles
+            // spread across the space there is, instead of spilling out the top.
+            ShinySparkle {
+                id: chispas
+                anchors.centerIn: bicho
+                width: 300
+                height: 120
+            }
+
+            Text {
+                id: nombre
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: bicho.bottom
+                anchors.topMargin: 14
+                width: parent.width - 40
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: vario.datos ? I18n.tr("¡{0} es VARIOCOLOR!", vario.datos.quien) : ""
+                color: Colors.label
+                // The Game Boy font, the same one an evolution debuts: the two
+                // things this desktop celebrates speak the same way.
+                font.family: Appearance.fontClock
+                font.pixelSize: Appearance.fsL
+                lineHeight: Appearance.leading(Appearance.fsL)
+                lineHeightMode: Text.FixedHeight
+                opacity: vario.revelado ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
+            }
+
+            // The rarity is the news: without this number, «variocolor» is just
+            // an odd word. With it you know you were 64 tries in.
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: nombre.bottom
+                anchors.topMargin: 6
+                text: vario.datos && vario.datos.unoDe ? I18n.tr("1 entre {0}", vario.datos.unoDe) : ""
+                color: Colors.accentInk
+                font.family: Appearance.fontUI
+                font.pixelSize: Appearance.fsS
+                opacity: vario.revelado ? 0.85 : 0
+                Behavior on opacity { NumberAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
+            }
+        }
     }
 }

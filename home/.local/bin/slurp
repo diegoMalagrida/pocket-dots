@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# slurp con overlay pywal para hyprshot, OCR y grabacion de pantalla.
+# slurp with a pywal overlay for hyprshot, OCR and screen recording.
 set -u
 
 REAL=/usr/bin/slurp

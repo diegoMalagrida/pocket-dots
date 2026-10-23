@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Launches lavat with the wallpaper's palette and relaunches it when the
+# wallpaper changes.
+#
+# The flags are left in the cache by ~/.config/hypr/scripts/lavat-pywal.sh,
+# which runs on every wallpaper change from set-wallpaper.sh.
+#
+# WHY A LOOP AND NOT AN 'exec' LIKE THE CAVA WRAPPER: cava reloads on SIGUSR1
+# and lavat has nothing of the sort -- no signal, no config file, it rereads
+# nothing while running. The only way to give it new colours is to restart it,
+# so the hook sends it SIGTERM and here it comes back up with the new flags.
+#
+# The exit code is what tells the two cases apart, and that is why the hook
+# sends SIGTERM and not SIGKILL:
+#   143 (128+15, SIGTERM) -> we killed it ourselves on a wallpaper change: relaunch.
+#   anything else         -> the user pressed 'q' (0) or it failed: exit and pass it on.
+set -u
+
+REAL="/usr/bin/lavat"
+ARGS="$HOME/.cache/wal/lavat.args"
+HELPER="$HOME/.config/hypr/scripts/lavat-pywal.sh"
+
+# If it asks for help or brings ITS OWN colours, this wrapper is surplus: the
+# choice is not overridden.
+for a in "$@"; do
+  case "$a" in
+    -h|--help|-c|-k|-g|-p) exec "$REAL" "$@" ;;
+  esac
+done
+
+# First run (or cache deleted): generate it now instead of coming out grey.
+[ -s "$ARGS" ] || { [ -x "$HELPER" ] && "$HELPER" >/dev/null 2>&1; }
+[ -s "$ARGS" ] || exec "$REAL" "$@"   # no palette, the usual lavat
+
+while :; do
+  # Reread on EVERY pass: the file already has the new wallpaper's colours.
+  pal=()
+  read -r -a pal < "$ARGS" 2>/dev/null || true
+  if [ "${#pal[@]}" -eq 0 ]; then
+    exec "$REAL" "$@"
+  fi
+
+  "$REAL" "${pal[@]}" "$@"
+  rc=$?
+
+  [ "$rc" -eq 143 ] || exit "$rc"
+done

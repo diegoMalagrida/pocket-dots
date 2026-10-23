@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Sample battery discharge and per-process CPU use without root privileges.
+
+Usage: battery-report [seconds]. Power figures require the charger unplugged.
+CPU percentages use one logical CPU as 100%, like top. No processes are stopped.
+"""
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+
+def processes():
+    result = {}
+    for path in Path('/proc').glob('[0-9]*/stat'):
+        try:
+            text = path.read_text()
+            left, right = text.index('('), text.rindex(')')
+            fields = text[right + 2:].split()
+            # PID plus start time avoids attributing CPU across PID reuse.
+            key = (int(path.parent.name), int(fields[19]))
+            result[key] = (text[left + 1:right], int(fields[11]) + int(fields[12]))
+        except (OSError, ValueError, IndexError):
+            continue
+    return result
+
+
+def battery():
+    for path in sorted(Path('/sys/class/power_supply').glob('*')):
+        try:
+            data = dict(line.split('=', 1) for line in (path / 'uevent').read_text().splitlines())
+            if data.get('POWER_SUPPLY_TYPE') != 'Battery':
+                continue
+            def number(name):
+                value = data.get('POWER_SUPPLY_' + name)
+                return int(value) / 1_000_000 if value is not None else None
+            volts = number('VOLTAGE_NOW')
+            power = number('POWER_NOW')
+            if power is None and volts is not None and number('CURRENT_NOW') is not None:
+                power = abs(volts * number('CURRENT_NOW'))
+            return {'battery': path.name, 'state': data.get('POWER_SUPPLY_STATUS'),
+                    'percent': data.get('POWER_SUPPLY_CAPACITY'), 'watts': power,
+                    'energy_wh': number('ENERGY_NOW'), 'full_wh': number('ENERGY_FULL'),
+                    'design_wh': number('ENERGY_FULL_DESIGN')}
+        except (OSError, ValueError):
+            continue
+    return {}
+
+
+def main():
+    seconds = int(sys.argv[1]) if len(sys.argv) > 1 else 30
+    if not 5 <= seconds <= 300:
+        raise SystemExit(tr('El intervalo debe estar entre 5 y 300 segundos.',
+                            'The interval must be between 5 and 300 seconds.'))
+    start = time.monotonic()
+    before = processes()
+    samples = [battery()]
+    while time.monotonic() - start < seconds:
+        time.sleep(min(5, max(0, seconds - (time.monotonic() - start))))
+        samples.append(battery())
+    after = processes()
+    elapsed = time.monotonic() - start
+    ticks = os.sysconf('SC_CLK_TCK')
+    consumers = []
+    for key, (name, used) in after.items():
+        if key in before:
+            cpu = (used - before[key][1]) / ticks / elapsed * 100
+            consumers.append({'pid': key[0], 'name': name, 'cpu_percent': round(cpu, 2)})
+    rates = [s['watts'] for s in samples if s.get('state') == 'Discharging'
+             and s.get('watts') is not None and s['watts'] > 0]
+    continuous = bool(samples) and all(s.get('state') == 'Discharging' for s in samples)
+    # Partial samples after unplugging are not comparable to a full interval.
+    average = sum(rates) / len(rates) if rates and continuous else None
+    print(json.dumps({'seconds': round(elapsed, 1), 'battery': samples[-1],
+                      'discharge_watts_mean': round(average, 2) if average else None,
+                      'note': tr('Desenchufa durante todo el intervalo para medir descarga.',
+                                 'Keep the charger unplugged throughout the interval to measure discharge.') if not continuous
+                              else tr('Consumo con esta carga de trabajo; no es una prueba de reposo.',
+                                      'Power use under this workload; this is not an idle test.'),
+                      'top_cpu': sorted(consumers, key=lambda p: p['cpu_percent'], reverse=True)[:10]},
+                     ensure_ascii=False, indent=2))
+
+
+if __name__ == '__main__':
+    main()

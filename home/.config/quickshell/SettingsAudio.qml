@@ -1,20 +1,20 @@
-// SettingsAudio.qml — salida y entrada de audio (Pipewire nativo, sin pavucontrol).
+// SettingsAudio.qml — audio output and input (native Pipewire, no pavucontrol).
 //
-// EL BUG QUE ARREGLA ESTA VERSIÓN: los cuatro dispositivos de salida de este
-// portátil se llaman, literalmente:
+// THE BUG THIS VERSION FIXES: the four output devices on this laptop are
+// literally called:
 //
 //   "500 Series Chipset Family On-Package High Definition Audio (HD Audio) Speaker"
 //   "500 Series Chipset Family On-Package High Definition Audio (HD Audio) HDMI / DisplayPort 1 Output"
 //   …
 //
-// Lo que los distingue va AL FINAL, así que la lista enseñaba cuatro filas
-// idénticas cortadas por el mismo sitio y era imposible elegir. Ahora:
-//   1) si el nodo trae `nickname` (node.nick: "Speaker", "HDMI 1"), se usa ese;
-//   2) si no, se le quita el prefijo común a todos los dispositivos, calculado
-//      en vivo — así funciona con cualquier tarjeta, no solo con esta;
-//   3) y se traducen los cuatro términos de siempre al idioma del shell.
-// El nombre completo no se pierde: sale en la franja del pie al pasar por
-// encima de la fila.
+// What tells them apart comes AT THE END, so the list showed four identical
+// rows cut off at the same point and it was impossible to choose. Now:
+//   1) if the node carries `nickname` (node.nick: "Speaker", "HDMI 1"), use it;
+//   2) if not, strip the prefix common to all devices, worked out live — so
+//      it works with any card, not just this one;
+//   3) and translate the usual four terms into the shell's language.
+// The full name is not lost: it appears in the footer strip when you hover
+// over the row.
 import Quickshell
 import Quickshell.Services.Pipewire
 import QtQuick
@@ -38,9 +38,9 @@ Flickable {
         const out = [];
         for (let i = 0; i < vs.length; i++) {
             const n = vs[i];
-            if (n.isStream) continue;          // los streams son apps, no dispositivos
+            if (n.isStream) continue;          // streams are apps, not devices
             if (!n.audio) continue;
-            // los "Monitor of …" son la salida reinyectada, no un micrófono
+            // "Monitor of …" nodes are the output fed back in, not a microphone
             if (!n.isSink && String(n.name || "").indexOf(".monitor") >= 0) continue;
             if (n.isSink === sink) out.push(n);
         }
@@ -50,11 +50,11 @@ Flickable {
     readonly property var sinks: nodesOf(true)
     readonly property var sources: nodesOf(false)
 
-    // Sin esto las propiedades de los nodos (descripción, volumen) no se pueblan.
+    // Without this the node properties (description, volume) are not populated.
     PwObjectTracker { objects: root.sinks.concat(root.sources) }
 
-    // Prefijo común a TODOS los dispositivos: es el nombre de la tarjeta, y es
-    // exactamente lo que sobra. Con un solo dispositivo no se quita nada.
+    // Prefix common to ALL devices: it is the card's name, and it is exactly
+    // what is surplus. With a single device nothing is stripped.
     readonly property string commonPrefix: {
         const all = root.sinks.concat(root.sources).map(function (n) { return String(n.description || ""); });
         if (all.length < 2) return "";
@@ -86,9 +86,9 @@ Flickable {
         return root.toES(s.length > 0 ? s : root.fullName(n));
     }
 
-    // Los nombres de ALSA vienen en inglés y siempre son los mismos cuatro.
-    // El nombre del dispositivo es un dato y se respeta; lo que se traduce son
-    // estos términos genéricos, al idioma del shell.
+    // ALSA names come in English and are always the same four. The device name
+    // is data and is respected; what gets translated are these generic terms,
+    // into the shell's language.
     function toES(s) {
         return s
             .replace(/HDMI \/ DisplayPort (\d+) Output/i, "HDMI $1")
@@ -111,10 +111,10 @@ Flickable {
         y: 16
         spacing: 10
 
-        // ─────────────────── volumen ───────────────────
+        // ─────────────────── volume ───────────────────
         SettingsControls.Card_ {
             id: cVol
-            title: I18n.tr("SALIDA")
+            title: I18n.tr("Salida")
 
             SettingsControls.Row_ {
                 label: I18n.tr("Volumen")
@@ -135,10 +135,10 @@ Flickable {
             }
         }
 
-        // ─────────────────── dispositivos de salida ───────────────────
+        // ─────────────────── output devices ───────────────────
         SettingsControls.Card_ {
             id: cSinks
-            title: I18n.tr("DISPOSITIVO DE SALIDA")
+            title: I18n.tr("Dispositivo de salida")
 
             Repeater {
                 model: root.sinks
@@ -148,10 +148,10 @@ Flickable {
             }
         }
 
-        // ─────────────────── dispositivos de entrada ───────────────────
+        // ─────────────────── input devices ───────────────────
         SettingsControls.Card_ {
             id: cSources
-            title: I18n.tr("DISPOSITIVO DE ENTRADA")
+            title: I18n.tr("Dispositivo de entrada")
 
             Repeater {
                 model: root.sources
@@ -178,7 +178,7 @@ Flickable {
         }
     }
 
-    // ─────────── fila de dispositivo ───────────
+    // ─────────── device row ───────────
     component DeviceRow: Rectangle {
         id: dev
         required property var modelData
@@ -190,7 +190,7 @@ Flickable {
             ? (Pipewire.defaultAudioSink && Pipewire.defaultAudioSink.id === dev.modelData.id)
             : (Pipewire.defaultAudioSource && Pipewire.defaultAudioSource.id === dev.modelData.id)
 
-        // contrato con Card_ y con el buscador
+        // contract with Card_ and with the search box
         readonly property bool isSettingsRow: true
         readonly property bool matches: ShellState.settingsMatch(dev.short_, dev.full_)
         function _recount() {
@@ -205,7 +205,7 @@ Flickable {
         visible: dev.matches
         radius: Appearance.radS
         color: dev.isDefault ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.18)
-             : devMa.containsMouse ? Qt.rgba(1, 1, 1, 0.07) : "transparent"
+             : devMa.containsMouse ? Colors.fill2 : "transparent"
         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
         RowLayout {
@@ -214,14 +214,14 @@ Flickable {
 
             Text {
                 text: dev.isSink ? "󰓃" : "󰍬"
-                color: dev.isDefault ? Colors.accent : "#9a9a9a"
+                color: dev.isDefault ? Colors.accentInk : Colors.label2
                 font.family: Appearance.font
                 font.pixelSize: 15
             }
             Text {
                 Layout.fillWidth: true
                 text: dev.short_
-                color: "#ffffff"
+                color: Colors.label
                 elide: Text.ElideRight
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsS
@@ -230,16 +230,16 @@ Flickable {
             Text {
                 visible: dev.isDefault
                 text: I18n.tr("predeterminado")
-                color: Colors.accent
+                color: Colors.accentInk
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsXS
             }
             Text {
                 visible: dev.isDefault
                 text: "󰄬"
-                color: Colors.accent
+                color: Colors.accentInk
                 font.family: Appearance.font
-                font.pixelSize: 13
+                font.pixelSize: Appearance.fsM
             }
         }
 
@@ -248,7 +248,7 @@ Flickable {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            // el nombre largo no se pierde: vive en el pie de la ventana
+            // the long name is not lost: it lives in the window footer
             onEntered: ShellState.settingsHint = dev.full_
             onExited: if (ShellState.settingsHint === dev.full_) ShellState.settingsHint = ""
             onClicked: {

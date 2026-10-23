@@ -1,27 +1,30 @@
-// LauncherPanel.qml — el centro de comandos, desplegado DESDE el notch.
+// LauncherPanel.qml — the command centre, unfolded FROM the notch.
 //
-// Se abre con Super+R o pulsando el logo de Arch, y el notch se estira hasta
-// convertirse en él. Teclado: escribir filtra, ↑/↓ (o Ctrl+J/K) mueve, Enter
-// ejecuta, Esc cierra.
+// It opens with Super+R or by clicking the Arch logo, and the notch stretches
+// until it becomes it. Keyboard: typing filters, ↑/↓ (or Ctrl+J/K) moves, Enter
+// runs, Esc closes.
 //
-// Ya no busca solo aplicaciones. El PRIMER CARÁCTER decide qué se busca:
+// It no longer searches only applications. The FIRST CHARACTER decides what is
+// searched:
 //
-//   (nada)  aplicaciones · calculadora · temporizador · favoritos
-//   #       historial del portapapeles (texto e imágenes)
-//   >       acciones del sistema
-//   @       ventanas abiertas
+//   (none)  applications · calculator · timer · favourites
+//   #       clipboard history (text and images)
+//   >       system actions
+//   @       open windows
 //
-// El prefijo se CONSUME: al escribirlo desaparece del campo y en su sitio sale
-// una etiqueta con el nombre del modo. Si se quedara escrito habría dos cosas
-// diciendo lo mismo, y el campo empezaría con un carácter que no es parte de lo
-// que buscas. Se sale con un borrado sobre el campo vacío, que es donde la mano
-// va sola cuando quieres deshacer.
+// The prefix is CONSUMED: typing it makes it disappear from the field and a
+// label with the mode's name comes up in its place. If it stayed written there
+// would be two things saying the same, and the field would start with a
+// character that is not part of what you are looking for. You leave with a
+// backspace on the empty field, which is where the hand goes by itself when
+// you want to undo.
 //
-// La lógica y los datos de cada modo viven en ShellState (la casa es así: este
-// fichero es interfaz). Aquí solo está cómo se ve y cómo se navega.
+// The logic and data of each mode live in ShellState (that is the house rule:
+// this file is interface). Here there is only how it looks and how it is
+// navigated.
 //
-// El foco de teclado lo da TopShell poniendo la capa en WlrKeyboardFocus
-// .OnDemand mientras este panel está abierto.
+// Keyboard focus is given by TopShell setting the layer to WlrKeyboardFocus
+// .OnDemand while this panel is open.
 import Quickshell
 import QtQuick
 import QtQuick.Controls
@@ -30,78 +33,98 @@ import QtQuick.Layouts
 Item {
     id: root
 
-    readonly property bool active: ShellState.panel === "launcher"
+    // IS IT OPEN ON THIS SCREEN? With two monitors there are TWO live copies of
+    // this: TopShell instantiates NotchContent inside its Variants,
+    // NotchContent puts a LauncherPanel straight inside a NotchLayer, and
+    // NotchLayer is NOT a Loader -it only animates opacity/scale/slide-, so the
+    // Item always exists on both.
+    //
+    // With a global `active` both handled everything. And since `field.text`
+    // only fills in on the copy with focus (WlrLayershell.keyboardFocus gives it
+    // only to win.primary, TopShell.qml:243), the MUTE copy computed
+    // searchWins("") and published the UNFILTERED count in
+    // ShellState.launcherRows. Result on the tower: you opened windows mode,
+    // typed to filter, and the notch kept the height of the whole list —seven
+    // rows for two results—. The trigger was constant: winTick goes up every
+    // 90 ms with any window event.
+    //
+    // Whoever instantiates us decides it, because NotchContent's `mode` comes
+    // from win.faceMode and on screens without focus that is never "launcher".
+    property bool enPantalla: true
+    readonly property bool active: enPantalla && ShellState.panel === "launcher"
 
-    // El modo vive en ShellState y no aquí porque hay quien lo decide desde
-    // fuera: Super+Shift+V abre directamente en portapapeles, y la acción
-    // "Portapapeles" del modo ">" salta al modo "#" sin cerrar el panel.
+    // The mode lives in ShellState and not here because some callers decide it
+    // from outside: Super+Shift+V opens straight into the clipboard, and the
+    // "Portapapeles" (Clipboard) action of the ">" mode jumps to the "#" mode
+    // without closing the panel.
     readonly property string mode: ShellState.launcherMode
     readonly property var modeInfo: ShellState.launcherModeInfo(root.mode)
     readonly property bool isApps: root.mode === "apps"
 
     property var results: []
 
-    // QUIÉN ELIGE EL DELEGADO. Lo eligen LOS DATOS, no el modo, y la diferencia
-    // no es teórica: `mode` es un enlace declarado arriba del todo y los
-    // resultados los recarga un Connections declarado más abajo, así que al
-    // cambiar de modo Qt actualiza primero el enlace y después el manejador. En
-    // ese hueco de un fotograma la lista se repintaba con el delegado NUEVO y
-    // los datos VIEJOS: el delegado de ventanas recibía aplicaciones y pedía
-    // campos que no existen. Salían cinco avisos en el log por cada "@" que
-    // escribías.
+    // WHO CHOOSES THE DELEGATE. THE DATA choose it, not the mode, and the
+    // difference is not theoretical: `mode` is a binding declared at the very
+    // top and the results are reloaded by a Connections declared further down,
+    // so when the mode changes Qt updates the binding first and the handler
+    // afterwards. In that one-frame gap the list was repainted with the NEW
+    // delegate and the OLD data: the windows delegate received applications and
+    // asked for fields that do not exist. Five warnings came out in the log for
+    // every "@" you typed.
     //
-    // Preguntándoselo a la primera fila esto no puede pasar, porque la respuesta
-    // cambia exactamente a la vez que los datos. Las entradas de los tres modos
-    // nuevos se etiquetan en ShellState; una entrada .desktop no lleva `kind` y
-    // por eso el caso por defecto es "apps".
+    // Asking the first row, this cannot happen, because the answer changes
+    // exactly at the same time as the data. The entries of the three new modes
+    // are tagged in ShellState; a .desktop entry carries no `kind`, and that is
+    // why the default case is "apps".
     readonly property string listKind: root.results.length > 0
         ? (root.results[0].kind || "apps") : root.mode
 
-    // Calculadora: si lo escrito es una cuenta, sale arriba y es lo que está
-    // seleccionado por defecto. Enter copia el resultado al portapapeles.
+    // Calculator: if what you typed is a sum, it comes out at the top and is
+    // what is selected by default. Enter copies the result to the clipboard.
     property var calc: null
     readonly property bool hasCalc: root.calc !== null
 
-    // Temporizador: si lo escrito es una duración ("10m", "1h30", "90s"), la
-    // MISMA fila de arriba propone una cuenta atrás y Enter la arranca.
+    // Timer: if what you typed is a duration ("10m", "1h30", "90s"), the SAME
+    // row at the top offers a countdown and Enter starts it.
     //
-    // Ni la calculadora ni el temporizador llevan prefijo, y no es un olvido: no
-    // son un modo. Son lo que pasa cuando lo que escribes resulta ser una cuenta
-    // o una duración. Fueron los que abrieron la puerta a que en el lanzador se
-    // escriban cosas que no son nombres de aplicación; los modos solo terminan
-    // esa idea.
+    // Neither the calculator nor the timer has a prefix, and that is not an
+    // oversight: they are not a mode. They are what happens when what you type
+    // turns out to be a sum or a duration. They were the ones that opened the
+    // door to typing things in the launcher that are not application names; the
+    // modes just finish that idea.
     property int timerSec: -1
     readonly property bool hasTimer: root.timerSec > 0
 
-    // La fila destacada es una sola y solo puede ser una cosa: "10m" no es una
-    // cuenta y "2+2" no es una duración, así que nunca compiten.
+    // There is only one highlighted row and it can only be one thing: "10m" is
+    // not a sum and "2+2" is not a duration, so they never compete.
     readonly property bool hasSpecial: root.hasCalc || root.hasTimer
     property bool calcSelected: false
 
-    // ─────────────── favoritos ───────────────
-    // La fila fijada de arriba. El orden EN PANTALLA es propio del panel y no de
-    // Config a propósito: mientras arrastras, lo guardado no cambia. Si se
-    // escribiera el fichero a cada píxel, la lista se repintaría entera y los
-    // delegados se recrearían justo debajo del dedo, matando el gesto a medias.
-    // Solo se confirma al soltar.
+    // ─────────────── favourites ───────────────
+    // The pinned row at the top. The ON-SCREEN order belongs to the panel and
+    // not to Config on purpose: while you drag, what is saved does not change.
+    // If the file were written on every pixel, the whole list would be repainted
+    // and the delegates recreated right under your finger, killing the gesture
+    // halfway. It is only committed on release.
     property var favShown: []
-    property int favDrag: -1         // índice que se arrastra, -1 = ninguno
-    property bool favMoving: false   // ya superó el umbral: es arrastre, no clic
-    property int favSlot: -1         // ranura de inserción (0..n) bajo el puntero
+    property int favDrag: -1         // index being dragged, -1 = none
+    property bool favMoving: false   // already past the threshold: a drag, not a click
+    property int favSlot: -1         // insertion slot (0..n) under the pointer
     property real favGhostX: 0
     property real favGhostY: 0
-    property string favHover: ""     // nombre del favorito bajo el ratón
+    property string favHover: ""     // name of the favourite under the mouse
 
-    // Solo en el modo de aplicaciones y con el campo vacío: en cuanto escribes
-    // manda la búsqueda, y la fila desaparece para no robarle sitio.
+    // Only in applications mode and with the field empty: as soon as you type,
+    // the search takes over, and the row disappears so as not to steal its room.
     readonly property bool favVisible: root.isApps && field.text.length === 0
                                        && root.favShown.length > 0
 
     function syncFavs() { if (root.favDrag < 0) root.favShown = ShellState.favApps; }
 
-    // Las tres pistas de la derecha: solo con el campo vacío en modo
-    // aplicaciones. Es la única señal de que los modos existen, y por eso está
-    // donde estás mirando cuando abres el lanzador y aún no has escrito nada.
+    // The three hints on the right: only with the field empty in applications
+    // mode. It is the only sign that the modes exist, and that is why it is
+    // where you are looking when you open the launcher and have not typed
+    // anything yet.
     readonly property bool hintsVisible: root.isApps && field.text.length === 0
                                          && root.favHover.length === 0
 
@@ -113,44 +136,45 @@ Item {
             ShellState.launcherFavs = root.favVisible;
         }
 
-        // Cambiar de modo es empezar de cero: el texto que había buscaba otra
-        // cosa. Vale igual para el prefijo tecleado, para Super+Shift+V y para
-        // la acción "Portapapeles".
+        // Changing mode is starting from scratch: the text that was there was
+        // looking for something else. It holds equally for the typed prefix,
+        // for Super+Shift+V and for the "Portapapeles" (Clipboard) action.
         function onLauncherModeChanged() {
-            // Vaciar la lista ANTES que nada, y hacerlo aunque el panel esté
-            // cerrado. El delegado se elige por el modo, así que cambia en el
-            // mismo instante en que cambia `mode`, pero los resultados son
-            // todavía los del modo anterior: durante ese hueco el delegado del
-            // portapapeles recibe acciones del sistema y pide campos que no
-            // existen (`thumb`, `image`). Se veía como tres avisos de TypeError
-            // en el log cada vez que Super+Shift+V abría el panel estando
-            // cerrado, porque ahí el `return` de abajo se saltaba el refresco.
+            // Empty the list BEFORE anything else, and do it even if the panel
+            // is closed. The delegate is chosen by the mode, so it changes at the
+            // same instant `mode` changes, but the results are still those of the
+            // previous mode: during that gap the clipboard delegate receives
+            // system actions and asks for fields that do not exist (`thumb`,
+            // `image`). It showed up as three TypeError warnings in the log every
+            // time Super+Shift+V opened the panel while it was closed, because
+            // there the `return` below skipped the refresh.
             root.results = [];
             if (!root.active) return;
             field.text = "";
             root.enterMode();
         }
 
-        // Los datos de estos dos modos llegan tarde (un proceso, una consulta al
-        // socket de Hyprland), así que la lista se vuelve a filtrar cuando caen.
+        // The data of these two modes arrive late (a process, a query to
+        // Hyprland's socket), so the list is filtered again when they land.
         function onClipItemsChanged() { if (root.active && root.mode === "clip") root.refresh(); }
         function onWinItemsChanged() { if (root.active && root.mode === "win") root.refresh(); }
     }
 
-    // ¿Manda el teclado o el ratón? Al abrirse manda el teclado, SIEMPRE.
-    // Si no, el puntero que casualmente estaba encima de una fila secuestra la
-    // selección; y peor: al escribir, la lista se refiltra y las filas se mueven
-    // bajo un cursor quieto, disparando onEntered y robando el foco a cada
-    // pulsación. El ratón solo recupera el mando si de verdad se MUEVE.
+    // Is the keyboard or the mouse in charge? On opening the keyboard is in
+    // charge, ALWAYS. Otherwise the pointer that happened to be over a row
+    // hijacks the selection; and worse: while typing, the list is re-filtered
+    // and the rows move under a still cursor, firing onEntered and stealing the
+    // focus on every keystroke. The mouse only takes back control if it really
+    // MOVES.
     property bool mouseNav: false
     property point lastMouse: Qt.point(-1, -1)
 
-    // Único criterio para dar el mando al ratón: que el PUNTERO haya cambiado de
-    // sitio. Distingue los dos casos que molestaban:
-    //   · al abrir, Wayland manda un evento por "entrar" en la superficie nueva
-    //     aunque el ratón esté quieto -> el primero solo fija la referencia;
-    //   · al escribir, la lista se refiltra y las filas pasan bajo un cursor
-    //     quieto -> mismo punto, así que no cuenta.
+    // The only criterion for handing control to the mouse: the POINTER has
+    // moved. It tells apart the two cases that were a nuisance:
+    //   · on opening, Wayland sends an event for "entering" the new surface
+    //     even though the mouse is still -> the first one only sets the reference;
+    //   · while typing, the list is re-filtered and the rows pass under a still
+    //     cursor -> same point, so it does not count.
     function pointerMoved(px, py) {
         if (root.lastMouse.x < 0) { root.lastMouse = Qt.point(px, py); return false; }
         if (px === root.lastMouse.x && py === root.lastMouse.y) return false;
@@ -158,9 +182,9 @@ Item {
         return true;
     }
 
-    // Entrar en un modo: pedir sus datos y refiltrar. El portapapeles se relee
-    // SIEMPRE (cuesta centésimas y una lista de copiado desfasada no sirve de
-    // nada); ShellState ya ignora la petición si hay una en vuelo.
+    // Entering a mode: ask for its data and re-filter. The clipboard is re-read
+    // ALWAYS (it costs hundredths of a second and an out-of-date copy list is no
+    // use at all); ShellState already ignores the request if one is in flight.
     function enterMode() {
         if (root.mode === "clip") ShellState.clipRefresh();
         else if (root.mode === "win") ShellState.winRefresh();
@@ -169,8 +193,8 @@ Item {
 
     function refresh() {
         root.mouseNav = false;
-        // Fuera del modo de aplicaciones no hay cuentas ni duraciones: "2+2" en
-        // el portapapeles es texto que buscar, no una suma.
+        // Outside applications mode there are no sums or durations: "2+2" in
+        // the clipboard is text to search for, not an addition.
         root.calc = root.isApps ? ShellState.calcEval(field.text) : null;
         root.timerSec = root.isApps ? ShellState.parseDuration(field.text) : -1;
 
@@ -183,19 +207,26 @@ Item {
 
         root.calcSelected = root.hasSpecial;
         list.currentIndex = (!root.hasSpecial && root.results.length > 0) ? 0 : -1;
+        // Go back to the top by hand. The model reset used to do it: when the
+        // array changed, the list rewound by itself. With ScriptModel the rows
+        // are reused and the view stays where it was, so a new search could be
+        // born scrolled, with the highlighted row off screen.
+        // Only here: deleteCurrent() wants exactly the opposite (stay where it
+        // was so three can be deleted in a row) and now at last it can.
+        list.positionViewAtBeginning();
         root.syncFavs();
 
-        // para que el notch se ajuste a lo que hay
+        // so the notch fits what there is
         ShellState.launcherRows = root.waiting ? ShellState.launcherMaxRows : root.results.length;
         ShellState.launcherCalc = root.hasSpecial;
         ShellState.launcherFavs = root.favVisible;
     }
 
-    // Mientras el proceso del portapapeles contesta no se sabe cuántas filas
-    // habrá. Si se publicara 0, el panel nacería del tamaño de "Sin resultados"
-    // y daría un salto hacia abajo al llegar los datos. Se pide el máximo y
-    // encoge, que es su gesto de siempre y además ocurre dentro de la animación
-    // de apertura.
+    // While the clipboard process answers, it is not known how many rows there
+    // will be. If 0 were published, the panel would be born the size of "Sin
+    // resultados" (No results) and would jump downwards when the data arrived.
+    // The maximum is requested and it shrinks, which is its usual gesture and
+    // also happens inside the opening animation.
     readonly property bool waiting: root.mode === "clip" && ShellState.clipLoading
                                     && root.results.length === 0
 
@@ -206,8 +237,9 @@ Item {
         list.positionViewAtIndex(list.currentIndex, ListView.Contain);
     }
 
-    // Qué hace Enter. Cada modo sabe lo suyo; la fila destacada (calculadora o
-    // temporizador) va antes que todo porque solo existe en el modo de apps.
+    // What Enter does. Each mode knows its own business; the highlighted row
+    // (calculator or timer) comes before everything because it only exists in
+    // apps mode.
     function launchCurrent() {
         if (root.calcSelected && root.hasTimer) {
             ShellState.timerStart(root.timerSec);
@@ -229,10 +261,10 @@ Item {
         }
     }
 
-    // Suprimir borra la entrada del portapapeles sin cerrar el panel: limpiar el
-    // historial es justo la tarea en la que quieres seguir mirándolo. Rofi no
-    // podía hacerlo (elegir una entrada cerraba el menú), así que esto es cosa
-    // nueva del modo nativo.
+    // Delete removes the clipboard entry without closing the panel: cleaning up
+    // the history is exactly the task during which you want to keep looking at
+    // it. Rofi could not do it (choosing an entry closed the menu), so this is
+    // something new in the native mode.
     function deleteCurrent() {
         if (root.mode !== "clip") return;
         if (list.currentIndex < 0 || list.currentIndex >= root.results.length) return;
@@ -240,15 +272,15 @@ Item {
         ShellState.clipDelete(root.results[i]);
         root.results = ShellState.searchClip(field.text);
         ShellState.launcherRows = root.results.length;
-        // Quedarse donde estaba, no volver arriba: borrar tres seguidas es un
-        // gesto normal, y saltar al principio después de cada una lo impide.
+        // Stay where it was, do not go back to the top: deleting three in a row
+        // is a normal gesture, and jumping to the start after each one prevents it.
         list.currentIndex = root.results.length === 0 ? -1
             : Math.min(i, root.results.length - 1);
     }
 
     function move(delta) {
         root.mouseNav = false;
-        // la fila de la calculadora se comporta como una posición más, encima de la lista
+        // the calculator row behaves as one more position, above the list
         if (root.calcSelected && delta > 0) {
             if (root.results.length === 0) return;
             root.calcSelected = false;
@@ -268,18 +300,18 @@ Item {
         list.positionViewAtIndex(i, ListView.Contain);
     }
 
-    // Al abrirse: campo vacío, foco en el campo y el teclado al mando. El modo
-    // NO se toca aquí: lo ha decidido quien abrió (togglePanel entra siempre en
-    // "apps", openLauncher entra en el que le pidan).
+    // On opening: empty field, focus on the field and the keyboard in charge.
+    // The mode is NOT touched here: whoever opened it has decided (togglePanel
+    // always enters "apps", openLauncher enters whichever it is asked for).
     onActiveChanged: {
         if (root.active) {
             field.text = "";
-            // Un arrastre a medias que se quedó colgado al cerrar el panel no
-            // debe reaparecer al abrirlo otra vez.
+            // A half-finished drag that was left hanging when the panel closed
+            // must not reappear when it is opened again.
             root.favDrag = -1; root.favMoving = false; root.favSlot = -1; root.favHover = "";
             root.enterMode();
             field.forceActiveFocus();
-            refocus.restart();   // seguro: la capa tarda un instante en aceptar foco
+            refocus.restart();   // safety: the layer takes an instant to accept focus
             root.lastMouse = Qt.point(-1, -1);
         }
     }
@@ -289,8 +321,8 @@ Item {
         onTriggered: if (root.active) field.forceActiveFocus()
     }
 
-    // Absorbe clics y rueda en el hueco para que no lleguen al notch de debajo
-    // (si no, pinchar en el fondo del panel lo cerraría).
+    // Swallows clicks and wheel in the gap so they do not reach the notch below
+    // (otherwise clicking on the panel's background would close it).
     MouseArea {
         anchors.fill: parent
         onWheel: function (w) { w.accepted = true; }
@@ -301,7 +333,7 @@ Item {
         anchors.topMargin: 4
         spacing: 0
 
-        // ─────────────── buscador ───────────────
+        // ─────────────── search box ───────────────
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: 22
@@ -309,19 +341,19 @@ Item {
             Layout.preferredHeight: 50
             spacing: 12
 
-            // El icono de la izquierda es el del MODO: la lupa solo cuando de
-            // verdad se buscan aplicaciones.
+            // The icon on the left is the MODE's: the magnifying glass only when
+            // applications are really being searched.
             Text {
                 text: root.modeInfo.icon
-                color: (field.text.length > 0 || !root.isApps) ? Colors.accent : "#6c6c6c"
+                color: (field.text.length > 0 || !root.isApps) ? Colors.accentInk : Colors.label4
                 font.family: Appearance.font
                 font.pixelSize: 17
                 Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
             }
 
-            // La etiqueta del modo, en el sitio exacto donde estaba el prefijo
-            // que la creó. Es lo que hace honesto haberlo borrado del campo: el
-            // carácter desaparece pero deja algo en su lugar.
+            // The mode label, in the exact spot where the prefix that created it
+            // was. It is what makes deleting it from the field honest: the
+            // character disappears but leaves something in its place.
             Rectangle {
                 visible: !root.isApps
                 Layout.preferredWidth: modeChip.implicitWidth + 20
@@ -335,13 +367,13 @@ Item {
                     spacing: 6
                     Text {
                         text: root.modeInfo.prefix
-                        color: Colors.accent
-                        font.family: Appearance.font; font.pixelSize: 13; font.weight: Font.Bold
+                        color: Colors.accentInk
+                        font.family: Appearance.font; font.pixelSize: Appearance.fsM; font.weight: Font.Bold
                     }
                     Text {
                         text: root.modeInfo.name
-                        color: "#e8e8e8"
-                        font.family: Appearance.fontUI; font.pixelSize: 12; font.weight: Font.Medium
+                        color: Colors.label
+                        font.family: Appearance.fontUI; font.pixelSize: Appearance.fsS; font.weight: Font.Medium
                     }
                 }
             }
@@ -350,26 +382,26 @@ Item {
                 id: field
                 Layout.fillWidth: true
                 placeholderText: root.modeInfo.hint
-                color: "#ffffff"
-                placeholderTextColor: "#5e5e5e"
+                color: Colors.label
+                placeholderTextColor: Colors.label4
                 selectionColor: Colors.accent
                 selectedTextColor: "#000000"
                 font.family: Appearance.fontUI
-                font.pixelSize: 16
+                font.pixelSize: Appearance.fsL
                 background: null
                 padding: 0
 
                 onTextChanged: {
-                    // Un prefijo al PRINCIPIO del campo no es texto: es un cambio
-                    // de modo. Se comprueba aquí y no en Keys.onPressed para que
-                    // también funcione pegando ("#factura" pega y entra en el
-                    // portapapeles buscando "factura").
+                    // A prefix at the START of the field is not text: it is a
+                    // mode change. It is checked here and not in Keys.onPressed so
+                    // that it also works when pasting ("#factura" pastes and enters
+                    // the clipboard searching for "factura").
                     if (root.isApps && field.text.length > 0) {
                         const m = ShellState.launcherModeOf(field.text.charAt(0));
                         if (m !== "") {
                             const rest = field.text.slice(1);
-                            ShellState.launcherMode = m;   // vacía el campo y refresca
-                            field.text = rest;             // se conserva lo que iba detrás
+                            ShellState.launcherMode = m;   // empties the field and refreshes
+                            field.text = rest;             // what came after is kept
                             return;
                         }
                     }
@@ -384,9 +416,9 @@ Item {
                 Keys.onTabPressed: root.move(1)
                 Keys.onBacktabPressed: root.move(-1)
                 Keys.onPressed: function (e) {
-                    // Borrar sobre el campo YA vacío sale del modo. Es la salida
-                    // que la mano encuentra sola: si el prefijo se borró al
-                    // escribirlo, seguir borrando tiene que deshacerlo.
+                    // Backspace on the ALREADY empty field leaves the mode. It is
+                    // the way out the hand finds by itself: if the prefix was
+                    // erased when typed, carrying on erasing has to undo it.
                     if (e.key === Qt.Key_Backspace && !root.isApps && field.text.length === 0) {
                         ShellState.launcherMode = "apps";
                         e.accepted = true;
@@ -400,15 +432,15 @@ Item {
                     if (e.modifiers & Qt.ControlModifier) {
                         if (e.key === Qt.Key_J || e.key === Qt.Key_N) { root.move(1); e.accepted = true; }
                         else if (e.key === Qt.Key_K || e.key === Qt.Key_P) { root.move(-1); e.accepted = true; }
-                        // Ctrl+D fija o suelta lo que tengas seleccionado, sin ratón.
+                        // Ctrl+D pins or unpins whatever you have selected, without the mouse.
                         else if (e.key === Qt.Key_D && root.isApps) {
                             if (!root.calcSelected && list.currentIndex >= 0 && list.currentIndex < root.results.length)
                                 ShellState.toggleFav(root.results[list.currentIndex]);
                             e.accepted = true;
                         }
-                        // Ctrl+1..9 lanza el favorito N. Es el motivo de que la
-                        // fila esté ORDENADA y de que se pueda reordenar: la
-                        // posición pasa a ser un atajo que se aprende con los dedos.
+                        // Ctrl+1..9 launches favourite N. It is the reason the
+                        // row is ORDERED and can be reordered: the position
+                        // becomes a shortcut your fingers learn.
                         else if (root.isApps && e.key >= Qt.Key_1 && e.key <= Qt.Key_9) {
                             const n = e.key - Qt.Key_1;
                             if (n < ShellState.favApps.length) ShellState.launchApp(ShellState.favApps[n]);
@@ -421,24 +453,25 @@ Item {
                 }
             }
 
-            // Nombre del favorito bajo el ratón. Los iconos de la fila fijada no
-            // llevan etiqueta debajo (no cabe en 58 px y triplicaría el alto),
-            // así que el nombre sale aquí: un sitio que ya existía y que ya
-            // estás mirando.
+            // Name of the favourite under the mouse. The icons in the pinned row
+            // carry no label underneath (it does not fit in 58 px and would
+            // triple the height), so the name comes out here: a place that
+            // already existed and that you are already looking at.
             Text {
                 visible: root.favHover.length > 0
                 Layout.maximumWidth: 170
                 text: root.favHover
-                color: "#9a9a9a"
+                color: Colors.label2
                 elide: Text.ElideRight
                 font.family: Appearance.fontUI
-                font.pixelSize: 12
+                font.pixelSize: Appearance.fsS
             }
 
-            // Las pistas de los modos, donde iba el contador. El contador decía
-            // "hay 49 aplicaciones", que no es un dato que nadie necesite; esto
-            // ocupa el mismo hueco y sí enseña algo. En cuanto escribes una letra
-            // vuelve el contador, que ahí sí significa algo.
+            // The mode hints, where the counter used to be. The counter said
+            // "there are 49 applications", which is not a fact anybody needs;
+            // this takes the same slot and DOES teach something. As soon as you
+            // type a letter the counter comes back, and there it does mean
+            // something.
             RowLayout {
                 visible: root.hintsVisible
                 spacing: 12
@@ -449,13 +482,13 @@ Item {
                         spacing: 4
                         Text {
                             text: modelData.prefix
-                            color: Colors.accent
-                            font.family: Appearance.font; font.pixelSize: 12; font.weight: Font.Bold
+                            color: Colors.accentInk
+                            font.family: Appearance.font; font.pixelSize: Appearance.fsS; font.weight: Font.Bold
                         }
                         Text {
                             text: modelData.name
-                            color: "#5e5e5e"
-                            font.family: Appearance.fontUI; font.pixelSize: 11
+                            color: Colors.label3
+                            font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXS
                         }
                     }
                 }
@@ -464,9 +497,12 @@ Item {
             Text {
                 visible: !root.hintsVisible && root.favHover.length === 0
                 text: String(root.results.length)
-                color: "#5e5e5e"
+                color: Colors.label3
                 font.family: Appearance.fontUI
-                font.pixelSize: 12
+                font.pixelSize: Appearance.fsS
+                // Tabular figures: the count is redone on every keystroke and
+                // without this the width jiggles going from 9 to 10 results.
+                font.features: ({ "tnum": 1 })
             }
         }
 
@@ -476,12 +512,12 @@ Item {
             Layout.rightMargin: 18
             Layout.bottomMargin: 6
             height: 1
-            color: "#1e1e1e"
+            color: Colors.hairline
         }
 
-        // ─────────────── favoritos fijados ───────────────
-        // Arrastrar reordena. Clic lanza. Clic derecho quita de favoritos.
-        // Ctrl+1..9 lanza el favorito N sin levantar la mano del teclado.
+        // ─────────────── pinned favourites ───────────────
+        // Dragging reorders. Click launches. Right click removes from favourites.
+        // Ctrl+1..9 launches favourite N without lifting your hand off the keyboard.
         Item {
             id: favRow
             Layout.fillWidth: true
@@ -498,11 +534,20 @@ Item {
                 id: favList
                 anchors.fill: parent
                 orientation: ListView.Horizontal
-                model: root.favShown
+                // ScriptModel: when a reordered favourite is dropped, `favShown`
+                // is a new array, and with the bare array all eight icons were
+                // recreated (and their images reloaded) just to move one. They
+                // are the same .desktop entries, so by identity the delegate that
+                // already exists is moved. Along the way, the row whose
+                // onReleased is running stops being destroyed.
+                model: ScriptModel {
+                    values: root.favShown
+                    comparisonMode: ObjectComparison.Identity
+                }
                 spacing: 0
                 boundsBehavior: Flickable.StopAtBounds
-                // Solo se puede desplazar si de verdad no caben; si no, cualquier
-                // arrastre horizontal movería la lista en vez del icono.
+                // It can only scroll if they really do not fit; otherwise any
+                // horizontal drag would move the list instead of the icon.
                 interactive: contentWidth > width
 
                 delegate: Item {
@@ -519,7 +564,7 @@ Item {
                         anchors.centerIn: parent
                         width: 50; height: 50
                         radius: 15
-                        color: favMa.containsMouse && !root.favMoving ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                        color: favMa.containsMouse && !root.favMoving ? Colors.fill2 : "transparent"
                         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
                     }
 
@@ -529,7 +574,7 @@ Item {
                         sourceSize.width: 34; sourceSize.height: 34
                         source: Quickshell.iconPath(favCell.modelData.icon, "application-x-executable")
                         fillMode: Image.PreserveAspectFit
-                        // el hueco de donde sale, mientras lo llevas
+                        // the gap it comes out of, while you carry it
                         opacity: favCell.dragged ? 0.18 : 1
                         Behavior on opacity { NumberAnimation { duration: Appearance.mQuick } }
                     }
@@ -540,9 +585,9 @@ Item {
                         hoverEnabled: true
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                         cursorShape: Qt.PointingHandCursor
-                        // Si no, el Flickable de la lista roba el gesto en cuanto
-                        // el puntero se mueve en horizontal, que es justo lo que
-                        // hace falta para reordenar.
+                        // Otherwise the list's Flickable steals the gesture as
+                        // soon as the pointer moves horizontally, which is exactly
+                        // what is needed to reorder.
                         preventStealing: true
 
                         property real pressX: 0
@@ -560,8 +605,9 @@ Item {
 
                         onPositionChanged: function (m) {
                             if (root.favDrag < 0) return;
-                            // Umbral: sin él, el temblor de la mano al hacer clic
-                            // ya contaría como arrastre y no lanzaría la app.
+                            // Threshold: without it, the hand's tremor when
+                            // clicking would already count as a drag and would not
+                            // launch the app.
                             if (!root.favMoving) {
                                 if (Math.abs(m.x - favMa.pressX) < 6 && Math.abs(m.y - favMa.pressY) < 6) return;
                                 root.favMoving = true;
@@ -569,9 +615,9 @@ Item {
                             const p = favMa.mapToItem(favRow, m.x, m.y);
                             root.favGhostX = p.x;
                             root.favGhostY = p.y;
-                            // Ranura de inserción, no índice de elemento: redondear
-                            // (y no truncar) hace que la marca salte por la MITAD
-                            // de cada celda, que es donde el ojo espera el corte.
+                            // Insertion slot, not element index: rounding (and not
+                            // truncating) makes the marker jump at the MIDDLE of
+                            // each cell, which is where the eye expects the cut.
                             const cx = favList.contentX + p.x;
                             root.favSlot = Math.max(0, Math.min(root.favShown.length,
                                                                 Math.round(cx / favRow.cellW)));
@@ -582,9 +628,9 @@ Item {
                             const moved = root.favMoving;
                             const from = root.favDrag;
                             const to = root.favSlot;
-                            // Limpiar ANTES de tocar Config: al confirmar cambia
-                            // ShellState.favApps, y syncFavs() solo repinta si ya
-                            // no hay un arrastre en curso.
+                            // Clean up BEFORE touching Config: committing changes
+                            // ShellState.favApps, and syncFavs() only repaints if
+                            // there is no longer a drag in progress.
                             root.favDrag = -1; root.favMoving = false; root.favSlot = -1;
                             if (moved) { if (to >= 0) ShellState.moveFav(from, to); }
                             else ShellState.launchApp(favCell.modelData);
@@ -593,17 +639,17 @@ Item {
                         onCanceled: { root.favDrag = -1; root.favMoving = false; root.favSlot = -1; }
 
                         onClicked: function (m) {
-                            // El izquierdo lo resuelve onReleased, que es quien
-                            // sabe distinguir un clic de un arrastre.
+                            // The left one is handled by onReleased, which is the
+                            // one that can tell a click from a drag.
                             if (m.button === Qt.RightButton) ShellState.toggleFav(favCell.modelData);
                         }
                     }
                 }
             }
 
-            // Dónde va a caer lo que llevas en la mano. Más alta que el icono
-            // fantasma (40 px) a propósito: el cursor está justo encima de la
-            // marca, así que si midieran lo mismo el icono la taparía entera.
+            // Where what you are carrying is going to land. Taller than the ghost
+            // icon (40 px) on purpose: the cursor is right over the marker, so if
+            // they measured the same the icon would cover it completely.
             Rectangle {
                 visible: root.favMoving && root.favSlot >= 0
                 width: 2
@@ -614,7 +660,7 @@ Item {
                 x: root.favSlot * favRow.cellW - favList.contentX - 1
             }
 
-            // El icono que sigue al puntero.
+            // The icon that follows the pointer.
             Image {
                 visible: root.favMoving && root.favDrag >= 0 && root.favDrag < root.favShown.length
                 width: 40; height: 40
@@ -629,7 +675,7 @@ Item {
             }
         }
 
-        // ─────────────── resultado de la calculadora ───────────────
+        // ─────────────── calculator result ───────────────
         Rectangle {
             id: calcRow
             Layout.fillWidth: true
@@ -640,7 +686,7 @@ Item {
             visible: root.hasSpecial
             radius: 12
             color: root.calcSelected ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.20)
-                 : calcMa.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
+                 : calcMa.containsMouse ? Colors.fill2 : "transparent"
             Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
             RowLayout {
@@ -649,8 +695,8 @@ Item {
 
                 Text {
                     text: root.hasTimer ? Icons.timer : "󰪚"
-                    color: Colors.accent
-                    font.family: Appearance.font; font.pixelSize: 22
+                    color: Colors.accentInk
+                    font.family: Appearance.font; font.pixelSize: Appearance.fsXL
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -659,7 +705,7 @@ Item {
                         Layout.fillWidth: true
                         text: root.hasTimer ? ShellState.timerClock(root.timerSec)
                                             : ShellState.calcFormat(root.calc)
-                        color: "#ffffff"; elide: Text.ElideRight
+                        color: Colors.label; elide: Text.ElideRight
                         font.family: Appearance.fontUI; font.pixelSize: 19; font.weight: Font.DemiBold
                         font.features: ({ "tnum": 1 })
                     }
@@ -667,14 +713,14 @@ Item {
                         Layout.fillWidth: true
                         text: root.hasTimer ? I18n.tr("Enter arranca el temporizador")
                                             : I18n.tr("Enter copia al portapapeles")
-                        color: "#7d7d7d"; elide: Text.ElideRight
-                        font.family: Appearance.fontUI; font.pixelSize: 10
+                        color: Colors.label3; elide: Text.ElideRight
+                        font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
                     }
                 }
                 Text {
                     visible: root.calcSelected
                     text: root.hasTimer ? Icons.play : "󰆏"
-                    color: Colors.accent
+                    color: Colors.accentInk
                     font.family: Appearance.font; font.pixelSize: 14
                 }
             }
@@ -692,10 +738,10 @@ Item {
             }
         }
 
-        // ─────────────── resultados ───────────────
-        // Un delegado por modo, elegido por la propia lista. La alternativa era
-        // un delegado único con cuatro ramas dentro, que es el mismo código pero
-        // sin poder leer ninguno de los cuatro de un vistazo.
+        // ─────────────── results ───────────────
+        // One delegate per mode, chosen by the list itself. The alternative was a
+        // single delegate with four branches inside, which is the same code but
+        // without being able to read any of the four at a glance.
         ListView {
             id: list
             Layout.fillWidth: true
@@ -704,7 +750,20 @@ Item {
             Layout.rightMargin: 12
             Layout.bottomMargin: 12
             clip: true
-            model: root.results
+            // ScriptModel: every key redoes `results`, and with the bare array
+            // that is a reset — the fifty rows were destroyed and recreated on
+            // every keystroke even if the result was almost the same. Between
+            // keystrokes the entries are the SAME objects (searchApps takes them
+            // from allApps, searchClip from clipItems, searchActions from
+            // sysActions, searchWins from winItems), so by identity whatever is
+            // still there is reused. CAREFUL with windows mode: every winTick
+            // rebuilds winItems with NEW objects, so there a poll still redoes
+            // the whole list; nothing is lost, but do not expect rows to be
+            // reused between polls.
+            model: ScriptModel {
+                values: root.results
+                comparisonMode: ObjectComparison.Identity
+            }
             currentIndex: 0
             highlightMoveDuration: Appearance.mQuick
             boundsBehavior: Flickable.StopAtBounds
@@ -716,7 +775,7 @@ Item {
                     : root.listKind === "win" ? winDelegate
                     : appDelegate
 
-            // sin resultados
+            // no results
             Text {
                 anchors.centerIn: parent
                 visible: root.results.length === 0
@@ -725,25 +784,25 @@ Item {
                     : root.mode === "clip" ? I18n.tr("El portapapeles está vacío")
                     : root.mode === "win" ? I18n.tr("No hay ventanas abiertas")
                     : I18n.tr("Sin resultados")
-                color: "#5e5e5e"
+                color: Colors.label3
                 font.family: Appearance.fontUI
-                font.pixelSize: 13
+                font.pixelSize: Appearance.fsM
             }
         }
     }
 
     // ═══════════════════════ delegados ═══════════════════════
-    // El fondo, el resalte y el criterio de "manda el ratón" son idénticos en
-    // los cuatro, así que viven en un componente base y cada modo solo pone lo
-    // que va dentro. RowBase publica `sel` para que el contenido pueda pintar la
-    // flecha de Enter sin volver a mirar el índice.
-    // OJO: el contenido de cada modo se declara DETRÁS del MouseArea, sin
-    // `default property alias` a un Item contenedor. Un alias de propiedad por
-    // defecto en el propio tipo también se traga los hijos declarados en la
-    // definición del tipo, o sea el MouseArea, y el resultado es un contenedor
-    // que se contiene a sí mismo. Además el orden importa para el ratón: al ir
-    // detrás, las zonas de la estrella y la papelera quedan POR ENCIMA de la
-    // zona de la fila y se llevan su clic, que es justo lo que se busca.
+    // The background, the highlight and the "mouse in charge" criterion are
+    // identical in all four, so they live in a base component and each mode only
+    // supplies what goes inside. RowBase publishes `sel` so the content can paint
+    // the Enter arrow without looking at the index again.
+    // CAREFUL: each mode's content is declared AFTER the MouseArea, with no
+    // `default property alias` to a container Item. A default property alias on
+    // the type itself also swallows the children declared in the type's
+    // definition, that is, the MouseArea, and the result is a container that
+    // contains itself. The order also matters for the mouse: coming after, the
+    // star and bin zones sit ABOVE the row's zone and take its click, which is
+    // exactly what is wanted.
     component RowBase: Rectangle {
         id: base
         required property int index
@@ -756,7 +815,7 @@ Item {
         height: ShellState.launcherRowH
         radius: 12
         color: base.sel ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.20)
-             : (baseMa.containsMouse && root.mouseNav) ? Qt.rgba(1, 1, 1, 0.06)
+             : (baseMa.containsMouse && root.mouseNav) ? Colors.fill2
              : "transparent"
         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
@@ -766,8 +825,8 @@ Item {
             hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: Qt.PointingHandCursor
-            // Mismo criterio en entrada y en movimiento: solo manda el ratón si
-            // el puntero ha cambiado de sitio de verdad.
+            // Same criterion on enter and on move: the mouse is only in charge if
+            // the pointer has really moved.
             onPositionChanged: function (m) {
                 const p = baseMa.mapToItem(null, m.x, m.y);
                 if (root.pointerMoved(p.x, p.y)) { root.mouseNav = true; root.calcSelected = false; list.currentIndex = base.index; }
@@ -780,15 +839,15 @@ Item {
         }
     }
 
-    // La flecha de Enter, igual en los cuatro modos.
+    // The Enter arrow, the same in all four modes.
     component EnterMark: Text {
         text: "󰌑"
-        color: Colors.accent
+        color: Colors.accentInk
         font.family: Appearance.font
-        font.pixelSize: 13
+        font.pixelSize: Appearance.fsM
     }
 
-    // ─── aplicaciones ───
+    // ─── applications ───
     Component {
         id: appDelegate
 
@@ -820,31 +879,31 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: appRow.modelData.name || ""
-                        color: "#ffffff"
+                        color: Colors.label
                         elide: Text.ElideRight
                         font.family: Appearance.fontUI
-                        font.pixelSize: 13
+                        font.pixelSize: Appearance.fsM
                         font.weight: Font.Medium
                     }
                     Text {
                         Layout.fillWidth: true
                         visible: text.length > 0
                         text: appRow.modelData.comment || appRow.modelData.genericName || ""
-                        color: "#7d7d7d"
+                        color: Colors.label2
                         elide: Text.ElideRight
                         font.family: Appearance.fontUI
-                        font.pixelSize: 11
+                        font.pixelSize: Appearance.fsXS
                     }
                 }
 
-                // Estrella: llena si ya es favorito, hueca solo al pasar por
-                // encima. Así una fila corriente no lleva ruido, pero la manera
-                // de fijarla está siempre a un clic de distancia.
+                // Star: filled if it is already a favourite, hollow only on
+                // hover. That way an ordinary row carries no noise, but the way
+                // to pin it is always one click away.
                 Text {
                     visible: ShellState.isFav(appRow.modelData) || starMa.containsMouse || appRow.hovered
                     text: ShellState.isFav(appRow.modelData) ? Icons.star : Icons.starOff
-                    color: ShellState.isFav(appRow.modelData) ? Colors.accent2
-                         : starMa.containsMouse ? "#c9c9c9" : "#4a4a4a"
+                    color: ShellState.isFav(appRow.modelData) ? Colors.accent2Ink
+                         : starMa.containsMouse ? Colors.label : Colors.label4
                     font.family: Appearance.font
                     font.pixelSize: 14
                     Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
@@ -852,7 +911,7 @@ Item {
                     MouseArea {
                         id: starMa
                         anchors.fill: parent
-                        anchors.margins: -7      // zona de clic cómoda sin agrandar el icono
+                        anchors.margins: -7      // comfortable click zone without enlarging the icon
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: ShellState.toggleFav(appRow.modelData)
@@ -864,7 +923,7 @@ Item {
         }
     }
 
-    // ─── # portapapeles ───
+    // ─── # clipboard ───
     Component {
         id: clipDelegate
 
@@ -873,8 +932,8 @@ Item {
             required property var modelData
 
             onActivated: function (button) {
-                // El derecho borra, igual que en la fila de aplicaciones el
-                // derecho es "la acción secundaria de esta fila".
+                // The right one deletes, just as in the applications row the
+                // right one is "this row's secondary action".
                 if (button === Qt.RightButton) { list.currentIndex = clipRow.index; root.deleteCurrent(); }
                 else ShellState.clipCopy(clipRow.modelData);
             }
@@ -883,11 +942,10 @@ Item {
                 anchors { fill: parent; leftMargin: 10; rightMargin: 14 }
                 spacing: 13
 
-                // La miniatura de verdad para las imágenes; un icono de documento
-                // para el texto. Van los dos en un hueco del MISMO tamaño para
-                // que la columna de texto empiece siempre en la misma vertical:
-                // si cada fila empezara donde le tocara, la lista sería un
-                // zigzag ilegible.
+                // The real thumbnail for images; a document icon for text. Both
+                // go in a slot of the SAME size so that the text column always
+                // starts on the same vertical: if each row started wherever it
+                // happened to, the list would be an unreadable zigzag.
                 Rectangle {
                     Layout.preferredWidth: 46
                     Layout.preferredHeight: 40
@@ -899,9 +957,9 @@ Item {
                         anchors.fill: parent
                         visible: clipRow.modelData.image && clipRow.modelData.thumb.length > 0
                         source: clipRow.modelData.thumb.length > 0 ? "file://" + clipRow.modelData.thumb : ""
-                        // Recortada y no encajada: llenar el hueco enseña el
-                        // CONTENIDO de la captura; encajarla la deja de 12 px de
-                        // alto rodeada de negro y no se reconoce nada.
+                        // Cropped and not fitted: filling the slot shows the
+                        // CONTENT of the screenshot; fitting it leaves it 12 px
+                        // high surrounded by black and nothing can be made out.
                         fillMode: Image.PreserveAspectCrop
                         sourceSize.width: 92
                         sourceSize.height: 80
@@ -913,7 +971,7 @@ Item {
                         anchors.centerIn: parent
                         visible: !clipRow.modelData.image
                         text: Icons.textBox
-                        color: "#6c6c6c"
+                        color: Colors.label3
                         font.family: Appearance.font
                         font.pixelSize: 20
                     }
@@ -922,24 +980,30 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: clipRow.modelData.label
-                    color: clipRow.modelData.image ? "#b9b9b9" : "#ffffff"
-                    // Dos líneas: lo que se copia casi nunca cabe en una, y con
-                    // una sola línea media lista parecía la misma entrada
-                    // repetida (todo empieza por el mismo párrafo).
+                    color: clipRow.modelData.image ? Colors.label2 : Colors.label
+                    // Two lines: what gets copied hardly ever fits in one, and
+                    // with a single line half the list looked like the same
+                    // entry repeated (everything starts with the same paragraph).
                     maximumLineCount: 2
                     wrapMode: Text.Wrap
                     elide: Text.ElideRight
                     font.family: Appearance.fontUI
-                    font.pixelSize: 12
+                    font.pixelSize: Appearance.fsS
+                    // Here there ARE two lines, so the air between them is set by
+                    // the scale and not by whichever font happens to be chosen in
+                    // Ajustes (Settings).
+                    lineHeight: Appearance.leading(Appearance.fsS)
+                    lineHeightMode: Text.FixedHeight
                     font.weight: clipRow.modelData.image ? Font.Normal : Font.Medium
                 }
 
-                // La papelera solo aparece en la fila señalada: es destructiva y
-                // no tiene por qué estar ofreciéndose en las quince a la vez.
+                // The bin only appears on the highlighted row: it is destructive
+                // and there is no reason for it to be on offer in all fifteen at
+                // once.
                 Text {
                     visible: clipRow.sel
                     text: Icons.trash
-                    color: trashMa.containsMouse ? "#ff6b6b" : "#5e5e5e"
+                    color: trashMa.containsMouse ? "#ff6b6b" : Colors.label3
                     font.family: Appearance.font
                     font.pixelSize: 15
                     Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
@@ -959,7 +1023,7 @@ Item {
         }
     }
 
-    // ─── > acciones ───
+    // ─── > actions ───
     Component {
         id: cmdDelegate
 
@@ -976,7 +1040,7 @@ Item {
                 Text {
                     Layout.preferredWidth: 24
                     text: cmdRow.modelData.icon
-                    color: cmdRow.sel ? Colors.accent : "#b9b9b9"
+                    color: cmdRow.sel ? Colors.accentInk : Colors.label2
                     horizontalAlignment: Text.AlignHCenter
                     font.family: Appearance.font
                     font.pixelSize: 18
@@ -989,19 +1053,19 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: cmdRow.modelData.name
-                        color: "#ffffff"
+                        color: Colors.label
                         elide: Text.ElideRight
                         font.family: Appearance.fontUI
-                        font.pixelSize: 13
+                        font.pixelSize: Appearance.fsM
                         font.weight: Font.Medium
                     }
                     Text {
                         Layout.fillWidth: true
                         text: cmdRow.modelData.desc
-                        color: "#7d7d7d"
+                        color: Colors.label2
                         elide: Text.ElideRight
                         font.family: Appearance.fontUI
-                        font.pixelSize: 11
+                        font.pixelSize: Appearance.fsXS
                     }
                 }
 
@@ -1010,7 +1074,7 @@ Item {
         }
     }
 
-    // ─── @ ventanas ───
+    // ─── @ windows ───
     Component {
         id: winDelegate
 
@@ -1038,44 +1102,45 @@ Item {
                     spacing: 0
                     Text {
                         Layout.fillWidth: true
-                        // El título se lee del toplevel VIVO y no de la copia del
-                        // modelo: cambiar de pestaña en el navegador tiene que
-                        // cambiar la fila sin esperar al siguiente refresco.
+                        // The title is read from the LIVE toplevel and not from
+                        // the model's copy: switching tabs in the browser has to
+                        // change the row without waiting for the next refresh.
                         text: (winRow.modelData.tl && winRow.modelData.tl.title)
                               ? winRow.modelData.tl.title : winRow.modelData.title
-                        color: "#ffffff"
+                        color: Colors.label
                         elide: Text.ElideRight
                         font.family: Appearance.fontUI
-                        font.pixelSize: 13
+                        font.pixelSize: Appearance.fsM
                         font.weight: Font.Medium
                     }
                     Text {
                         Layout.fillWidth: true
                         text: winRow.modelData.cls
-                        color: "#7d7d7d"
+                        color: Colors.label2
                         elide: Text.ElideRight
                         font.family: Appearance.fontUI
-                        font.pixelSize: 11
+                        font.pixelSize: Appearance.fsXS
                     }
                 }
 
-                // A qué escritorio te vas. Es la única información que la lista
-                // de ventanas tiene y el Alt+Tab del compositor no: saltar aquí
-                // puede cambiarte de escritorio, y conviene saberlo antes.
+                // Which workspace you are going to. It is the only information
+                // the window list has and the compositor's Alt+Tab does not:
+                // jumping from here can switch your workspace, and it is worth
+                // knowing that beforehand.
                 Rectangle {
                     Layout.preferredWidth: 22
                     Layout.preferredHeight: 20
                     radius: 7
                     color: winRow.modelData.ws === ShellState.activeWs
                            ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.22)
-                           : Qt.rgba(1, 1, 1, 0.07)
+                           : Colors.fill3
 
                     Text {
                         anchors.centerIn: parent
                         text: String(winRow.modelData.ws)
-                        color: winRow.modelData.ws === ShellState.activeWs ? Colors.accent : "#8a8a8a"
+                        color: winRow.modelData.ws === ShellState.activeWs ? Colors.accentInk : Colors.label3
                         font.family: Appearance.fontUI
-                        font.pixelSize: 11
+                        font.pixelSize: Appearance.fsXS
                         font.weight: Font.DemiBold
                     }
                 }

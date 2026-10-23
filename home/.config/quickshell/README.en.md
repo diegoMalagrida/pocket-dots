@@ -220,7 +220,7 @@ unfolding just because the mouse went past it.
 
 **Current panels**: `MediaPanel.qml`, `LauncherPanel.qml`, `ControlPanel.qml`,
 `NetworkPanel.qml`, `PowerPanel.qml`, `BluetoothPanel.qml`, `OverviewPanel.qml`,
-`CalendarPanel.qml`.
+`CalendarPanel.qml`, `GithubPanel.qml`.
 
 #### The calendar (`CalendarPanel.qml`)
 
@@ -249,6 +249,128 @@ deliberately dropped**: every face of the notch is a view onto something the
 system already knows, and notes would make the shell the owner of the user's
 data, with the backups, the corruption and the migrations that follow. A
 calendar, by contrast, is a view onto time.
+
+#### GitHub (`GithubPanel.qml`)
+
+The contribution year and the latest commits. Two doors, like the calendar: the
+**control centre card** — which already shows the last twelve weeks, the total
+and the streak on its own — and the `quickshell:github` shortcut.
+
+The squares are **not green**. They follow the pywal accent like everything else:
+a widget that brings its own palette looks stuck on top of the desktop rather
+than part of it. GitHub decides each day's level (0..4) and here it only grades
+the opacity.
+
+The data comes from `scripts/github-stats.py` in a **single** GraphQL query,
+authenticated by the `gh` that is already installed: the shell never touches a
+token, nor knows where one lives. The script caches the answer in
+`~/.cache/quickshell/github.json` and, when the network fails, returns it flagged
+`stale`, so the panel shows last time's numbers — and says so — instead of going
+blank. The cadence is a QML `Timer` every 15 minutes, never a bash loop, plus a
+refresh when the panel opens and another on `R`.
+
+Hovering a square swaps the line underneath from the streak to that day. It is
+**one** `MouseArea` over the whole grid dividing by the step to work out which
+square you are on, not 371 of them; and it is a fixed line rather than a floating
+tooltip, which would cover the grid exactly where you are looking.
+
+#### The Pokémon team (`PokeTeamPanel.qml`)
+
+`Super+Shift+O`. Six Pokémon that **level up from your commits**. The idea comes
+from the pets in [Impasto](https://github.com/andreumassanet/impasto)
+(GPL-3.0); the difference is where the experience comes from: there they
+earn it by being looked after, here by working.
+
+All the game logic — experience, levels, evolutions, natures, badges, box —
+lives in `~/.local/bin/poke-team`, not in QML. The panel only paints its JSON
+and sends it orders. Same rule as `monitors.py` or `github-stats.py`, and it paid
+for itself here: the sharing bugs were found by driving the engine from the
+terminal, without opening the shell.
+
+**How the experience is counted**, which is the only delicate part. GitHub does
+not say "you made a commit"; it says how many contributions you have each day. So
+the number already counted is stored, and every sync re-adds the **whole** grid
+from the day you formed the team: the difference is what gets shared out.
+Comparing totals rather than increments is what keeps anything from being lost
+after days with the machine off, and keeps ten syncs in a row from counting ten
+times. It does **not** hand you the backlog on install: counting the 795
+contributions already there would have put the team at level 40 on day one.
+
+Each contribution is worth 12 experience, and three multipliers act on that: the
+GitHub **streak** (+10 % per consecutive day, capped at double after ten), the
+split (the leader takes 60 %, or equal shares with **Exp. Share** on, like the
+item in the games) and each individual's **nature**. All 25 natures are there,
+and the stat they raise maps onto the only thing that exists here: how fast that
+creature learns.
+
+**They really evolve**, with the chains and levels from the games, which
+`poke-evolutions` caches from PokéAPI. With a single branch it evolves on its
+own; with several — Eevee has eight — it waits for you to choose. When it
+happens the notch gets its own face: the sprite alternates between both forms
+faster and faster, like in the game, finishing in the Game Boy font.
+
+The **leader walks the desktop**: it is the shimeji strolling over your windows,
+and it **transforms** on evolution. `poke-leader-shimeji` keeps it in sync, runs
+after every reload and exits in 30 ms when there is nothing to change.
+
+That creature is built by `poke-shimeji-pixel`, and its animation **does not
+come from the sprite**: the gen 5 ones only carry an idle loop. The 46 poses the
+format wants are built by deforming that frame, using the `POSE` table that says
+what each one is — `shime2` and `shime3` are the walk cycle, `22` the jump, `18`
+the landing, `11` sitting — and applying its own **squash & stretch**: it
+stretches on the way up, squashes on landing, rises and leans into a step. No
+rotation, which dirties pixel art edges; it scales, shifts and shears rows, all
+of which respect the pixel grid. The canvas is then cropped to the smallest box
+holding all 46, because leftover air is exactly what makes Hyprland deform the
+creature as it nears the screen edge.
+
+And it **pays attention to you**: the template shipped every mouse-aware
+behaviour at zero, so the Pokémon ignored you. Now it chases the cursor, sits to
+look at you and follows you with its head.
+
+Also inside: **types** in their usual colours (`poke-types` fetches them in 18
+requests, not 1025, because `/type/fire` returns every fire Pokémon at once),
+**shinies** at 1 in 64 that survive evolution, the **eight Kanto badges** by
+accumulated contributions, the trainer **rank** by total level, and the PC
+**box** for the ones that do not fit in the team, which keep their level,
+nickname and nature.
+
+The save lives in `~/.config/poke-equipo/equipo.json` and is copied once a day
+before being touched: it is months of levels and a silly bug cannot take it away.
+
+**The list is drag-to-reorder.** You pick up a row, the ones in between step
+aside to open a gap for it, and it lands where you drop it. Nothing is actually
+reordered while you drag: the team only changes on release, via a
+`poke-team mover <from> <to>` command that had to be added to the engine —with
+`lider` you can only send one to the front, and chaining that never gets you to
+an arbitrary order. A click without a drag still does what it always did: make
+that row the leader. A 6 px threshold tells them apart, so a shaky hand pressing
+for leader doesn't start a drag.
+
+**Empty slots are drawn**, as a hollow ring you can click to go to the pokédex.
+They weren't before, so with four critters the panel showed four rows and then a
+dead hole down to the footer. Drawing them closes the gap and also makes it
+*visible* that more fit — which you previously only knew if you noticed there was
+still an "Add" button up top.
+
+And with them, **the panel's height is computed** instead of the old fixed
+424 px: `196 + 44 × team size`, so 460 with all six slots. The 424 came from when
+the list had as many rows as critters you carried, so it was too much with four
+and **not enough with a full team** — the footer ended 3 px from the edge instead
+of the 16 the frame asks for, and everything looked cramped. The calculation
+lives in `ShellState.qml` and not in the panel for the same reason as the
+overview's: the notch has to know how tall it will be before the panel exists,
+because the shape morph starts on the same frame as the layer. The pokédex and
+the box, which share the surface, gain almost another grid row out of it.
+
+And the pokédex **filters by type**, in a row of pills that scrolls above the
+grid. One row and not two: the eighteen labels want about 950 px and there are
+538, so two rows would just fit but would cost the grid 28 px permanently,
+whether you filter or not. Without the series colours, for the same reason as
+the types in the team rows: they are a foreign palette, and here they'd also be
+redundant — what you need to tell apart isn't one type from another (the label
+says that) but the one that's *on* from the rest, and the accent already does
+that.
 
 #### The workspace map (`OverviewPanel.qml` + `OverviewWindow.qml`)
 
@@ -344,8 +466,41 @@ prefix, then a substring, and as a last resort a subsequence — typing "kit" pu
 The **Control Centre** (`ControlPanel.qml`) replaces swaync's **and the old
 Sidebar/dashboard**. On the left: media, volume and brightness sliders, seven
 toggles (network, bluetooth, do not disturb, caffeine, night light, remote and
-Pokémon) and a door labelled “Your computer”. On the right: the notification
-history.
+Pokémon), the Pokémon team strip and two doors, “Your computer” and GitHub. On
+the right: the notification history.
+
+The **team strip** (`PokeTeamStrip.qml`) fills the gap that was left between the
+toggles and the weather, and is a glance at the team that `poke-team` levels up
+from your GitHub contributions: the six slots in a row, each with its animated
+sprite, its experience bar —the leader's in the accent colour—, a dot in its
+type's colour and an arrow that pulses over whoever is ready to evolve. Empty
+slots are drawn as a hollow ring, so the strip is always the same size no matter
+who is on the team. Hovering a critter makes the header line describe that
+critter instead of summarising the trainer —the same pattern as the GitHub
+panel— and a click anywhere opens the full `PokeTeamPanel`. It exists because
+the team was levelling up behind your back: there was no way to notice a pending
+evolution without opening `Super+P` by hand.
+
+**The weather** comes from `wttr.in` and for a long time had two fallacies in
+plain sight that nobody looked at: the condition always arrived in English
+("Clear") in a shell that is otherwise entirely in whatever language you have
+set, and the icon next to it was the **brightness** slider's glyph, whatever the
+sky was doing. Now the language goes in the URL and the service itself
+translates —there are 48 descriptions with shades like "Patchy light drizzle",
+and a hand-written table would always be short— and for the icon it also asks
+for `%x`, a one-to-three-letter symbol that does **not** depend on the language:
+`o` clear, `m`/`mm`/`mmm` clouds, `.` showers, `!` thunder, `x` freezing rain.
+It is checked most-specific first, because `!/` is thunder *with* rain and
+checking rain first would put an umbrella up mid-thunderstorm.
+
+**With nothing playing**, the left column shows **the last thing that played**:
+its cover dimmed, the track, the artist, and the play button reopens the app
+that was playing it. It isn't "resume" —that doesn't exist once the program is
+closed— but it is what you want when you press it. It is stored in
+`~/.cache/quickshell/ultimo-tema.json` rather than just in memory, because the
+shell reloads every time a `.qml` is touched and a "last played" that forgets
+itself on every reload is nobody's last played. If nothing ever played, the
+column stays as it always was.
 
 The **Your computer** panel keeps 60 samples of the same `sysstats.sh` that was
 already feeding the Control Centre (90 seconds, without a second parallel poll):
@@ -575,11 +730,12 @@ word and in Spanish it leaves "Martes, 4 De Agosto". Use
 
 The shell speaks Spanish and English. The layer is three files: `I18n.qml` (the
 singleton with `I18n.tr(...)`), `translations-en.js` (the English dictionary,
-402 entries) and `tools/i18n-check.py` (the review).
+about 600 entries) and `tools/i18n-check.py` (the review).
 
 **Spanish is the code.** The strings are still written in Spanish inside each
 `.qml`, wrapped in `I18n.tr(...)`, and **the dictionary key is that same Spanish
-string, literally**:
+string, literally** — which is why the QML still carries Spanish text although
+every comment around it is English:
 
 ```qml
 label: I18n.tr("Brillo")
@@ -627,7 +783,8 @@ back to QML.
 chosen in three ways:
 
 - when installing, with `./install.sh --lang en` (without the option the
-  installer asks);
+  installer asks, and offers your locale's: Spanish for `es_*`, English for
+  anything else);
 - live, in **Settings › Appearance › Shell language** — the change is immediate
   and it touches neither the language of the system nor that of the
   applications, only the shell;
@@ -1044,8 +1201,7 @@ you were looking at.
   menu. The seven rofi scripts nobody was calling any more
   (`list_keybinds.sh`, `hypr/scripts/menu.sh`, `hypr/wallpaper-picker.sh`,
   `rofi/cliphist-menu.sh`, `rofi/cliphist-paste.sh`,
-  `rofi/scripts/network-menu.sh`, `rofi/scripts/bluetooth-menu.sh`) are in
-  `~/.config/menus-rofi-retirados-20260819.tar.gz`.
+  `rofi/scripts/network-menu.sh`, `rofi/scripts/bluetooth-menu.sh`) were retired.
 
   That same day, a little later: **rofi is gone entirely**. The only survivor
   was `hypr/scripts/webapp-install.sh` (`Super+Ctrl+W`), two chained text
@@ -1055,9 +1211,7 @@ you were looking at.
   with it go `~/.config/rofi/` (112 theme files), the
   `wal/templates/colors-rofi.rasi` template, Hyprland's `rofi-blur` layer rule
   and the package in `packages/pacman.txt`. And for the same reason `wlogout`,
-  which `PowerPanel.qml` replaced. All in
-  `~/.config/rofi-wlogout-retirados-20260819.tar.gz` and
-  `~/.config/webapp-install-retirado-20260819.tar.gz`.
+  which `PowerPanel.qml` replaced.
 
   What was left was not just dead code and that is it: it was a false
   description of the desktop in a repo about to be published.
@@ -1108,30 +1262,19 @@ you were looking at.
   `poke_theme_pick()` in `~/.zshrc` and a line in `set-wallpaper.sh` that
   reorders them in the background when the wallpaper changes. The preference is
   in `~/.config/poke-theme/state`.
-- Backups: `~/.config/hypr/hyprland.conf.bak-notch-*`, `shell.qml.bak-notch`.
-
-### Back to waybar
-```
-cp ~/.config/hypr/hyprland.conf.bak-notch-* ~/.config/hypr/hyprland.conf
-cp ~/.config/quickshell/shell.qml.bak-notch ~/.config/quickshell/shell.qml
-hyprctl reload; ~/.config/quickshell/reload.sh; (waybar >/dev/null 2>&1 &)
-```
-
 ## Trying it without touching the desktop
 ```
 qs -p ~/.config/quickshell/TopShell.qml
 ```
 
-## `~/.config/quickshell-old/`
-Superseded attempts, outside the load directory: `Bar.qml` (the original
-floating bar), `MenuBar.qml` + `Notch.qml` + `NotchState.qml` + `NotchBar.qml`
-(the two-window version, which looked like two separate pieces), `Osd.qml` and
-`Notifications.qml` (the loose popups, already covered by the `notif` mode) and
-`Sidebar.qml` (the `Super+N` dashboard, absorbed by the Control Centre; that
-shortcut went on to toggle notch/island).
-There was also a version with a solid black strip that the notch hung from:
-discarded, the bulge stuck out of the reserved band and got in the way on top of
-the windows.
+## What was tried first
+There was a **two-window** version — bar and notch as separate surfaces — and it
+read as two separate pieces rather than one, which is why everything now comes
+out of a single surface. The loose OSD and notification popups were absorbed
+into the notch's own `notif` mode, and the `Super+N` dashboard into the Control
+Centre (that shortcut went on to toggle notch/island). There was also a version
+with a solid black strip that the notch hung from: discarded, the bulge stuck
+out of the reserved band and got in the way on top of the windows.
 
 ### Back to swaync
 swaync has been MASKED since 2026-08-05: it activated itself through D-Bus every

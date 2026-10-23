@@ -5,8 +5,23 @@
 #
 # THEY ARE NOT IN THE REPO ON PURPOSE: about 270 MB. They are pulled from
 # PokeAPI's sprite repo by number, which is where they came from originally.
-#   animated gen5   -> ~/.cache/pokeanim/<n>.gif   (what pokefetch prefers)
+#   animated        -> ~/.cache/pokeanim/<n>.gif   (what pokefetch prefers)
 #   official art    -> ~/.cache/pokeart/<n>.png    (the chafa fallback, -trim'd)
+#
+# TWO SOURCES FEED pokeanim, and the order matters. The gen5 Black/White folder
+# is the first choice, but it only holds 868 of the 1025 -- gen 5 never drew the
+# later ones, and the repo has only partly filled the gap. Whatever is missing
+# there is taken from other/showdown, the Pokemon Showdown set: same pixel-art
+# look, same rough size, 1011 of 1025. Checked side by side (Pikachu next to
+# Chespin and Sprigatito) and they sit together without clashing.
+#
+# Between the two, 1017 of 1025. The last eight (990, 991, 993, 1010, 1017,
+# 1022, 1023, 1025) have no animated sprite anywhere, so they fall back to
+# PokeAPI's default front sprite -- 96x96 pixel art, the only source that
+# covers all 1025 -- converted to a one-frame gif. Converting rather than
+# storing a png matters: everything downstream (pokefetch, poke-theme,
+# poke-shimeji-pixel, the team panel) looks for <n>.gif and would skip a png
+# without a word.
 #
 # Without this, none of it fails out loud: pokefetch just falls through to a
 # plain fastfetch with no sprite, and you never find out why.
@@ -14,7 +29,7 @@
 # Resumable and idempotent: anything already downloaded is skipped, and a failed
 # download is deleted rather than left as a truncated file. Needs the network.
 #
-#   poke-sprites               everything (649 animated, 1025 artwork)
+#   poke-sprites               everything (1017 animated, 1025 artwork)
 #   poke-sprites 151 151       just the first generation, to try it out
 # =============================================================================
 set -uo pipefail
@@ -22,7 +37,7 @@ set -uo pipefail
 BASE="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
 ANIM_DIR="$HOME/.cache/pokeanim"
 ART_DIR="$HOME/.cache/pokeart"
-MAX_ANIM="${1:-649}"   # the animated gen5 set runs roughly 1..649
+MAX_ANIM="${1:-1025}"  # the whole dex now: gen5 first, Showdown for the rest
 MAX_ART="${2:-1025}"
 
 command -v curl >/dev/null 2>&1 || { echo "poke-sprites: curl is missing."; exit 1; }
@@ -36,19 +51,33 @@ fetch() {
     curl -fsSL --retry 2 -o "$2" "$1" 2>/dev/null && [ -s "$2" ] || { rm -f "$2"; return 1; }
 }
 
-echo ">> animated gen5 (1..$MAX_ANIM) -> $ANIM_DIR"
-ok=0
+echo ">> animated (1..$MAX_ANIM) -> $ANIM_DIR"
+ok=0; from_bw=0; from_sd=0; from_png=0
+# magick is needed for the last resort; it is checked here and not inside the
+# loop. (Further down this same variable is reused for the artwork's -trim.)
+trim=0
+command -v magick >/dev/null 2>&1 && trim=1
 for n in $(seq 1 "$MAX_ANIM"); do
-    fetch "$BASE/versions/generation-v/black-white/animated/$n.gif" "$ANIM_DIR/$n.gif" && ok=$((ok + 1))
-    [ $((n % 50)) -eq 0 ] && printf '   ...%d/%d  (%d ok)\n' "$n" "$MAX_ANIM" "$ok"
+    if [ -s "$ANIM_DIR/$n.gif" ]; then
+        ok=$((ok + 1))
+    elif fetch "$BASE/versions/generation-v/black-white/animated/$n.gif" "$ANIM_DIR/$n.gif"; then
+        ok=$((ok + 1)); from_bw=$((from_bw + 1))
+    elif fetch "$BASE/other/showdown/$n.gif" "$ANIM_DIR/$n.gif"; then
+        ok=$((ok + 1)); from_sd=$((from_sd + 1))
+    elif [ "$trim" = 1 ] && fetch "$BASE/$n.png" "$ANIM_DIR/$n.png.tmp"; then
+        # last resort: still pixel art. magick turns it into a one-frame gif.
+        if magick "$ANIM_DIR/$n.png.tmp" "$ANIM_DIR/$n.gif" 2>/dev/null; then
+            ok=$((ok + 1)); from_png=$((from_png + 1))
+        fi
+        rm -f "$ANIM_DIR/$n.png.tmp"
+    fi
+    [ $((n % 100)) -eq 0 ] && printf '   ...%d/%d  (%d ok)\n' "$n" "$MAX_ANIM" "$ok"
 done
-echo "   animated present: $ok"
+echo "   animated present: $ok  (new this run: $from_bw gen5, $from_sd showdown, $from_png still)"
 
 echo ">> official artwork (1..$MAX_ART) -> $ART_DIR"
 # -trim crops the transparent border. Without it the sprite reads tiny, because
 # chafa scales the whole canvas and most of it is empty.
-trim=0
-command -v magick >/dev/null 2>&1 && trim=1
 ok=0
 for n in $(seq 1 "$MAX_ART"); do
     if fetch "$BASE/other/official-artwork/$n.png" "$ART_DIR/$n.png"; then

@@ -1,0 +1,476 @@
+#!/usr/bin/env python3
+"""poke-plymouth - builds a Plymouth theme with a different pokémon at every boot.
+
+It takes the same gen5 gif that pokefetch uses (~/.cache/pokeanim/N.gif),
+pulls out its REAL frames with 'magick -coalesce' and assembles from them a
+Plymouth theme for the 'script' module: black background, the critter centred,
+nothing else.
+
+    poke-plymouth                 draws one at random and leaves the theme in staging
+    poke-plymouth pikachu         or by name / by number
+    poke-plymouth --instalar      (ROOT) generates it and publishes it in /usr/share
+
+There is no need to build the frames by hand the way the reference theme does
+(realChesta/plymouth-pokemon, which only has static PNGs and fakes a jump with
+a parabola): here the good animation already comes inside the gif.
+
+The upscale is NEAREST (-filter point) by a whole-number factor: it is pixel
+art, and any interpolation blurs it.
+
+HOW THE DRAW REPEATS WITHOUT TOUCHING THE INITRAMFS
+---------------------------------------------------
+The theme does NOT go into the initramfs (the 'plymouth' hook is not added to
+mkinitcpio). Plymouth is started by systemd from the real root
+-plymouth-start.service already comes hooked into sysinit.target.wants inside
+the package itself- and that is why every boot reads the theme fresh from
+disk. Rewriting the PNGs is enough for the next boot to show another critter;
+the initramfs is never touched.
+
+The draw is triggered by poke-plymouth-reroll.timer 30 s AFTER boot (not at
+shutdown): that way it survives a power cut or a hang, and delays neither the
+shutdown nor the arrival of sddm.
+
+Publishing is an ATOMIC switch: it writes into the buffer that is not in use
+(/usr/share/plymouth/pokemon-buffers/a|b) and at the end moves the
+/usr/share/plymouth/themes/pokemon link with rename(2). If the power goes
+halfway through generating, the next boot sees the previous theme whole.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import random
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+# Where the published theme lives. It is the path written INSIDE the .plymouth,
+# so it is the same in staging as once installed: staging is copied as it is
+# and it works.
+RUTA_TEMA_REAL = Path("/usr/share/plymouth/themes/pokemon")
+# Alternative root so the whole publishing step (double buffer and link
+# switch) can be tested without root and without risk. In production it is
+# always "/".
+RAIZ = Path(os.environ.get("POKE_PLYMOUTH_RAIZ", "/"))
+RUTA_TEMA = RAIZ / "usr/share/plymouth/themes/pokemon"
+DIR_BUFFERS = RAIZ / "usr/share/plymouth/pokemon-buffers"
+STAGING = Path.home() / ".local" / "share" / "poke-plymouth"
+
+# diego's gifs. Since the service runs as root (and there ~ is /root) the path
+# has to be something you can give it by hand.
+GIFS_FALLBACK = Path("/home/diego/.cache/pokeanim")
+NOMBRES_FALLBACK = Path("/home/diego/.cache/pokepalette/nombres.tsv")
+
+ALTURA_OBJETIVO = 300   # how many pixels tall the critter ends up once upscaled
+FACTOR_MAX = 10
+MIN_FOTOGRAMAS = 4      # fewer than this is a broken sprite, not an animation
+REFRESCO_HZ = 50        # plymouth's script module calls the refresh 50 times
+                        # a second (its own example theme says so:
+                        # "((2 * 3.14) / 50) * 0.5;  # 0.5 HZ")
+
+
+def morir(msg: str) -> None:
+    print(f"poke-plymouth: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def magick(*args: str, timeout: int = 120) -> str:
+    r = subprocess.run(["magick", *args], capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or tr(f"magick {' '.join(args)} fallo",
+                                                  f"magick {' '.join(args)} failed"))
+    return r.stdout
+
+
+def nombres(ruta: Path) -> dict[int, str]:
+    tabla: dict[int, str] = {}
+    try:
+        for linea in ruta.read_text(encoding="utf-8").splitlines():
+            num, _, nom = linea.partition("\t")
+            if num.strip().isdigit():
+                tabla[int(num)] = nom.strip()
+    except OSError:
+        pass
+    return tabla
+
+
+def inspeccionar(gif: Path) -> tuple[int, int, list[int]] | None:
+    """Width, height and delays (in centiseconds) of each frame, or None if the
+    gif is broken or static. -ping does not decompress: 10 ms per file."""
+    try:
+        salida = magick("identify", "-ping", "-format", "%W %H %T\n", str(gif), timeout=20)
+    except Exception:
+        return None
+    ancho = alto = 0
+    retardos: list[int] = []
+    for linea in salida.splitlines():
+        partes = linea.split()
+        if len(partes) != 3:
+            return None
+        w, h, t = partes
+        if not ancho:
+            ancho, alto = int(w), int(h)
+        retardos.append(int(t))
+    if len(retardos) < MIN_FOTOGRAMAS or ancho < 8 or alto < 8:
+        return None
+    return ancho, alto, retardos
+
+
+def sortear(dir_gif: Path, excluir: set[int], forzado: int | None) -> tuple[int, int, int, list[int]]:
+    """Returns (number, width, height, delays). Revalidates the gif before
+    accepting it: ~/.cache/pokeanim has corrupt sprites (1025.gif has a single
+    frame) and a frozen splash cannot be told apart from a hang."""
+    disponibles = sorted(int(p.stem) for p in dir_gif.glob("*.gif") if p.stem.isdigit())
+    if not disponibles:
+        morir(tr(f"no hay ningun gif en {dir_gif}", f"No GIFs in {dir_gif}"))
+    if forzado is not None:
+        if forzado not in disponibles:
+            morir(tr(f"no existe {dir_gif}/{forzado}.gif", f"{dir_gif}/{forzado}.gif does not exist"))
+        datos = inspeccionar(dir_gif / f"{forzado}.gif")
+        if datos is None:
+            morir(tr(f"{forzado}.gif esta roto o es estatico: no sirve para animar",
+                     f"{forzado}.gif is broken or static: it cannot be animated"))
+        return (forzado, *datos)
+
+    baraja = [n for n in disponibles if n not in excluir] or disponibles
+    random.shuffle(baraja)
+    for numero in baraja[:60]:
+        datos = inspeccionar(dir_gif / f"{numero}.gif")
+        if datos is not None:
+            return (numero, *datos)
+    morir(tr("60 sorteos seguidos y ningun gif valido; mira ~/.cache/pokeanim",
+             "60 consecutive draws without a valid GIF; check ~/.cache/pokeanim"))
+    raise AssertionError
+
+
+def extraer(gif: Path, destino: Path, factor: int) -> list[Path]:
+    """The gif's real frames, blown right up without interpolation.
+
+    -coalesce undoes the gif's optimisation (each frame becomes the whole canvas
+    again), which is also what keeps the sprite's vertical bounce: cropping
+    each frame separately would leave it nailed to the spot."""
+    magick(
+        "-background", "none",
+        str(gif),
+        "-coalesce",
+        "-filter", "point",
+        "-resize", f"{factor}00%",
+        "+adjoin",
+        f"{destino}/poke-%04d.png",
+    )
+    return sorted(destino.glob("poke-*.png"))
+
+
+def punto(destino: Path) -> None:
+    """A white dot for the password bullets. There is no LUKS here, but if
+    systemd ever asks for a passphrase at boot you need to see that you are
+    typing: with the theme swallowing the messages, without this you would be
+    typing blind."""
+    magick("-size", "18x18", "xc:none", "-fill", "white",
+           "-draw", "circle 9,9 9,3", f"png32:{destino}/punto.png")
+
+
+def texto_script(numero: int, nombre: str, fotogramas: list[Path], retardos: list[int],
+                 factor: int, ancho: int, alto: int) -> str:
+    # How many refreshes each frame lasts. The script module animates at a fixed
+    # 50 Hz and ignores the gif's timings, so the rhythm is restored here: 10 cs
+    # of gif = 5 refreshes. Without this the critter moves at double or triple
+    # speed.
+    duraciones = [max(1, round(cs * REFRESCO_HZ / 100)) if cs > 0 else 5 for cs in retardos]
+    n = len(fotogramas)
+    ciclo = sum(duraciones) / REFRESCO_HZ
+
+    lineas = [
+        "# Plymouth theme generated by poke-plymouth. DO NOT edit by hand:",
+        "# poke-plymouth-reroll rewrites the whole theme on each boot.",
+        f"#   Pokémon {numero} ({nombre}), {n} frames, x{factor} nearest scaling,",
+        f"#   {ancho}x{alto} px on screen, {ciclo:.2f} s cycle.",
+        "",
+        "# Black and nothing else. Only the Pokémon should be visible.",
+        "Window.SetBackgroundTopColor(0, 0, 0);",
+        "Window.SetBackgroundBottomColor(0, 0, 0);",
+        "",
+        f"global.total = {n};",
+    ]
+    # The images and their durations are unrolled one per line: this file is
+    # written by a program, and that way we do not depend on how plymouth's
+    # language turns numbers into text (there is no way to test it without
+    # booting).
+    for i, f in enumerate(fotogramas):
+        lineas.append(f'global.f[{i}] = Image("{f.name}");')
+    lineas.append("")
+    for i, d in enumerate(duraciones):
+        lineas.append(f"global.d[{i}] = {d};")
+    lineas += [
+        "",
+        "global.ancho = global.f[0].GetWidth();",
+        "global.alto = global.f[0].GetHeight();",
+        "global.x = Window.GetX() + Window.GetWidth() / 2 - global.ancho / 2;",
+        "global.y = Window.GetY() + Window.GetHeight() / 2 - global.alto / 2;",
+        "",
+        "global.bicho = Sprite(global.f[0]);",
+        "global.bicho.SetPosition(global.x, global.y, 1);",
+        "",
+        "global.i = 0;",
+        "global.tic = 0;",
+        "",
+        "fun refresco ()",
+        "  {",
+        "    global.tic = global.tic + 1;",
+        "    if (global.tic >= global.d[global.i])",
+        "      {",
+        "        global.tic = 0;",
+        "        global.i = global.i + 1;",
+        "        if (global.i >= global.total)",
+        "          global.i = 0;",
+        "        global.bicho.SetImage(global.f[global.i]);",
+        "      }",
+        "  }",
+        "",
+        "Plymouth.SetRefreshFunction(refresco);",
+        "",
+        "# Password: dots centred below the Pokémon. No boxes, padlocks or",
+        "# letters; this machine has no disk encryption and this is only a fallback.",
+        "global.punto = Image(\"punto.png\");",
+        "global.sep = 26;",
+        "global.max_puntos = 16;",
+        "",
+        "fun puntos (cuantos)",
+        "  {",
+        "    for (k = 0; k < global.max_puntos; k++)",
+        "      {",
+        "        if (!global.pts[k])",
+        "          global.pts[k] = Sprite(global.punto);",
+        "        global.pts[k].SetPosition(global.x + global.ancho / 2 - (cuantos * global.sep) / 2 + k * global.sep, global.y + global.alto + 40, 20);",
+        "        if (k < cuantos)",
+        "          global.pts[k].SetOpacity(1);",
+        "        else",
+        "          global.pts[k].SetOpacity(0);",
+        "      }",
+        "  }",
+        "",
+        "fun pide_clave (mensaje, cuantos)",
+        "  {",
+        "    if (cuantos > global.max_puntos)",
+        "      cuantos = global.max_puntos;",
+        "    puntos(cuantos);",
+        "  }",
+        "",
+        "fun normal ()",
+        "  {",
+        "    puntos(0);",
+        "  }",
+        "",
+        "Plymouth.SetDisplayPasswordFunction(pide_clave);",
+        "Plymouth.SetDisplayNormalFunction(normal);",
+        "",
+        "# Suppress boot messages: the splash shows the Pokémon.",
+        "fun sin_texto (texto)",
+        "  {",
+        "    global.ultimo_mensaje = texto;",
+        "  }",
+        "",
+        "Plymouth.SetDisplayMessageFunction(sin_texto);",
+        "Plymouth.SetHideMessageFunction(sin_texto);",
+        "",
+    ]
+    return "\n".join(lineas)
+
+
+def texto_plymouth(numero: int, nombre: str) -> str:
+    # The theme's name (and the .plymouth's) has to be that of the directory
+    # plymouthd sees, that is 'pokemon': the link, not the buffer behind it.
+    return (
+        "[Plymouth Theme]\n"
+        "Name=Pokemon\n"
+        + tr("Description=Un pokemon distinto en cada arranque\n",
+             "Description=A different Pokémon on each boot\n")
+        + "ModuleName=script\n"
+        "\n"
+        "[script]\n"
+        f"ImageDir={RUTA_TEMA_REAL}\n"
+        f"ScriptFile={RUTA_TEMA_REAL}/pokemon.script\n"
+        "ConsoleLogBackgroundColor=0x000000\n"
+        f"# Generated by poke-plymouth: {numero} {nombre}\n"
+    )
+
+
+def generar(destino: Path, dir_gif: Path, tabla: dict[int, str], forzado: int | None,
+            excluir: set[int], altura: int) -> dict:
+    """Leaves a complete theme, ready to copy, in 'destino'. It writes into a
+    sibling temporary directory first and moves it at the end, so as never to
+    leave a half-built theme where plymouth is going to look."""
+    numero, w, h, retardos = sortear(dir_gif, excluir, forzado)
+    nombre = tabla.get(numero, f"pokemon-{numero}")
+    factor = max(1, min(FACTOR_MAX, round(altura / h)))
+
+    tmp = destino.parent / f".{destino.name}.nuevo"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+
+    fotogramas = extraer(dir_gif / f"{numero}.gif", tmp, factor)
+    if len(fotogramas) < MIN_FOTOGRAMAS:
+        shutil.rmtree(tmp, ignore_errors=True)
+        morir(tr(f"{numero}.gif solo dio {len(fotogramas)} fotogramas",
+                 f"{numero}.gif produced only {len(fotogramas)} frames"))
+    # The delays come from the whole gif and the frames from coalesce: if they
+    # do not match, the rhythm would be a lie.
+    retardos = retardos[:len(fotogramas)]
+    while len(retardos) < len(fotogramas):
+        retardos.append(10)
+
+    medidas = magick("identify", "-format", "%w %h\n", *[str(f) for f in fotogramas])
+    distintas = set(medidas.split("\n"))
+    distintas.discard("")
+    if len(distintas) != 1:
+        shutil.rmtree(tmp, ignore_errors=True)
+        morir(tr(f"los fotogramas de {numero}.gif no miden todos igual: {distintas}",
+                 f"The frames of {numero}.gif have different dimensions: {distintas}"))
+    aw, ah = (int(x) for x in distintas.pop().split())
+
+    punto(tmp)
+    (tmp / "pokemon.script").write_text(
+        texto_script(numero, nombre, fotogramas, retardos, factor, aw, ah), encoding="utf-8")
+    (tmp / "pokemon.plymouth").write_text(texto_plymouth(numero, nombre), encoding="utf-8")
+    # Marker so the next draw does not repeat the critter. Plymouth ignores the
+    # files the .plymouth does not reference.
+    (tmp / "numero").write_text(f"{numero}\n", encoding="utf-8")
+    for p in tmp.iterdir():
+        os.chmod(p, 0o644)
+
+    viejo = destino.parent / f".{destino.name}.viejo"
+    shutil.rmtree(viejo, ignore_errors=True)
+    if destino.exists() and not destino.is_symlink():
+        destino.rename(viejo)
+    tmp.rename(destino)
+    shutil.rmtree(viejo, ignore_errors=True)
+
+    peso = sum(p.stat().st_size for p in destino.iterdir())
+    return {
+        "numero": numero, "nombre": nombre, "fotogramas": len(fotogramas),
+        "origen": f"{w}x{h}", "factor": factor, "tamano": f"{aw}x{ah}",
+        "ciclo": sum(max(1, round(c * REFRESCO_HZ / 100)) if c > 0 else 5 for c in retardos) / REFRESCO_HZ,
+        "peso": peso, "ruta": destino,
+    }
+
+
+def numero_actual(ruta: Path) -> set[int]:
+    try:
+        return {int((ruta / "numero").read_text().strip())}
+    except (OSError, ValueError):
+        return set()
+
+
+def instalar(dir_gif: Path, tabla: dict[int, str], forzado: int | None, altura: int) -> dict:
+    """Root mode: generates into the free buffer and moves the link in one go."""
+    if RAIZ == Path("/") and os.geteuid() != 0:
+        morir(tr("--instalar necesita root (lo llama poke-plymouth-reroll.service)",
+                 "--instalar requires root (called by poke-plymouth-reroll.service)"))
+    DIR_BUFFERS.mkdir(parents=True, exist_ok=True)
+    RUTA_TEMA.parent.mkdir(parents=True, exist_ok=True)
+
+    actual = os.readlink(RUTA_TEMA) if RUTA_TEMA.is_symlink() else ""
+    destino = DIR_BUFFERS / ("b" if actual.endswith("/a") or actual.endswith("a") else "a")
+
+    info = generar(destino, dir_gif, tabla, forzado, numero_actual(RUTA_TEMA), altura)
+
+    # rename(2) over the link: it points either at the previous theme or at the
+    # new one, never at a half-written directory. The target is relative so it
+    # does not depend on the mount point.
+    enlace_tmp = RUTA_TEMA.parent / ".pokemon.nuevo"
+    if enlace_tmp.exists() or enlace_tmp.is_symlink():
+        enlace_tmp.unlink()
+    relativo = os.path.relpath(destino, RUTA_TEMA.parent)
+    enlace_tmp.symlink_to(relativo)
+    if RUTA_TEMA.exists() and not RUTA_TEMA.is_symlink():
+        shutil.rmtree(RUTA_TEMA)
+    enlace_tmp.rename(RUTA_TEMA)
+    info["enlace"] = f"{RUTA_TEMA} -> {relativo}"
+    return info
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(
+        description=tr("Fabrica un tema de Plymouth con un pokemon gen5 animado.",
+                       "Build a Plymouth theme with an animated gen5 Pokémon."))
+    ap.add_argument("bicho", nargs="?", help=tr("numero o nombre; si no, se sortea",
+                                                "number or name; otherwise, choose at random"))
+    ap.add_argument("--instalar", action="store_true",
+                    help=tr("(root) publica el tema en /usr/share y mueve el enlace",
+                            "(root) publish the theme in /usr/share and update the link"))
+    ap.add_argument("--destino", type=Path, default=STAGING / "tema",
+                    help=tr(f"donde dejar el tema (por defecto {STAGING / 'tema'})",
+                            f"where to save the theme (default: {STAGING / 'tema'})"))
+    ap.add_argument("--gifs", type=Path, default=None, help=tr("directorio de gif gen5", "gen5 GIF directory"))
+    ap.add_argument("--nombres", type=Path, default=None, help=tr("tsv numero->nombre", "number->name TSV"))
+    ap.add_argument("--altura", type=int, default=ALTURA_OBJETIVO,
+                    help=tr(f"alto del bicho en pantalla (por defecto {ALTURA_OBJETIVO})",
+                            f"Pokémon height on screen (default: {ALTURA_OBJETIVO})"))
+    ap.add_argument("--semilla", type=int, default=None, help=tr("para repetir un sorteo",
+                                                                 "seed to repeat a random draw"))
+    args = ap.parse_args()
+
+    if not shutil.which("magick"):
+        morir(tr("hace falta imagemagick (magick)", "ImageMagick (magick) is required"))
+
+    dir_gif = args.gifs or (Path(os.environ["POKE_GIFS"]) if os.environ.get("POKE_GIFS") else None)
+    if dir_gif is None:
+        # As root, ~ is /root and there are no sprites there: hence the
+        # fallback to diego's cache, which is where the real gifs come from.
+        casero = Path.home() / ".cache" / "pokeanim"
+        dir_gif = casero if casero.is_dir() else GIFS_FALLBACK
+    if not dir_gif.is_dir():
+        morir(tr(f"no existe el directorio de gif: {dir_gif}", f"GIF directory does not exist: {dir_gif}"))
+
+    tsv = args.nombres
+    if tsv is None:
+        casero = Path.home() / ".cache" / "pokepalette" / "nombres.tsv"
+        tsv = casero if casero.is_file() else NOMBRES_FALLBACK
+    tabla = nombres(tsv)
+
+    forzado = None
+    if args.bicho:
+        if args.bicho.isdigit():
+            forzado = int(args.bicho)
+        else:
+            inverso = {v.lower(): k for k, v in tabla.items()}
+            forzado = inverso.get(args.bicho.lower())
+            if forzado is None:
+                morir(tr(f"no conozco a '{args.bicho}' (mira {tsv})",
+                         f"Unknown Pokémon '{args.bicho}' (check {tsv})"))
+
+    random.seed(args.semilla if args.semilla is not None else time.time_ns())
+
+    if args.instalar:
+        info = instalar(dir_gif, tabla, forzado, args.altura)
+    else:
+        args.destino.parent.mkdir(parents=True, exist_ok=True)
+        info = generar(args.destino, dir_gif, tabla, forzado,
+                       numero_actual(args.destino), args.altura)
+
+    print(tr(f"pokemon {info['numero']} ({info['nombre']}): {info['fotogramas']} fotogramas "
+             f"de {info['origen']} a {info['tamano']} (x{info['factor']}, nearest), "
+             f"ciclo {info['ciclo']:.2f} s, {info['peso'] // 1024} KiB",
+             f"Pokémon {info['numero']} ({info['nombre']}): {info['fotogramas']} frames "
+             f"from {info['origen']} to {info['tamano']} (x{info['factor']}, nearest), "
+             f"cycle {info['ciclo']:.2f} s, {info['peso'] // 1024} KiB"))
+    print(tr(f"tema en {info['ruta']}", f"Theme in {info['ruta']}"))
+    if "enlace" in info:
+        print(info["enlace"])
+
+
+if __name__ == "__main__":
+    main()

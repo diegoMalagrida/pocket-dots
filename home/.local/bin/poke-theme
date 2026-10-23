@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
-"""poke-theme — ordena los sprites de pokemon por lo bien que pegan con el tema pywal.
+"""poke-theme — both directions between the pywal theme and the pokémon.
 
-NO pinta nada: solo decide QUE sprite deberia salir. El dibujado (kitten icat /
-chafa) sigue siendo cosa de pokefetch() en ~/.zshrc.
+THEME -> POKÉMON (the original): ranks the sprites by how well they match the
+current theme. It draws nothing, it only decides WHICH sprite should come up;
+the drawing (kitten icat / chafa) is still the job of pokefetch() in ~/.zshrc.
 
-    poke-theme index          extrae la paleta de cada sprite  -> sprites.tsv  (lento, 1 vez)
-    poke-theme rank           puntua contra el tema actual     -> rank-*.txt   (rapido, por tema)
-    poke-theme top [-n 20]    enseña el ranking para revisarlo
-    poke-theme pick [gif|png] escupe un sprite ya sesgado por tema
-    poke-theme on|off|toggle  activa/desactiva el sesgo por tema (vuelve al azar)
-    poke-theme is-on          imprime on/off (lo consulta el notch de quickshell)
+    poke-theme index          extracts each sprite's palette   -> sprites.tsv  (slow, once)
+    poke-theme rank           scores against the current theme -> rank-*.txt   (fast, per theme)
+    poke-theme top [-n 20]    shows the ranking so you can review it
+    poke-theme pick [gif|png] spits out a sprite already biased by theme
+    poke-theme on|off|toggle  turns the theme bias on/off (back to random)
+    poke-theme is-on          prints on/off (the quickshell notch asks it)
 
-Ficheros:
-    ~/.cache/pokeanim/N.gif        sprites animados gen5   (los que usa el arranque)
-    ~/.cache/pokeart/N.png         artwork oficial         (fallback de chafa)
-    ~/.cache/pokepalette/          indice + rankings (todo cacheado aqui)
-    ~/.cache/wal/colors.json       tema vigente (lo escribe set-wallpaper.sh)
-    ~/.config/poke-theme/state     on/off — preferencia, por eso NO va en la cache
+POKÉMON -> THEME (pokémon mode): you pick the creature and the whole system is
+painted with ITS palette. It does not paint here either: it sets up the move
+and hands it to set-wallpaper.sh --paleta-de, which is what holds the eleven
+reloads.
+
+    poke-theme wear gengar    gengar's palette paints the system; as wallpaper,
+                              the one in your collection that clashes least
+    poke-theme wear -n mew    says what it would do and does not do it
+    poke-theme wear --off     takes it off: the theme comes from the wallpaper again
+    poke-theme worn           what you are wearing (exits 1 if nothing)
+
+Files:
+    ~/.cache/pokeanim/N.gif        gen5 animated sprites   (the ones the startup uses)
+    ~/.cache/pokeart/N.png         official artwork        (chafa's fallback)
+    ~/.cache/pokepalette/          index + rankings (all cached here)
+    ~/.cache/wal/colors.json       current theme (written by set-wallpaper.sh)
+    ~/.config/poke-theme/state     on/off — a preference, which is why it is NOT in the cache
 """
 
 from __future__ import annotations
@@ -27,8 +39,20 @@ import json
 import math
 import os
 import random
+import subprocess
 import sys
 from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
 
 HOME = Path.home()
 DIR_GIF = HOME / ".cache" / "pokeanim"
@@ -36,32 +60,32 @@ DIR_PNG = HOME / ".cache" / "pokeart"
 CACHE = HOME / ".cache" / "pokepalette"
 INDEX = CACHE / "sprites.tsv"
 WAL = HOME / ".cache" / "wal" / "colors.json"
-# La preferencia va en .config, no en .cache: vaciar la cache no debe cambiar
-# lo que el usuario dejo puesto. Si el fichero no existe -> activado.
+# The preference goes in .config, not .cache: emptying the cache must not change
+# what the user left set. If the file does not exist -> on.
 ESTADO = HOME / ".config" / "poke-theme" / "state"
 
-# --- parametros de gusto (tocar aqui si el resultado no convence) ------------
-MUESTRA = 48        # el sprite se reduce a esto para contar colores (vecino mas cercano)
-MAX_CLUSTERS = 8    # cuantos colores representativos guardamos por pokemon
-UMBRAL_CLUSTER = 14 # dos colores mas cerca que esto en Lab son "el mismo"
-PESO_L = 0.55       # la luminosidad pesa menos que el tono: un azul claro sigue siendo azul
-PESO_OSCURO = 0.30  # el contorno negro esta en TODOS los sprites -> cuenta menos
-UMBRAL_FONDO = 22   # por debajo de esto un color se confunde con el fondo del tema
-CASTIGO_FONDO = 1.5 # cuanto penaliza camuflarse con el fondo (invisible = feo)
-LASTRE_TEXTO = 10.0 # el foreground suele ser casi neutro y atrae a TODO lo gris:
-                    # parecerse al texto cuenta menos que parecerse a un acento
-PESO_CROMA = 0.55   # castigo por estar mas descolorido que el tema (un tema vivo
-                    # quiere pokemon vivos; con un tema gris este termino se anula)
+# --- taste parameters (tweak here if the result does not convince) -----------
+MUESTRA = 48        # the sprite is shrunk to this to count colours (nearest neighbour)
+MAX_CLUSTERS = 8    # how many representative colours we keep per pokémon
+UMBRAL_CLUSTER = 14 # two colours closer than this in Lab are "the same"
+PESO_L = 0.55       # lightness weighs less than hue: a light blue is still blue
+PESO_OSCURO = 0.30  # the black outline is in ALL sprites -> counts less
+UMBRAL_FONDO = 22   # below this a colour blends into the theme's background
+CASTIGO_FONDO = 1.5 # how much blending into the background is penalised (invisible = ugly)
+LASTRE_TEXTO = 10.0 # the foreground tends to be almost neutral and attracts ALL greys:
+                    # resembling the text counts less than resembling an accent
+PESO_CROMA = 0.55   # penalty for being more washed out than the theme (a vivid theme
+                    # wants vivid pokémon; with a grey theme this term cancels out)
 
 
-# --- color ------------------------------------------------------------------
+# --- colour -----------------------------------------------------------------
 def hex_a_rgb(h: str) -> tuple[int, int, int]:
     h = h.strip().lstrip("#")
     return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 
 def rgb_a_lab(rgb: tuple[int, int, int]) -> tuple[float, float, float]:
-    """sRGB -> CIELAB (D65). En Lab las distancias se parecen a lo que ve el ojo."""
+    """sRGB -> CIELAB (D65). In Lab, distances resemble what the eye sees."""
     def lineal(c: float) -> float:
         c /= 255.0
         return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
@@ -85,17 +109,17 @@ def dist(a, b) -> float:
     return math.sqrt(dl * dl + da * da + db * db)
 
 
-# --- indice: paleta de cada sprite ------------------------------------------
+# --- index: each sprite's palette -------------------------------------------
 def paleta(ruta: Path) -> list[tuple[float, float, float, float]]:
-    """Devuelve [(L, a, b, peso)] con los colores dominantes del sprite."""
+    """Returns [(L, a, b, weight)] with the sprite's dominant colours."""
     from PIL import Image
 
     with Image.open(ruta) as im:
         if getattr(im, "is_animated", False):
-            im.seek(0)  # el frame 0 del gen5 ya es el lienzo completo
+            im.seek(0)  # frame 0 of the gen5 sprites is already the full canvas
         im = im.convert("RGBA")
-        # NEAREST a proposito: interpolar inventaria colores intermedios que el
-        # pixel art no tiene y ensuciaria la paleta.
+        # NEAREST on purpose: interpolating would invent in-between colours that
+        # the pixel art does not have and would muddy the palette.
         im.thumbnail((MUESTRA, MUESTRA), Image.NEAREST)
         colores = im.getcolors(MUESTRA * MUESTRA * 4) or []
 
@@ -141,7 +165,7 @@ def leer_indice() -> dict[str, list[tuple[float, float, float, float]]]:
                 pal.append((L, a, b, w))
             fuera[clave] = pal
         except ValueError:
-            continue  # linea a medias de un index interrumpido: se reconstruye
+            continue  # half-written line from an interrupted index: it gets rebuilt
     return fuera
 
 
@@ -152,12 +176,19 @@ def cmd_index(args) -> int:
     tareas: list[tuple[str, Path]] = []
     for tipo, carpeta, patron in (("gif", DIR_GIF, "*.gif"), ("png", DIR_PNG, "*.png")):
         for ruta in sorted(carpeta.glob(patron), key=lambda p: p.name):
+            # Only the numbered ones. These folders also hold pokefetch's working
+            # files (.play.gif, .icat.png), which are COPIES of the sprite being
+            # drawn right now: if they slip in, 'pick' may return one just as
+            # another terminal is rewriting it, and a half-drawn sprite comes out
+            # with no obvious reason why.
+            if not ruta.stem.isdigit():
+                continue
             clave = f"{tipo}:{ruta.stem}"
             if clave not in ya:
                 tareas.append((clave, ruta))
 
     if not tareas:
-        print(f"indice al dia: {len(ya)} sprites")
+        print(tr(f"indice al dia: {len(ya)} sprites", f"Index up to date: {len(ya)} sprites"))
         return 0
 
     nuevos: dict[str, list] = {}
@@ -184,15 +215,17 @@ def cmd_index(args) -> int:
             )
             fh.write(f"{clave}\t{cuerpo}\n")
     tmp.replace(INDEX)
-    print(f"indexados {len(nuevos)} nuevos ({fallos} ilegibles), total {len(ya)} -> {INDEX}")
+    print(tr(f"indexados {len(nuevos)} nuevos ({fallos} ilegibles), total {len(ya)} -> {INDEX}",
+             f"Indexed {len(nuevos)} new sprites ({fallos} unreadable), total {len(ya)} -> {INDEX}"))
     return 0
 
 
-# --- ranking contra el tema --------------------------------------------------
+# --- ranking against the theme -----------------------------------------------
 def objetivos_tema() -> tuple[list, tuple[float, float, float], float]:
-    """Colores a los que queremos parecernos, el fondo (del que hay que despegarse)
-    y cuanto color tiene el tema. Cada objetivo lleva su lastre: el texto pesa
-    menos porque suele ser casi neutro y si no se lleva a todos los grises."""
+    """Colours we want to resemble, the background (which we must stand out
+    from) and how much colour the theme has. Each target carries its handicap:
+    the text weighs less because it tends to be almost neutral and would
+    otherwise grab all the greys."""
     datos = json.loads(WAL.read_text())
     fondo = rgb_a_lab(hex_a_rgb(datos["special"]["background"]))
     texto = datos["special"].get("foreground", "#ffffff")
@@ -204,23 +237,24 @@ def objetivos_tema() -> tuple[list, tuple[float, float, float], float]:
     objetivos: list[tuple[tuple[float, float, float], float]] = []
     for h, lastre in crudos:
         lab = rgb_a_lab(hex_a_rgb(h))
-        if dist(lab, fondo) < 12:      # es practicamente el fondo, no sirve de guia
+        if dist(lab, fondo) < 12:      # it is practically the background, no use as a guide
             continue
-        if any(dist(lab, o) < 6 for o, _ in objetivos):  # pywal repite color1..6 en 9..14
+        if any(dist(lab, o) < 6 for o, _ in objetivos):  # pywal repeats color1..6 in 9..14
             continue
         objetivos.append((lab, lastre))
-    if not objetivos:                  # tema degenerado: al menos apunta al texto
+    if not objetivos:                  # degenerate theme: at least aim at the text
         objetivos = [(rgb_a_lab(hex_a_rgb(texto)), 0.0)]
 
-    # croma tipico de los acentos (sin el texto): la vara para medir "descolorido"
+    # typical chroma of the accents (without the text): the yardstick for "washed out"
     acentos = [math.hypot(o[1], o[2]) for o, lastre in objetivos if lastre == 0.0]
     croma = sorted(acentos)[len(acentos) // 2] if acentos else 0.0
     return objetivos, fondo, croma
 
 
 def puntuar(pal, objetivos, fondo, croma_tema) -> float:
-    """Menor = pega mejor. Distancia media al color del tema mas cercano, mas un
-    castigo por camuflarse con el fondo y otro por ser mas soso que el tema."""
+    """Lower = better match. Mean distance to the nearest theme colour, plus a
+    penalty for blending into the background and another for being duller than
+    the theme."""
     total = 0.0
     for L, a, b, w in pal:
         lab = (L, a, b)
@@ -238,7 +272,8 @@ def puntuar(pal, objetivos, fondo, croma_tema) -> float:
 def ranking() -> dict[str, list[tuple[float, Path]]]:
     indice = leer_indice()
     if not indice:
-        raise SystemExit("no hay indice todavia: ejecuta 'poke-theme index'")
+        raise SystemExit(tr("no hay indice todavia: ejecuta 'poke-theme index'",
+                            "No index yet: run 'poke-theme index'"))
     objetivos, fondo, croma = objetivos_tema()
 
     fuera: dict[str, list[tuple[float, Path]]] = {"gif": [], "png": []}
@@ -257,19 +292,19 @@ def activado() -> bool:
     try:
         return ESTADO.read_text().strip() != "off"
     except OSError:
-        return True  # sin fichero (o ilegible) = activado, que es el defecto
+        return True  # no file (or unreadable) = on, which is the default
 
 
 def cmd_rank(args) -> int:
     if not activado():
-        return 0  # apagado: no gastamos en ordenar lo que nadie va a mirar
+        return 0  # off: no spending on ranking what nobody is going to look at
     CACHE.mkdir(parents=True, exist_ok=True)
-    # un solo rankeo a la vez: varias terminales abriendose a la vez no se pisan
+    # one ranking at a time: several terminals opening at once do not trample each other
     with (CACHE / ".rank.lock").open("w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            return 0  # ya lo esta haciendo otro
+            return 0  # someone else is already doing it
         orden = ranking()
         for tipo, filas in orden.items():
             if not filas:
@@ -277,7 +312,7 @@ def cmd_rank(args) -> int:
             destino = CACHE / f"rank-{tipo}.txt"
             tmp = destino.with_suffix(".txt.tmp")
             tmp.write_text("".join(f"{ruta}\n" for _, ruta in filas))
-            tmp.replace(destino)  # atomico: zsh nunca lee un fichero a medias
+            tmp.replace(destino)  # atomic: zsh never reads a half-written file
             if not args.quiet:
                 print(f"{destino}: {len(filas)} sprites")
     return 0
@@ -299,7 +334,7 @@ def cmd_pick(args) -> int:
     if not lineas:
         return 1
     n = min(args.entre, len(lineas))
-    i = min(random.randrange(n), random.randrange(n))  # sesgo hacia la cabeza
+    i = min(random.randrange(n), random.randrange(n))  # bias towards the top
     print(lineas[i])
     return 0
 
@@ -315,13 +350,289 @@ def cmd_estado(args) -> int:
     tmp.write_text("on\n" if nuevo else "off\n")
     tmp.replace(ESTADO)
     if nuevo:
-        # Al reactivar, el ranking puede ser de otro tema (mientras estaba
-        # apagado no se regeneraba): lo ponemos al dia ya, cuesta 0.1 s.
+        # On re-enabling, the ranking may belong to another theme (while it was
+        # off it was not regenerated): bring it up to date now, it costs 0.1 s.
         try:
             cmd_rank(argparse.Namespace(quiet=True))
         except SystemExit:
-            pass  # sin indice todavia: pokefetch se queda con el azar
+            pass  # no index yet: pokefetch sticks with random
     print("on" if nuevo else "off")
+    return 0
+
+
+# --- pokémon mode: the creature rules over the theme -------------------------
+# This is the REVERSE of everything above. Above, the theme rules and the
+# pokémon is chosen to match; here you choose the pokémon and the whole theme
+# comes from ITS artwork. The wallpaper is neither invented nor composed: the
+# collection is searched for the one that clashes least with that palette, with
+# the same Lab distance the ranking already uses. This script does not paint
+# anything -- that is still the job of set-wallpaper.sh, which is called with
+# --paleta-de so the colours come from the artwork and the wallpaper is another
+# file.
+DIR_WALLS = HOME / "Pictures" / "wallpapers"
+INDEX_WALLS = CACHE / "wallpapers.tsv"
+NOMBRES = CACHE / "nombres.tsv"
+PUESTO = HOME / ".config" / "poke-theme" / "worn"
+SET_WALLPAPER = HOME / ".config" / "hypr" / "set-wallpaper.sh"
+EXT_WALLS = (".jpg", ".jpeg", ".png", ".webp")
+API_LISTA = "https://pokeapi.co/api/v2/pokemon?limit=1025"
+
+
+def asegurar_nombres() -> dict[int, str]:
+    """number -> name. Downloaded from PokeAPI once (one request, ~40 KB) and
+    cached. With no network and no cache, 'wear' still works by number: that is
+    why this returns {} instead of blowing up."""
+    if NOMBRES.exists():
+        fuera = {}
+        for linea in NOMBRES.read_text().splitlines():
+            num, _, nom = linea.partition("\t")
+            if num.isdigit() and nom:
+                fuera[int(num)] = nom
+        if fuera:
+            return fuera
+
+    import urllib.request
+    try:
+        with urllib.request.urlopen(API_LISTA, timeout=15) as r:
+            datos = json.load(r)
+    except Exception as e:
+        print(tr(f"no pude bajar los nombres ({e}); usa el numero",
+                 f"Could not download the names ({e}); use the number"), file=sys.stderr)
+        return {}
+
+    fuera = {}
+    for fila in datos.get("results", []):
+        try:
+            num = int(fila["url"].rstrip("/").rsplit("/", 1)[-1])
+        except (KeyError, ValueError):
+            continue
+        fuera[num] = fila.get("name", "")
+    CACHE.mkdir(parents=True, exist_ok=True)
+    tmp = NOMBRES.with_suffix(".tsv.tmp")
+    tmp.write_text("".join(f"{n}\t{fuera[n]}\n" for n in sorted(fuera)))
+    tmp.replace(NOMBRES)
+    return fuera
+
+
+def resolver(texto: str) -> tuple[int, str]:
+    """'94' / 'gengar' / 'geng' / 'random' -> (94, 'gengar'). Only returns
+    pokémon that DO have artwork: promising one without a sprite would be a lie."""
+    disponibles = {int(p.stem) for p in DIR_PNG.glob("*.png") if p.stem.isdigit()}
+    if not disponibles:
+        raise SystemExit(tr("no hay artwork en ~/.cache/pokeart: ejecuta 'poke-sprites'",
+                            "No artwork in ~/.cache/pokeart: run 'poke-sprites'"))
+
+    nombres = asegurar_nombres()
+    texto = texto.strip().lower()
+
+    if texto in ("random", "azar", "al-azar"):
+        num = random.choice(sorted(disponibles))
+        return num, nombres.get(num, str(num))
+
+    if texto.isdigit():
+        num = int(texto)
+        if num not in disponibles:
+            raise SystemExit(tr(f"no tengo el artwork de #{num} (prueba 'poke-sprites')",
+                                f"No artwork for #{num} (try 'poke-sprites')"))
+        return num, nombres.get(num, str(num))
+
+    if not nombres:
+        raise SystemExit(tr(f"sin lista de nombres no puedo resolver '{texto}': usa el numero",
+                            f"Cannot resolve '{texto}' without the name list: use the number"))
+
+    porn = {v: k for k, v in nombres.items() if k in disponibles}
+    if texto in porn:
+        return porn[texto], texto
+    # prefix: 'char' -> charmander, charmeleon, charizard. If there are several,
+    # it shows them instead of choosing blindly for you.
+    candidatos = sorted(n for n in porn if n.startswith(texto))
+    if len(candidatos) == 1:
+        return porn[candidatos[0]], candidatos[0]
+    if candidatos:
+        raise SystemExit(tr(f"'{texto}' es ambiguo: {', '.join(candidatos[:12])}",
+                            f"'{texto}' is ambiguous: {', '.join(candidatos[:12])}"))
+    raise SystemExit(tr(f"no conozco a '{texto}'", f"Unknown Pokémon '{texto}'"))
+
+
+def distancia_paletas(a, b) -> float:
+    """How much one palette clashes with another. Symmetric on purpose: if it
+    only looked from the pokémon to the wallpaper, a wallpaper with MANY colours
+    would always win (it would have a bit of everything, including something
+    close to each of the creature's colours) even if its dominant hue had
+    nothing to do with it."""
+    def dirigida(origen, destino) -> float:
+        if not destino:
+            return 1e9
+        return sum(w * min(dist((L, A, B), o[:3]) for o in destino)
+                   for L, A, B, w in origen)
+
+    if not a or not b:
+        return 1e9
+    return (dirigida(a, b) + dirigida(b, a)) / 2.0
+
+
+def indice_wallpapers(quiet: bool = True) -> dict[Path, list]:
+    """Palette of each wallpaper in the collection, cached by mtime. It is ~20
+    files, so the first time costs a second and the following ones nothing."""
+    cache: dict[str, tuple[float, list]] = {}
+    if INDEX_WALLS.exists():
+        for linea in INDEX_WALLS.read_text().splitlines():
+            if not linea or linea.startswith("#"):
+                continue
+            try:
+                ruta, mtime, cuerpo = linea.split("\t", 2)
+                pal = []
+                for trozo in cuerpo.split(";"):
+                    L, A, B, w = (float(x) for x in trozo.split(","))
+                    pal.append((L, A, B, w))
+                cache[ruta] = (float(mtime), pal)
+            except ValueError:
+                continue
+
+    fuera: dict[Path, list] = {}
+    cambiado = False
+    for ruta in sorted(DIR_WALLS.iterdir() if DIR_WALLS.is_dir() else []):
+        if not ruta.is_file() or ruta.suffix.lower() not in EXT_WALLS:
+            continue
+        clave = str(ruta)
+        mt = ruta.stat().st_mtime
+        guardado = cache.get(clave)
+        if guardado and abs(guardado[0] - mt) < 1.0:
+            fuera[ruta] = guardado[1]
+            continue
+        try:
+            pal = paleta(ruta)
+        except Exception:
+            pal = []
+        if not quiet:
+            print(tr(f"  indexado {ruta.name}", f"  Indexed {ruta.name}"), file=sys.stderr)
+        if pal:
+            fuera[ruta] = pal
+            cache[clave] = (mt, pal)
+            cambiado = True
+
+    if cambiado:
+        CACHE.mkdir(parents=True, exist_ok=True)
+        tmp = INDEX_WALLS.with_suffix(".tsv.tmp")
+        with tmp.open("w") as fh:
+            fh.write("# ruta\tmtime\tL,a,b,peso;...  (poke-theme wear)\n")
+            for clave in sorted(cache):
+                mt, pal = cache[clave]
+                cuerpo = ";".join(f"{L:.1f},{A:.1f},{B:.1f},{w:.4f}" for L, A, B, w in pal)
+                fh.write(f"{clave}\t{mt}\t{cuerpo}\n")
+        tmp.replace(INDEX_WALLS)
+    return fuera
+
+
+def fondos_ordenados(pal_poke) -> list[tuple[float, Path]]:
+    filas = [(distancia_paletas(pal_poke, pw), ruta)
+             for ruta, pw in indice_wallpapers().items()]
+    filas.sort(key=lambda t: t[0])
+    return filas
+
+
+def leer_puesto() -> tuple[int, str, Path, Path] | None:
+    """(number, name, wallpaper set, previous wallpaper). The fourth field is
+    what makes 'wear --off' a real undo instead of leaving you with the
+    wallpaper the mode picked. Three-field files (the first ones this wrote)
+    are read all the same: with no memory of the previous one, it goes back to
+    the current one."""
+    try:
+        campos = PUESTO.read_text().strip().split("\t")
+        if len(campos) == 3:
+            num, nombre, fondo = campos
+            previo = fondo
+        else:
+            num, nombre, fondo, previo = campos[:4]
+        return int(num), nombre, Path(fondo), Path(previo)
+    except (OSError, ValueError):
+        return None
+
+
+def cmd_wear(args) -> int:
+    if args.off:
+        actual = leer_puesto()
+        if not actual:
+            print(tr("no llevabas ningun pokemon puesto", "No Pokémon theme was active"))
+            return 0
+        _, nombre, _, previo = actual
+        if not previo.is_file():
+            PUESTO.unlink(missing_ok=True)
+            raise SystemExit(tr(f"el fondo de antes ya no esta ({previo}); elige uno a mano",
+                                f"The previous wallpaper is missing ({previo}); choose one manually"))
+        # without --paleta-de: set-wallpaper.sh takes the colours from the
+        # wallpaper again and clears the state by itself.
+        subprocess.run([str(SET_WALLPAPER), str(previo)], check=False)
+        print(tr(f"fuera {nombre}; vuelves a {previo.name}", f"Removed {nombre}; restored {previo.name}"))
+        return 0
+
+    num, nombre = resolver(args.pokemon)
+
+    # Which wallpaper an '--off' goes back to after this. If you were already
+    # wearing one, its own is INHERITED: chaining gengar -> charizard -> mew and
+    # then taking it off has to take you back to the wallpaper you started
+    # with, not the one the previous link in the chain picked.
+    yapuesto = leer_puesto()
+    if yapuesto:
+        previo = yapuesto[3]
+    else:
+        try:
+            previo = Path(json.loads(WAL.read_text())["wallpaper"])
+        except (OSError, KeyError, ValueError):
+            previo = Path()
+
+    art = DIR_PNG / f"{num}.png"
+    pal_poke = paleta(art)
+    if not pal_poke:
+        raise SystemExit(tr(f"no pude sacar la paleta de {art}", f"Could not extract the palette from {art}"))
+
+    if args.fondo:
+        fondo = Path(args.fondo).expanduser()
+        if not fondo.is_file():
+            raise SystemExit(tr(f"no existe el fondo: {fondo}", f"Wallpaper does not exist: {fondo}"))
+        distancia = None
+    else:
+        filas = fondos_ordenados(pal_poke)
+        if not filas:
+            raise SystemExit(tr(f"no hay fondos indexables en {DIR_WALLS}",
+                                f"No indexable wallpapers in {DIR_WALLS}"))
+        distancia, fondo = filas[0]
+        if args.verbose:
+            for d, r in filas[:5]:
+                print(f"  {d:6.2f}  {r.name}", file=sys.stderr)
+
+    if args.dry_run:
+        print(f"#{num} {nombre}  ->  {fondo.name}"
+              + (tr(f"  (distancia {distancia:.2f})", f"  (distance {distancia:.2f})") if distancia is not None else ""))
+        return 0
+
+    if not os.access(SET_WALLPAPER, os.X_OK):
+        raise SystemExit(tr(f"no puedo ejecutar {SET_WALLPAPER}", f"Cannot execute {SET_WALLPAPER}"))
+    r = subprocess.run([str(SET_WALLPAPER), str(fondo), "--paleta-de", str(art)],
+                       check=False)
+    if r.returncode != 0:
+        raise SystemExit(tr(f"set-wallpaper.sh fallo ({r.returncode}); el tema no ha cambiado",
+                            f"set-wallpaper.sh failed ({r.returncode}); the theme has not changed"))
+
+    # Written AFTER applying: if set-wallpaper fails, nobody should believe the
+    # pokémon is being worn. And set-wallpaper deletes this file when it starts
+    # (no --paleta-de in its own check), so this order is the only one that
+    # leaves the state right.
+    PUESTO.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PUESTO.with_suffix(".tmp")
+    tmp.write_text(f"{num}\t{nombre}\t{fondo}\t{previo}\n")
+    tmp.replace(PUESTO)
+    print(tr(f"puesto #{num} {nombre}  (fondo: {fondo.name})",
+             f"Applied #{num} {nombre}  (wallpaper: {fondo.name})"))
+    return 0
+
+
+def cmd_worn(args) -> int:
+    actual = leer_puesto()
+    if not actual:
+        return 1  # nothing worn: the notch reads the exit code
+    num, nombre, fondo, previo = actual
+    print(nombre if args.solo_nombre else f"{num}\t{nombre}\t{fondo}\t{previo}")
     return 0
 
 
@@ -329,30 +640,57 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    pi = sub.add_parser("index", help="extrae la paleta de cada sprite (lento, 1 vez)")
-    pi.add_argument("--force", action="store_true", help="reindexa todo desde cero")
+    pi = sub.add_parser("index", help=tr("extrae la paleta de cada sprite (lento, 1 vez)",
+                                         "extract each sprite palette (slow, once only)"))
+    pi.add_argument("--force", action="store_true", help=tr("reindexa todo desde cero",
+                                                            "rebuild the whole index from scratch"))
     pi.add_argument("-q", "--quiet", action="store_true")
     pi.set_defaults(func=cmd_index)
 
-    pr = sub.add_parser("rank", help="ordena los sprites para el tema actual")
+    pr = sub.add_parser("rank", help=tr("ordena los sprites para el tema actual",
+                                        "rank sprites for the current theme"))
     pr.add_argument("-q", "--quiet", action="store_true")
     pr.set_defaults(func=cmd_rank)
 
-    pt = sub.add_parser("top", help="enseña el ranking")
+    pt = sub.add_parser("top", help=tr("enseña el ranking", "show the ranking"))
     pt.add_argument("-n", type=int, default=20)
     pt.add_argument("--tipo", choices=("gif", "png"), default="gif")
-    pt.add_argument("--peores", action="store_true", help="los que menos pegan")
+    pt.add_argument("--peores", action="store_true", help=tr("los que menos pegan",
+                                                             "the least matching sprites"))
     pt.set_defaults(func=cmd_top)
 
-    pp = sub.add_parser("pick", help="escupe un sprite sesgado por tema")
+    pp = sub.add_parser("pick", help=tr("escupe un sprite sesgado por tema",
+                                        "choose a sprite weighted towards the theme"))
     pp.add_argument("tipo", nargs="?", choices=("gif", "png"), default="gif")
-    pp.add_argument("--entre", type=int, default=40, help="de cuantos mejores elegir")
+    pp.add_argument("--entre", type=int, default=40, help=tr("de cuantos mejores elegir",
+                                                             "how many of the best matches to choose from"))
     pp.set_defaults(func=cmd_pick)
 
-    for nombre, ayuda in (("on", "activa el sesgo por tema"),
-                          ("off", "vuelve al pokemon al azar de siempre"),
-                          ("toggle", "conmuta (lo que usa la pokeball del notch)"),
-                          ("is-on", "imprime on/off")):
+    pw = sub.add_parser("wear", help=tr("se pone un pokemon: SU paleta pinta el sistema",
+                                        "apply a Pokémon theme: ITS palette colours the system"))
+    pw.add_argument("pokemon", nargs="?", default="random", help=tr("nombre, numero o 'random'",
+                                                                    "name, number or 'random'"))
+    pw.add_argument("--fondo", help=tr("usa este fondo en vez del mas afin",
+                                       "use this wallpaper instead of the closest match"))
+    pw.add_argument("--off", action="store_true", help=tr("quitarselo: el tema vuelve a salir del fondo",
+                                                          "remove it: derive the theme from the wallpaper again"))
+    pw.add_argument("-n", "--dry-run", action="store_true", help=tr("dice que haria, sin tocar nada",
+                                                                    "show what would change without applying it"))
+    pw.add_argument("-v", "--verbose", action="store_true", help=tr("enseña los 5 fondos que mas pegan",
+                                                                    "show the 5 closest wallpaper matches"))
+    pw.set_defaults(func=cmd_wear)
+
+    pwn = sub.add_parser("worn", help=tr("que pokemon llevas puesto (sale 1 si ninguno)",
+                                         "show the current Pokémon theme (exit 1 if none)"))
+    pwn.add_argument("--solo-nombre", action="store_true")
+    pwn.set_defaults(func=cmd_worn)
+
+    for nombre, ayuda in (("on", tr("activa el sesgo por tema", "enable theme weighting")),
+                          ("off", tr("vuelve al pokemon al azar de siempre",
+                                     "return to the usual random Pokémon")),
+                          ("toggle", tr("conmuta (lo que usa la pokeball del notch)",
+                                        "toggle (used by the notch Poké Ball)")),
+                          ("is-on", tr("imprime on/off", "print on/off"))):
         pe = sub.add_parser(nombre, help=ayuda)
         pe.set_defaults(func=cmd_estado)
 

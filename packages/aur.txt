@@ -1,11 +1,12 @@
 adw-gtk-theme-git
-auto-cpufreq
 bibata-cursor-theme
 cbonsai
 google-chrome
 otf-space-grotesk
 pipes.sh
 pokeshell
+pokete
+python-pywal
 qt6-avif-image-plugin
 sddm-silent-theme
 spicetify-cli
@@ -18,5 +19,6 @@ tty-clock
 unimatrix-git
 vesktop
 visual-studio-code-bin
+wl_shimeji-git
 xdg-desktop-portal-luminous
 yay

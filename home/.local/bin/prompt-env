@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# prompt-env — the Python environment indicator in the zsh prompt.
+#
+#     prompt-env on|off|toggle   switches it on or off
+#     prompt-env is-on           prints on/off (Settings queries it)
+#
+# When on, the prompt opens with (environment-name) in green and bold whenever
+# a venv or a conda environment is active; when off, nothing shows.
+#
+# Only the PREFERENCE lives here. What reads it and builds the prompt is
+# ~/.config/p10k/diego-theme.zsh, and it does so when the terminal opens: the
+# ones you already have open stay as they were until you open a new one.
+#
+# The preference goes in ~/.config and not in ~/.cache on purpose: it is the
+# user's decision, not something regenerable (same criterion as poke-theme).
+set -euo pipefail
+
+. "$HOME/.config/hypr/scripts/lang.sh" 2>/dev/null || tr_() { printf '%s' "$1"; }
+
+estado="${XDG_CONFIG_HOME:-$HOME/.config}/prompt-entorno/state"
+
+leer() {
+    local v=on
+    [[ -r $estado ]] && read -r v < "$estado" || true
+    [[ $v == off ]] && echo off || echo on
+}
+
+escribir() {
+    mkdir -p "${estado%/*}"
+    printf '%s\n' "$1" > "$estado"
+}
+
+case "${1:-is-on}" in
+    on)     escribir on ;;
+    off)    escribir off ;;
+    toggle) [[ $(leer) == on ]] && escribir off || escribir on ;;
+    is-on)  leer ;;
+    *)
+        echo "$(tr_ "uso: prompt-env on|off|toggle|is-on" "usage: prompt-env on|off|toggle|is-on")" >&2
+        exit 2
+        ;;
+esac

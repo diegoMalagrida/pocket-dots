@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
-# Reinicia Spotify y lo devuelve al workspace donde estaba, EN SILENCIO
-# (sin cambiarte de espacio). Lo llama el hook spicetify-pywal.sh en segundo plano.
-#   $1 = id del workspace donde estaba Spotify (vacío = no mover)
+# Restarts Spotify and puts it back on the workspace it was on, SILENTLY
+# (without switching you there). The spicetify-pywal.sh hook calls it in the background.
+#   $1 = id of the workspace Spotify was on (empty = do not move it)
 set -u
 
 WS="${1:-}"
 
-# cerrar Spotify (SIGTERM; si se resiste, SIGKILL)
+# close Spotify (SIGTERM; if it resists, SIGKILL)
 pkill -x spotify 2>/dev/null
 for i in $(seq 1 12); do pgrep -x spotify >/dev/null 2>&1 || break; sleep 0.25; done
 pgrep -x spotify >/dev/null 2>&1 && pkill -9 -x spotify 2>/dev/null
 sleep 0.3
 
-# relanzar CON el puerto de depuracion, para que spicetify-push-colors.py pueda
-# recolorear en caliente la proxima vez y no haga falta volver a pasar por aqui.
-# (El mismo flag esta en ~/.local/share/applications/spotify.desktop, que cubre
-# los lanzamientos desde el menu; esta linea cubre los de este script.)
+# relaunch WITH the debugging port, so spicetify-push-colors.py can recolour it
+# live next time and there is no need to come through here again.
+# (The same flag is in ~/.local/share/applications/spotify.desktop, which covers
+# launches from the menu; this line covers this script's.)
 FLAGS="--remote-debugging-port=9333 --remote-allow-origins=http://127.0.0.1:9333"
-# Sintaxis Lua (Hyprland 0.55+): `exec` a secas ya no es Lua valido. Aqui el
-# fallo era discreto porque el `|| setsid` de al lado recogia el codigo 7 y
-# lanzaba Spotify igual; lo que SI se perdia era la vuelta a su workspace.
+# Lua syntax (Hyprland 0.55+): a bare `exec` is no longer valid Lua. Here the
+# failure was quiet because the `|| setsid` next to it caught exit code 7 and
+# launched Spotify anyway; what WAS lost was the trip back to its workspace.
 hyprctl dispatch "hl.dsp.exec_cmd(\"spotify $FLAGS\")" >/dev/null 2>&1 || setsid spotify $FLAGS >/dev/null 2>&1
 
-# devolverlo a su workspace cuando aparezca la ventana (silent = no cambia el foco)
+# put it back on its workspace once the window appears (silent = focus does not move)
 [ -n "$WS" ] || exit 0
 for i in $(seq 1 40); do
   hyprctl clients -j 2>/dev/null | grep -q '"class": "Spotify"' && break
   sleep 0.5
 done
 sleep 0.6
-# `follow = false` es el equivalente Lua de movetoworkspacesilent.
+# `follow = false` is the Lua equivalent of movetoworkspacesilent.
 hyprctl dispatch "hl.dsp.window.move({ workspace = $WS, follow = false, window = \"class:^(Spotify)$\" })" >/dev/null 2>&1

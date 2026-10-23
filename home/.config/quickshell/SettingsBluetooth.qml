@@ -1,13 +1,12 @@
-// SettingsBluetooth.qml — dispositivos bluetooth vía Quickshell.Bluetooth (Bluez),
-// sustituyendo al menú de rofi. Emparejar, conectar, desconectar y olvidar.
+// SettingsBluetooth.qml — bluetooth devices via Quickshell.Bluetooth (Bluez),
+// replacing the rofi menu. Pair, connect, disconnect and forget.
 //
-// LO QUE ARREGLA ESTA VERSIÓN: si el adaptador está bloqueado por rfkill (que
-// es como está normalmente este portátil, por batería), la pantalla decía
-// "Bluetooth apagado, enciéndelo con el interruptor" — y el interruptor no
-// hacía absolutamente nada, porque con un soft-block Bluez ignora el `enabled`.
-// Ahora se dice claro, el interruptor se apaga para no mentir, y hay un botón
-// que hace el `rfkill unblock` (el usuario tiene ACL sobre /dev/rfkill, así que
-// no hace falta sudo).
+// WHAT THIS VERSION FIXES: if the adapter is blocked by rfkill (which is how
+// this laptop normally keeps it, for the battery), the screen said "Bluetooth
+// off, turn it on with the switch" — and the switch did absolutely nothing,
+// because with a soft-block Bluez ignores `enabled`. Now it says so plainly,
+// the switch goes dead so as not to lie, and there is a button that runs
+// `rfkill unblock` (the user has an ACL on /dev/rfkill, so no sudo is needed).
 import Quickshell
 import Quickshell.Bluetooth
 import QtQuick
@@ -26,7 +25,7 @@ Flickable {
     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded; width: 5 }
     onVisibleChanged: {
         if (visible) contentY = 0;
-        // el descubrimiento lo gobierna un único Binding en ShellState
+        // discovery is governed by a single Binding in ShellState
         ShellState.btScanWanted = visible;
     }
     Component.onDestruction: ShellState.btScanWanted = false
@@ -44,7 +43,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cAdapter
-            title: I18n.tr("ADAPTADOR")
+            title: I18n.tr("Adaptador")
 
             SettingsControls.Row_ {
                 label: I18n.tr("Bluetooth")
@@ -75,8 +74,8 @@ Flickable {
             text: I18n.tr("No hay ningún adaptador bluetooth en este equipo.")
         }
 
-        // Este estado hay que explicarlo sin tener que pasar el ratón: un
-        // interruptor apagado que además no responde parece la app rota.
+        // This state has to be explained without hovering: a switch that is
+        // off and does not respond either looks like a broken app.
         SettingsControls.Note_ {
             Layout.topMargin: 4
             visible: root.blocked
@@ -85,24 +84,38 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cPaired
-            title: I18n.tr("MIS DISPOSITIVOS")
+            title: I18n.tr("Mis dispositivos")
 
             Repeater {
-                model: ShellState.btPaired
+                // Same as in BluetoothPanel: this section also asks for discovery
+                // while it is open (btScanWanted), so the list rebuilds itself,
+                // and with an array every row was recreated. onItemRemoved goes
+                // through Qt.callLater on purpose: Qt emits that signal BEFORE
+                // unparenting the row, so recount() would still count it and the
+                // card would stay visible and empty when the last device left.
+                // It did not show before because the array was a reset and the
+                // last signal was always onItemAdded.
+                model: ScriptModel {
+                    values: ShellState.btPaired
+                    comparisonMode: ObjectComparison.Identity
+                }
                 onItemAdded: cPaired.recount()
-                onItemRemoved: cPaired.recount()
+                onItemRemoved: Qt.callLater(cPaired.recount)
                 DevRow {}
             }
         }
 
         SettingsControls.Card_ {
             id: cNearby
-            title: I18n.tr("DISPONIBLES")
+            title: I18n.tr("Disponibles")
 
             Repeater {
-                model: root.on_ ? ShellState.btNearby : []
+                model: ScriptModel {
+                    values: root.on_ ? ShellState.btNearby : []
+                    comparisonMode: ObjectComparison.Identity
+                }
                 onItemAdded: cNearby.recount()
-                onItemRemoved: cNearby.recount()
+                onItemRemoved: Qt.callLater(cNearby.recount)
                 DevRow {}
             }
         }
@@ -126,7 +139,7 @@ Flickable {
         }
     }
 
-    // ─────────── fila de dispositivo ───────────
+    // ─────────────── device row ────────────────
     component DevRow: Rectangle {
         id: dev
         required property var modelData
@@ -153,7 +166,7 @@ Flickable {
         visible: dev.matches
         radius: Appearance.radS
         color: dev.modelData.connected ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.18)
-             : dMa.containsMouse ? Qt.rgba(1, 1, 1, 0.07) : "transparent"
+             : dMa.containsMouse ? Colors.fill2 : "transparent"
         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
         RowLayout {
@@ -162,7 +175,7 @@ Flickable {
 
             Text {
                 text: dev.modelData.connected ? "󰂱" : "󰂯"
-                color: dev.modelData.connected ? Colors.accent : "#9a9a9a"
+                color: dev.modelData.connected ? Colors.accentInk : Colors.label2
                 font.family: Appearance.font
                 font.pixelSize: 15
             }
@@ -170,7 +183,7 @@ Flickable {
             Text {
                 Layout.fillWidth: true
                 text: dev.name_
-                color: "#ffffff"
+                color: Colors.label
                 elide: Text.ElideRight
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsS
@@ -180,18 +193,19 @@ Flickable {
             Text {
                 visible: dev.state_.length > 0
                 text: dev.state_
-                color: dev.modelData.connected ? Colors.accent : "#7d7d7d"
+                color: dev.modelData.connected ? Colors.accentInk : Colors.label3
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsXS
+                font.features: ({ "tnum": 1 })   // the battery % refreshes by itself: keep it from jittering
             }
 
-            // olvidar
+            // forget
             Text {
                 visible: dMa.containsMouse && (dev.modelData.paired || dev.modelData.bonded)
                 text: "󰩹"
-                color: fMa.containsMouse ? Colors.crit : "#7d7d7d"
+                color: fMa.containsMouse ? Colors.crit : Colors.label3
                 font.family: Appearance.font
-                font.pixelSize: 13
+                font.pixelSize: Appearance.fsM
                 MouseArea {
                     id: fMa
                     anchors.fill: parent

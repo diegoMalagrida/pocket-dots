@@ -1,55 +1,56 @@
 #!/usr/bin/env bash
-# Recarga limpia de Quickshell (barra + notch + sidebar + overview + wallpaper).
-# Normalmente NO hace falta: quickshell vigila sus .qml y recarga en caliente.
-# Esto es la red de seguridad cuando algo se queda colgado.
+# Clean reload of Quickshell (bar + notch + sidebar + overview + wallpaper).
+# Normally it is NOT needed: quickshell watches its .qml files and hot-reloads.
+# This is the safety net for when something gets stuck.
 
-# UN reload cada vez. Pulsar Super+G varias veces seguidas abria varias barras:
-# cada copia del script mataba a qs, dormia 0.4s a ojo y arrancaba el suyo, asi
-# que los tres pkill se gastaban al principio -- cuando aun no habia nada que
-# matar -- y los tres qs nacian despues, sin estorbarse. El cerrojo descarta las
-# pulsaciones que lleguen con un reload en marcha, que es lo que quieres: no
-# tiene sentido encolar recargas.
+# ONE reload at a time. Pressing Super+G several times in a row opened several
+# bars: each copy of the script killed qs, slept 0.4s by guesswork and started
+# its own, so the three pkills were spent at the start -- when there was still
+# nothing to kill -- and the three qs were born afterwards, without getting in
+# each other's way. The lock discards presses that arrive while a reload is
+# running, which is what you want: there is no point queueing reloads.
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/quickshell-reload.lock"
 flock -n 9 || exit 0
 
 pkill -x qs 2>/dev/null
 
-# Esperar a que muera DE VERDAD en vez de confiar en un sleep fijo: si tarda mas
-# de lo previsto, el viejo y el nuevo acaban solapados.
+# Wait for it to die FOR REAL instead of trusting a fixed sleep: if it takes
+# longer than expected, the old one and the new one end up overlapping.
 for _ in {1..50}; do
     pgrep -x qs >/dev/null || break
     sleep 0.1
 done
 pgrep -x qs >/dev/null && pkill -9 -x qs 2>/dev/null
 
-# Levantar por systemd, NO con 'setsid -f qs'. Un qs suelto no cuelga de
-# quickshell.service, asi que se queda sin la supervision de la unidad: si
-# segfaultea (paso el 2026-08-05), nadie lo levanta y te quedas sin barra ni
-# notch. Ademas el pkill de arriba manda SIGTERM, que systemd cuenta como
-# salida limpia, asi que con Restart=on-failure tampoco lo reinicia: la primera
-# pulsacion de Super+G dejaba el shell huerfano hasta el siguiente login.
+# Bring it up through systemd, NOT with 'setsid -f qs'. A loose qs does not
+# hang off quickshell.service, so it is left without the unit's supervision: if
+# it segfaults (it happened on 2026-08-05), nobody brings it back and you are
+# left with no bar and no notch. On top of that the pkill above sends SIGTERM,
+# which systemd counts as a clean exit, so with Restart=on-failure it does not
+# restart it either: the first press of Super+G left the shell orphaned until
+# the next login.
 #
-# El pkill previo sigue haciendo falta: con --no-duplicate, si sobrevive
-# cualquier qs de fuera de la unidad, el que arranca systemd se retira solo.
+# The earlier pkill is still needed: with --no-duplicate, if any qs from
+# outside the unit survives, the one systemd starts withdraws by itself.
 #
-# La unidad tiene StartLimitBurst=5 en 60s para no reintentar en bucle con la
-# config QML rota. Machacando Super+G se llega a ese tope y el restart falla,
-# asi que se limpia el contador y se reintenta antes de rendirse.
+# The unit has StartLimitBurst=5 in 60s so it does not retry in a loop with a
+# broken QML config. Hammering Super+G hits that limit and the restart fails,
+# so the counter is cleared and it retries before giving up.
 if ! systemctl --user restart quickshell.service 2>/dev/null; then
     systemctl --user reset-failed quickshell.service 2>/dev/null
     if ! systemctl --user restart quickshell.service 2>/dev/null; then
-        # Sin systemd de usuario (o unidad rota): al menos deja el shell en pie.
+        # No user systemd (or a broken unit): at least leave the shell running.
         #
-        # 9>&- NO es decorativo: los descriptores se heredan, asi que sin esto qs
-        # se queda agarrado al cerrojo mientras viva y el siguiente Super+G se
-        # encuentra el flock ocupado y no hace nada. El atajo dejaba de
-        # funcionar tras la primera vez.
+        # 9>&- is NOT decorative: descriptors are inherited, so without it qs
+        # keeps hold of the lock for as long as it lives and the next Super+G
+        # finds the flock taken and does nothing. The shortcut stopped working
+        # after the first time.
         setsid -f qs -n >/dev/null 2>&1 </dev/null 9>&-
     fi
 fi
 
-# El cerrojo se suelta al salir, asi que no salgas hasta que el nuevo qs este en
-# pie: si no, una segunda pulsacion entraria a matarlo a medio arrancar.
+# The lock is released on exit, so do not exit until the new qs is up:
+# otherwise a second press would come in and kill it halfway through starting.
 for _ in {1..30}; do
     pgrep -x qs >/dev/null && break
     sleep 0.1

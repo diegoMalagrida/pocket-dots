@@ -1,10 +1,10 @@
-// CalendarPanel.qml — cara de calendario desplegada DESDE el notch.
+// CalendarPanel.qml — calendar face unfolded FROM the notch.
 //
-// Un mes y nada más: cabecera con mes/año y navegación, iniciales de los
-// días de la semana según el locale (ShellState.loc.firstDayOfWeek), y
-// rejilla fija de 6 filas × 7 columnas para que la altura del notch nunca
-// pegue saltos al cambiar de mes. Hoy va marcado con Colors.accent.
-// Es un calendario para mirarlo: ni notas, ni eventos, ni festivos.
+// One month and nothing else: a header with month/year and navigation, the
+// weekday initials according to the locale (ShellState.loc.firstDayOfWeek),
+// and a fixed grid of 6 rows × 7 columns so the notch height never jumps when
+// the month changes. Today is marked with Colors.accent.
+// It is a calendar for looking at: no notes, no events, no holidays.
 import Quickshell
 import QtQuick
 import QtQuick.Layouts
@@ -14,11 +14,11 @@ Item {
 
     readonly property bool active: ShellState.panel === "calendar"
 
-    // SOLO la fecha, no la hora. El reloj del shell late cada segundo, y colgar
-    // de él la rejilla hacía que se reconstruyeran 42 objetos Date y sus 42
-    // delegados UNA VEZ POR SEGUNDO, para siempre, con el panel cerrado y por
-    // cada monitor. Una cadena "yyyy-MM-dd" solo emite cambio cuando cambia el
-    // día, que es exactamente cuando la rejilla tiene algo nuevo que decir.
+    // ONLY the date, not the time. The shell's clock ticks every second, and
+    // hanging the grid off it rebuilt 42 Date objects and their 42 delegates
+    // ONCE PER SECOND, forever, with the panel closed and on every monitor. A
+    // "yyyy-MM-dd" string only emits a change when the day changes, which is
+    // exactly when the grid has something new to say.
     readonly property string todayKey: Qt.formatDate(ShellState.now, "yyyy-MM-dd")
 
     property int viewYear: parseInt(root.todayKey.slice(0, 4))
@@ -50,8 +50,8 @@ Item {
         }
     }
 
-    // Al abrir el panel volvemos siempre a hoy y tomamos el foco para
-    // poder cerrar con Escape o cambiar de mes con las flechas del teclado.
+    // When the panel opens we always go back to today and take focus so it
+    // can be closed with Escape or the month changed with the arrow keys.
     onActiveChanged: {
         if (root.active) {
             root.goToToday();
@@ -59,7 +59,7 @@ Item {
         }
     }
 
-    // Absorbe clics en zonas vacías y añade navegación rápida de mes con la rueda
+    // Absorbs clicks on empty areas and adds quick month navigation with the wheel
     MouseArea {
         anchors.fill: parent
         onWheel: function (w) {
@@ -79,10 +79,10 @@ Item {
         Keys.onEnterPressed: if (!root.isCurrentMonth) root.goToToday()
     }
 
-    // Rejilla fija de 42 celdas (6 semanas completas).
-    // La primera columna sigue siempre a ShellState.loc.firstDayOfWeek.
-    // Los días fuera del mes en curso se marcan como isCurrentMonth: false
-    // para pintarlos atenuados.
+    // Fixed grid of 42 cells (6 full weeks).
+    // The first column always follows ShellState.loc.firstDayOfWeek.
+    // Days outside the current month are marked isCurrentMonth: false so they
+    // are painted dimmed.
     readonly property var gridCells: {
         const y = root.viewYear;
         const m = root.viewMonth;
@@ -91,12 +91,12 @@ Item {
         const todayM = parseInt(root.todayKey.slice(5, 7)) - 1;
         const todayD = parseInt(root.todayKey.slice(8, 10));
 
-        // Las 12:00 y no las 00:00, en TODAS las fechas que se construyen aquí.
-        // Donde el cambio de hora de primavera salta a medianoche -Santiago,
-        // Beirut, La Habana- las 00:00 de ese día NO EXISTEN, y el motor las
-        // resuelve como las 23:00 del día anterior: el día del cambio se cae de
-        // la rejilla y el anterior sale dos veces. En Madrid el salto es a las
-        // 02:00 y no se nota, pero este repo es público.
+        // 12:00 and not 00:00, in EVERY date built here. Where the spring
+        // clock change jumps at midnight -Santiago, Beirut, Havana- 00:00 on
+        // that day DOES NOT EXIST, and the engine resolves it as 23:00 on the
+        // previous day: the day of the change drops out of the grid and the
+        // previous one appears twice. In Madrid the jump is at 02:00 and it
+        // goes unnoticed, but this repo is public.
         const firstOfMonth = new Date(y, m, 1, 12).getDay();
         const leadDays = (firstOfMonth - firstDow + 7) % 7;
 
@@ -125,16 +125,16 @@ Item {
         }
         spacing: 0
 
-        // ─────────────── cabecera: mes, año y controles ───────────────
+        // ─────────────── header: month, year and controls ───────────────
         RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 32
             spacing: 8
 
-            // Al pinchar en el título cuando estás en otro mes, vuelve a hoy
+            // Clicking the title while you are on another month goes back to today
             Text {
                 text: ShellState.capitalize(new Date(root.viewYear, root.viewMonth, 1, 12).toLocaleDateString(ShellState.loc, "MMMM yyyy"))
-                color: "#ffffff"
+                color: Colors.label
                 font.family: Appearance.fontUI
                 font.pixelSize: 15
                 font.weight: Font.DemiBold
@@ -153,7 +153,7 @@ Item {
                 Layout.alignment: Qt.AlignVCenter
                 spacing: 6
 
-                // Botón "Hoy": aparece solo al salir del mes actual para no dejar un botón inútil
+                // "Hoy" (Today) button: appears only once you leave the current month, so there is no useless button
                 Rectangle {
                     id: todayBtn
                     visible: !root.isCurrentMonth
@@ -164,7 +164,7 @@ Item {
                         ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.35)
                         : todayMa.containsMouse
                         ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.20)
-                        : Qt.rgba(1, 1, 1, 0.07)
+                        : Colors.fill3
                     Behavior on color { ColorAnimation { duration: Appearance.mQuick } }
                     scale: todayMa.pressed ? 0.95 : 1
                     Behavior on scale { NumberAnimation { duration: Appearance.mQuick; easing.type: Easing.OutCubic } }
@@ -173,7 +173,7 @@ Item {
                         id: todayLbl
                         anchors.centerIn: parent
                         text: I18n.tr("Hoy")
-                        color: Colors.accent
+                        color: Colors.accentInk
                         font.family: Appearance.fontUI
                         font.pixelSize: Appearance.fsXS
                         font.weight: Font.Medium
@@ -188,17 +188,17 @@ Item {
                     }
                 }
 
-                // Flecha mes anterior
+                // Previous-month arrow
                 Rectangle {
                     id: prevBtn
                     width: 26
                     height: 26
                     radius: Appearance.radS
                     color: prevMa.pressed
-                        ? Qt.rgba(1, 1, 1, 0.16)
+                        ? Colors.fill1
                         : prevMa.containsMouse
-                        ? Qt.rgba(1, 1, 1, 0.10)
-                        : Qt.rgba(1, 1, 1, 0.05)
+                        ? Colors.fill2
+                        : Colors.fill3
                     Behavior on color { ColorAnimation { duration: Appearance.mQuick } }
                     scale: prevMa.pressed ? 0.95 : 1
                     Behavior on scale { NumberAnimation { duration: Appearance.mQuick; easing.type: Easing.OutCubic } }
@@ -206,7 +206,7 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         text: "‹"
-                        color: prevMa.containsMouse ? "#ffffff" : "#c0c0c0"
+                        color: prevMa.containsMouse ? Colors.label : Colors.label2
                         font.family: Appearance.fontUI
                         font.pixelSize: 18
                         Behavior on color { ColorAnimation { duration: Appearance.mQuick } }
@@ -221,17 +221,17 @@ Item {
                     }
                 }
 
-                // Flecha mes siguiente
+                // Next-month arrow
                 Rectangle {
                     id: nextBtn
                     width: 26
                     height: 26
                     radius: Appearance.radS
                     color: nextMa.pressed
-                        ? Qt.rgba(1, 1, 1, 0.16)
+                        ? Colors.fill1
                         : nextMa.containsMouse
-                        ? Qt.rgba(1, 1, 1, 0.10)
-                        : Qt.rgba(1, 1, 1, 0.05)
+                        ? Colors.fill2
+                        : Colors.fill3
                     Behavior on color { ColorAnimation { duration: Appearance.mQuick } }
                     scale: nextMa.pressed ? 0.95 : 1
                     Behavior on scale { NumberAnimation { duration: Appearance.mQuick; easing.type: Easing.OutCubic } }
@@ -239,7 +239,7 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         text: "›"
-                        color: nextMa.containsMouse ? "#ffffff" : "#c0c0c0"
+                        color: nextMa.containsMouse ? Colors.label : Colors.label2
                         font.family: Appearance.fontUI
                         font.pixelSize: 18
                         Behavior on color { ColorAnimation { duration: Appearance.mQuick } }
@@ -258,7 +258,7 @@ Item {
 
         Item { Layout.preferredHeight: 14 }
 
-        // ─────────────── fila de iniciales de los días ───────────────
+        // ─────────────── row of weekday initials ───────────────
         Row {
             Layout.fillWidth: true
             Layout.preferredHeight: 18
@@ -271,9 +271,9 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         text: ShellState.loc.dayName((ShellState.loc.firstDayOfWeek + index) % 7, Locale.NarrowFormat).toUpperCase()
-                        color: "#707070"
+                        color: Colors.label3
                         font.family: Appearance.fontUI
-                        font.pixelSize: 11
+                        font.pixelSize: Appearance.fsXS
                         font.weight: Font.Medium
                     }
                 }
@@ -282,7 +282,7 @@ Item {
 
         Item { Layout.preferredHeight: 8 }
 
-        // ─────────────── rejilla de 6 filas × 7 columnas ───────────────
+        // ─────────────── grid of 6 rows × 7 columns ───────────────
         Grid {
             Layout.fillWidth: true
             columns: 7
@@ -299,7 +299,7 @@ Item {
                     width: 44
                     height: 32
 
-                    // Círculo de acento para el día de hoy
+                    // Accent circle for today
                     Rectangle {
                         anchors.centerIn: parent
                         width: 28
@@ -313,14 +313,14 @@ Item {
                         anchors.centerIn: parent
                         text: String(cell.modelData.day)
                         font.family: Appearance.fontUI
-                        font.pixelSize: 13
+                        font.pixelSize: Appearance.fsM
                         font.weight: cell.modelData.isToday ? Font.Bold : Font.Normal
                         font.features: ({ "tnum": 1 })
                         color: cell.modelData.isToday
                             ? Colors.bg
                             : cell.modelData.isCurrentMonth
-                            ? "#ffffff"
-                            : Qt.rgba(1, 1, 1, 0.22)
+                            ? Colors.label
+                            : Colors.label4
                     }
                 }
             }

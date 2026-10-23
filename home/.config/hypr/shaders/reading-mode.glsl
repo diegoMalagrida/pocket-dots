@@ -1,14 +1,14 @@
 #version 320 es
 
 /*
- * Modo lectura del rice de Diego.
+ * Reading mode for Diego's rice.
  *
- * Implementacion propia inspirada en el modo e-ink de surface-dots:
+ * Our own implementation, inspired by surface-dots' e-ink mode:
  * https://github.com/snes19xx/surface-dots
  *
- * La pantalla se lleva a una paleta de papel calido + tinta, con una textura
- * estatica muy fina. Es estatica a proposito: un grano que se moviese en cada
- * frame cansaria mas la vista y forzaria redibujos sin aportar informacion.
+ * The screen is mapped to a palette of warm paper + ink, with a very fine
+ * static texture. It is static on purpose: grain that moved every frame would
+ * tire the eyes more and force redraws without adding any information.
  */
 
 precision highp float;
@@ -37,18 +37,18 @@ void main() {
     vec4 source = texture(tex, v_texcoord);
     vec2 px = gl_FragCoord.xy;
 
-    // Luminancia perceptual: conserva mejor la legibilidad que (r+g+b)/3.
+    // Perceptual luminance: keeps legibility better than (r+g+b)/3.
     float gray = dot(source.rgb, vec3(0.299, 0.587, 0.114));
     gray = pow(clamp(gray, 0.0, 1.0), 1.08);
     gray = smoothstep(0.055, 0.945, gray);
 
-    // Fibra gruesa + polvo fino, ambos anclados al pixel fisico.
+    // Coarse fibre + fine dust, both anchored to the physical pixel.
     float fiber = hash21(floor(px / 9.0));
     float dust = hash21(floor(px / 2.0) + vec2(19.0, 7.0));
     float paperMask = smoothstep(0.28, 0.94, gray);
     gray += ((fiber - 0.5) * 0.020 + (dust - 0.5) * 0.010) * paperMask;
 
-    // Un dither minimo evita bandas en degradados sin convertir texto en ruido.
+    // A minimal dither avoids banding in gradients without turning text into noise.
     gray += (bayer4(px) - 0.5) * 0.014;
     gray = clamp(gray, 0.0, 1.0);
 
@@ -56,7 +56,7 @@ void main() {
     vec3 paper = vec3(0.945, 0.925, 0.865);
     vec3 colour = mix(ink, paper, gray);
 
-    // El borde cae apenas: da sensacion de hoja sin oscurecer las esquinas.
+    // The edge falls off only slightly: it feels like a sheet of paper without darkening the corners.
     float edge = smoothstep(0.44, 0.76, length(v_texcoord - 0.5));
     colour *= 1.0 - edge * 0.035;
 

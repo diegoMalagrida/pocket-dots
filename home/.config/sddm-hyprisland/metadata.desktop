@@ -1,6 +1,6 @@
 [SddmGreeterTheme]
 Name=hyprisland
-Description=La isla de hyprlock, para el login de arranque
+Description=The hyprlock island, for the boot login
 Author=diego
 License=MIT
 Type=sddm-theme

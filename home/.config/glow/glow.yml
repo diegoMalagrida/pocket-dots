@@ -1,4 +1,4 @@
-# pywal regenera este estilo cuando cambia el fondo.
+# pywal regenerates this style when the wallpaper changes.
 style: "/home/diego/.cache/wal/colors-glamour.json"
 # mouse support (TUI-mode only)
 mouse: false

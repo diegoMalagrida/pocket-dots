@@ -1,0 +1,25 @@
+# Watches the shell's language to propagate it to the rest of the desktop.
+#
+# Settings writes .language in ~/.config/quickshell-rice.json, but until
+# 2026-09-14 nobody carried that change over to ~/.config/hypr/language.conf,
+# which is what hyprlock and the Hyprland scripts read (via scripts/lang.sh).
+# The desktop was left split: the shell in one language and the lock screen and
+# the notifications in another.
+#
+# It is done with a path unit and not by touching the QML on purpose: that way
+# the fix cannot bring down the shell, and it works whichever way the language
+# changes (Settings, a script, or editing the JSON by hand).
+[Unit]
+Description=Watches the rice language to keep hyprlock and the scripts up to date
+Documentation=file:///home/diego/.config/hypr/scripts/sync-language.sh
+
+[Path]
+# Both conditions on purpose: PathChanged covers the normal write (it fires
+# when the file is closed) and PathModified covers the case where Quickshell
+# replaces it some other way. Firing twice is harmless, because the script does
+# nothing if the files already match.
+PathChanged=%h/.config/quickshell-rice.json
+PathModified=%h/.config/quickshell-rice.json
+
+[Install]
+WantedBy=default.target

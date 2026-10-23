@@ -1,0 +1,15 @@
+[Unit]
+Description=The desktop pokémon reacts to the machine
+# No After on wl_shimeji, on purpose: if the overlay is not there, each attempt
+# fails softly and retries on its own. Tying them together would only add a
+# dependency.
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/poke-mood
+Restart=on-failure
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=graphical-session.target

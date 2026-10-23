@@ -1,0 +1,278 @@
+/* The desktop's shape rules for GTK3. Not a single fixed colour: everything
+ * comes from the named colours pywal writes, so this file stays the same
+ * whatever happens to the wallpaper.
+ *
+ * It is imported by the generated theme `pywal-gtk-<hash>` (see gtk-pywal.sh).
+ * It used to live in a Thunar-only theme loaded with GTK_THEME=rice-thunar,
+ * and that had to change: GTK_THEME freezes the CSS of the whole process --
+ * neither the theme, nor the user's gtk.css, nor the appearance portal's nudge
+ * are read again while the window lives. Measured with colour probes: the
+ * statusbar stayed magenta after switching it to green. And without a reload
+ * there is no live recolouring, which is exactly what Diego asked for.
+ *
+ * Which means EVERY GTK3 application sees this (xarchiver, nwg-look, the file
+ * dialogs of Chrome and Discord...), not just Thunar. It is written for that:
+ * nothing that depends on the window being a file manager, and nothing that
+ * leaves an invisible button in some random application.
+ *
+ * Shapes and timings, from the rice's motion rules (the scale is in Appearance.qml):
+ *   Law 1 — windows are the CONTENT layer: SQUARE corners. Round belongs to
+ *           the shell (notch, bar, panels) and is not imitated here.
+ *   Law 2 — focus is marked with light, not with an outline.
+ *   Law 3 — hover is a STATE: it goes in and out the same (130/130).
+ *           Animating the way out faster than the way in makes the pointer
+ *           feel sticky.
+ *   RESPUESTA = 130 ms with the `respuesta` curve (0.2, 0, 0, 1).
+ */
+
+/* pywal's background is flat and card_bg_color has the same value, so the
+   surfaces are separated by mixing text into background at low percentages.
+   It is the only way to get hierarchy without leaving the day's palette. */
+@define-color rice_lateral   mix(@window_bg_color, @window_fg_color, 0.05);
+@define-color rice_linea     alpha(@window_fg_color, 0.09);
+@define-color rice_apagado   alpha(@window_fg_color, 0.55);
+@define-color rice_hover     alpha(@window_fg_color, 0.07);
+
+/* --- Window and header bar --- */
+
+decoration {
+	border-radius: 0;
+}
+
+.titlebar,
+.titlebar:backdrop {
+	background-image: none;
+	border-radius: 0;
+	box-shadow: none;
+	border-bottom: 1px solid @rice_linea;
+}
+
+/* What is active is marked with the day's accent: in Thunar that is the folder
+   you are in, inside the path bar, and in any other application the pressed
+   toggle button. Ordinary buttons stay as adw-gtk3 leaves them: flattening
+   them all here would leave invisible buttons in the first save-file dialog
+   that opens. */
+button:checked,
+button:active {
+	background-image: none;
+	background-color: alpha(@accent_bg_color, 0.24);
+}
+
+button:checked label {
+	color: @accent_color;
+}
+
+/* --- Lists, grids and side pane --- */
+
+.view,
+iconview,
+treeview.view {
+	background-color: @view_bg_color;
+	color: @view_fg_color;
+}
+
+/* The side pane, a hair lighter than the view. It is the paned's first child;
+   if that selector ever stops matching, all that happens is that it gets the
+   same background as the view: it degrades gracefully on its own. */
+paned > scrolledwindow:first-child .view,
+paned > scrolledwindow:first-child treeview.view {
+	background-color: @rice_lateral;
+}
+
+/* Law 2 applied to the list: where you are is not marked with a box, it is
+   marked by being lit up more and by the text taking the accent. */
+.view:selected,
+.view:selected:focus,
+treeview.view:selected,
+treeview.view:selected:focus {
+	background-color: alpha(@accent_bg_color, 0.28);
+	color: @view_fg_color;
+	border-radius: 0;
+}
+
+.view:selected:backdrop,
+treeview.view:selected:backdrop {
+	background-color: alpha(@window_fg_color, 0.07);
+	color: @rice_apagado;
+}
+
+.view:hover,
+treeview.view:hover {
+	transition: background-color 130ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Column headers: small and with a one-pixel line, so the column names do not
+   fight with the data. */
+treeview.view header button {
+	background-image: none;
+	background-color: @view_bg_color;
+	border: none;
+	border-bottom: 1px solid @rice_linea;
+	border-radius: 0;
+	color: @rice_apagado;
+	font-size: 0.92em;
+	padding: 4px 8px;
+}
+
+treeview.view header button:hover {
+	background-color: @rice_hover;
+	color: @window_fg_color;
+}
+
+/* Drag selection, in the day's accent. */
+rubberband,
+.rubberband {
+	background-color: alpha(@accent_bg_color, 0.22);
+	border: 1px solid @accent_color;
+}
+
+/* The pane separator: a hairline, not a groove. */
+paned > separator {
+	background-image: none;
+	background-color: @rice_linea;
+	min-width: 1px;
+	min-height: 1px;
+}
+
+/* --- Status bar --- */
+
+statusbar,
+statusbar label {
+	background-color: @window_bg_color;
+	color: @rice_apagado;
+	font-size: 0.92em;
+}
+
+statusbar {
+	border-top: 1px solid @rice_linea;
+	padding: 2px 10px;
+	min-height: 24px;
+}
+
+/* --- Tabs --- */
+
+notebook > header {
+	background-color: @window_bg_color;
+	border-color: @rice_linea;
+}
+
+notebook > header > tabs > tab {
+	background-color: transparent;
+	border: none;
+	box-shadow: none;
+	color: @rice_apagado;
+	padding: 5px 14px;
+	transition: color 130ms cubic-bezier(0.2, 0, 0, 1),
+	            box-shadow 130ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+notebook > header > tabs > tab:hover {
+	color: @window_fg_color;
+}
+
+/* The active tab, underlined in the accent: the same thing the shell's bar
+   does with the active workspace. */
+notebook > header > tabs > tab:checked {
+	color: @window_fg_color;
+	box-shadow: inset 0 -2px @accent_color;
+}
+
+/* --- Scrollbars --- */
+/* Thin and with no trough: in a grid of thumbnails, a wide grey bar eats a
+   column of content to say nothing at all. */
+
+scrollbar {
+	background-color: transparent;
+	border: none;
+}
+
+scrollbar slider {
+	background-color: alpha(@window_fg_color, 0.22);
+	border: 3px solid transparent;
+	border-radius: 8px;
+	min-width: 7px;
+	min-height: 7px;
+	transition: background-color 130ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+scrollbar slider:hover {
+	background-color: alpha(@window_fg_color, 0.38);
+}
+
+scrollbar slider:active {
+	background-color: @accent_color;
+}
+
+/* --- Text entries --- */
+
+entry {
+	background-image: none;
+	background-color: alpha(@window_fg_color, 0.06);
+	border: 1px solid transparent;
+	box-shadow: none;
+	color: @window_fg_color;
+	transition: border-color 130ms cubic-bezier(0.2, 0, 0, 1),
+	            background-color 130ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+entry:focus {
+	background-color: alpha(@window_fg_color, 0.09);
+	border-color: @accent_color;
+	box-shadow: none;
+}
+
+entry selection {
+	background-color: alpha(@accent_bg_color, 0.40);
+	color: @window_fg_color;
+}
+
+/* --- Menus (the right-click one, which is half of life in a file manager) --- */
+
+menu,
+.menu,
+popover.background {
+	background-color: mix(@window_bg_color, @window_fg_color, 0.06);
+	border: 1px solid @rice_linea;
+	padding: 4px 0;
+}
+
+menuitem {
+	padding: 5px 10px;
+	transition: background-color 130ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+menuitem:hover {
+	background-color: alpha(@accent_bg_color, 0.28);
+	color: @window_fg_color;
+}
+
+menu separator {
+	background-color: @rice_linea;
+	margin: 4px 0;
+	min-height: 1px;
+}
+
+/* --- Progress --- */
+
+progressbar progress {
+	background-image: none;
+	background-color: @accent_color;
+}
+
+progressbar trough {
+	background-color: alpha(@window_fg_color, 0.10);
+}
+
+/* --- Dialog action buttons --- */
+
+.suggested-action {
+	background-image: none;
+	background-color: alpha(@accent_bg_color, 0.85);
+	color: @accent_fg_color;
+}
+
+.destructive-action {
+	background-image: none;
+	background-color: alpha(@destructive_color, 0.85);
+	color: @accent_fg_color;
+}

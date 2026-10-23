@@ -9,11 +9,22 @@ system		NetworkManager-dispatcher.service
 system		bluetooth.service
 system		sddm.service
 system		nftables.service
-system		auto-cpufreq.service
+system		tlp.service
 system		systemd-oomd.service
 system		fstrim.timer
 system		paccache.timer
 system		reflector.timer
+# The NVMe/VMD runtime-PM guard, whose .service and .path are in system/etc now.
+# Without this line they sit on disk and nobody ever starts them, which is the
+# same as not having the fix at all. The .path is the one to enable: it is what
+# watches TLP and re-runs the .service every time TLP undoes the setting.
+# Safe on a machine that is not this laptop: every ExecStart in the .service
+# is '-' prefixed, so a device that is not there does not fail the unit. Two
+# of the three name the Intel VMD domain (10000:...), which exists nowhere
+# else; the third, 0000:00:0e.0, is an ordinary PCI address that another
+# board may well have, and there it would simply pin that device's runtime
+# PM on.
+system		nvme-vmd-runtime-pm.path
 
 # --- user ---
 user		pipewire.socket
@@ -27,13 +38,34 @@ user		hypridle.service
 user		hyprpolkitagent.service
 user		quickshell.service
 user		bt-agent.service
-# tailscaled es lo que hace falta para las dos reglas de Tailscale de
-# system/etc/nftables.conf. Va comentado porque el demonio solo, sin un
-# `tailscale up` con tu cuenta, no hace nada: enciendelo tu si vas a usarlo.
+# The one that copies language.<lang>.conf over language.conf when you change
+# the language in Settings. It was missing here, and since install.sh only
+# enables what appears in this manifest, on a freshly installed machine it was
+# never enabled. Effect: install.sh leaves the three places in line AT INSTALL
+# TIME, so it went unnoticed at first; but when you changed the language later,
+# hyprlock, the login hint and the scripts' notices stayed in the language the
+# system was installed with. On this laptop it works because the unit was
+# enabled by hand.
+user		sync-language.path
+# The socket for the desktop pokémon, with the SAME bug: this repo versions
+# home/.config/systemd/user/wl_shimeji.socket and nobody enabled it -a grep for
+# wl_shimeji over the whole repo, install.sh included, did not return a single
+# line-, so on a freshly installed machine there were no critters.
+#
+# THE SOCKET, NEVER THE SERVICE. The service is started by the walk
+# (poke-leader-shimeji) when it is due; enabling it here would put a pokémon on
+# screen at every boot without anyone having asked for it. And this `enable`
+# goes without --now, so it activates in the next session and does not even
+# start anything during the install.
+user		wl_shimeji.socket
+# tailscaled is what the two Tailscale rules in system/etc/nftables.conf need.
+# It is commented out because the daemon on its own, without a `tailscale up`
+# with your account, does nothing: turn it on yourself if you are going to use
+# it.
 #system		tailscaled.service
 
-# luminous-autoselect responde que SI a toda peticion de captura de pantalla,
-# sin preguntar y siempre con la salida 0. Solo hace falta para RustDesk, y
-# RustDesk no lo instala este repo. Ver home/.config/xdg-desktop-portal/
-# hyprland-portals.conf para encenderlo a conciencia.
+# luminous-autoselect answers YES to every screen capture request, without
+# asking and always with output 0. It is only needed for RustDesk, and this
+# repo does not install RustDesk. See home/.config/xdg-desktop-portal/
+# hyprland-portals.conf to turn it on knowingly.
 #user		luminous-autoselect.service

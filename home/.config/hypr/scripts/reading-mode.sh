@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Modo lectura reversible para Hyprland >= 0.55 (configuracion Lua).
+# Reversible reading mode for Hyprland >= 0.55 (Lua config).
 #
-# Solo toca cuatro valores de runtime: shader, animaciones, blur y sombras.
-# Antes de hacerlo guarda los valores REALES del compositor; al salir restaura
-# esos mismos valores, no unos defaults inventados. Wallpaper, pywal y brillo
-# quedan fuera deliberadamente.
+# It only touches four runtime values: shader, animations, blur and shadows.
+# Before doing so it saves the compositor's REAL values; on the way out it
+# restores those very values, not some made-up defaults. Wallpaper, pywal and
+# brightness are left out on purpose.
 
 set -euo pipefail
 
+. "$HOME/.config/hypr/scripts/lang.sh" 2>/dev/null || tr_() { printf '%s' "$1"; }
+
 mode="${1:-toggle}"
-rice_home="${HOME:?HOME no esta definido}"
+rice_home="${HOME:?$(tr_ "HOME no esta definido" "HOME is not defined")}"
 runtime_root="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 state_dir="$runtime_root/quickshell-rice"
 snapshot="$state_dir/reading-mode.json"
@@ -46,8 +48,8 @@ apply_state() {
 
 restore_snapshot() {
     if [[ ! -r "$snapshot" ]]; then
-        # Red de seguridad para un estado perdido: la recarga vuelve a la fuente
-        # de verdad del rice y no toca ventanas ni workspaces.
+        # Safety net for a lost state: the reload goes back to the rice's source
+        # of truth and does not touch windows or workspaces.
         hyprctl reload >/dev/null
         return
     fi
@@ -60,25 +62,25 @@ restore_snapshot() {
         || [[ "$previous_animations" != true && "$previous_animations" != false ]] \
         || [[ "$previous_blur" != true && "$previous_blur" != false ]] \
         || [[ "$previous_shadow" != true && "$previous_shadow" != false ]]; then
-        # Snapshot truncado o manipulado: la fuente del rice es la salida segura.
+        # Truncated or tampered snapshot: the rice's source is the safe way out.
         hyprctl reload >/dev/null
         unlink "$snapshot"
         return
     fi
     if ! apply_state "$previous_shader" "$previous_animations" "$previous_blur" "$previous_shadow"; then
-        # El shader anterior pudo borrarse mientras el modo estaba activo. Una
-        # recarga es más segura que dejar el modo a medias o bloquear el toggle.
+        # The previous shader may have been deleted while the mode was on. A
+        # reload is safer than leaving the mode half applied or jamming the toggle.
         hyprctl reload >/dev/null
     fi
     unlink "$snapshot"
 }
 
 activate() {
-    [[ -r "$shader" ]] || { printf 'No existe el shader: %s\n' "$shader" >&2; exit 1; }
+    [[ -r "$shader" ]] || { printf "$(tr_ 'No existe el shader: %s\n' 'Shader does not exist: %s\n')" "$shader" >&2; exit 1; }
     is_active && { printf 'on\n'; return; }
 
-    # Un snapshot sin shader activo es resto de una sesion interrumpida. Primero
-    # lo cerramos bien para no apilar estados sobre estados.
+    # A snapshot with no active shader is left over from an interrupted session.
+    # We close it properly first, so as not to stack states on top of states.
     [[ -e "$snapshot" ]] && restore_snapshot
 
     mkdir -p "$state_dir"
@@ -94,8 +96,8 @@ activate() {
     mv "$temp_snapshot" "$snapshot"
 
     if ! apply_state "$shader" false false false; then
-        # Incluso si Hyprland rechaza el shader, vuelve al estado capturado.
-        # Conservar el snapshot hasta restaurar evita dejar efectos a medias.
+        # Even if Hyprland rejects the shader, go back to the captured state.
+        # Keeping the snapshot until the restore avoids half-applied effects.
         restore_snapshot || true
         exit 1
     fi
@@ -120,8 +122,31 @@ case "$mode" in
     status)
         if is_active; then printf 'on\n'; else printf 'off\n'; fi
         ;;
+    reapply)
+        # THE SHADER DOES NOT SURVIVE A `hyprctl reload`, AND IT HAS TO BE PUT BACK.
+        #
+        # All of this is applied through `hyprctl eval`, i.e. ONLY at runtime:
+        # neither hyprland.lua nor efectos.lua mentions screen_shader, so after
+        # a reload the shader is empty again by definition. And set-wallpaper.sh
+        # reloads on EVERY wallpaper change: pressing Super+Shift+W was enough
+        # for reading mode to switch itself off.
+        #
+        # The truth is on disk, not in the shell: if there is a snapshot, the
+        # mode was on when the reload happened. That is why we do NOT snapshot
+        # again here -the existing one already holds the good state from
+        # before- and only the effect is put back. Idempotent: calling it too
+        # often costs nothing.
+        if is_active; then
+            printf 'on\n'
+        elif [[ -e "$snapshot" ]]; then
+            apply_state "$shader" false false false
+            printf 'on\n'
+        else
+            printf 'off\n'
+        fi
+        ;;
     *)
-        printf 'Uso: %s {on|off|toggle|status}\n' "${0##*/}" >&2
+        printf "$(tr_ 'Uso: %s {on|off|toggle|status|reapply}\n' 'Usage: %s {on|off|toggle|status|reapply}\n')" "${0##*/}" >&2
         exit 2
         ;;
 esac

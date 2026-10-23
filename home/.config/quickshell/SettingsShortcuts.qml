@@ -1,20 +1,19 @@
-// SettingsShortcuts.qml — los atajos de teclado, leídos en vivo de
+// SettingsShortcuts.qml — the keyboard shortcuts, read live from
 // ~/.config/hypr/hyprland.conf.
 //
-// POR QUÉ LEERLOS Y NO ESCRIBIRLOS A MANO: una lista escrita aquí se
-// desincroniza el primer día que toques un bind. Esto parsea el fichero de
-// verdad (resolviendo $mainMod) y se recarga solo cuando cambia, así que no
-// puede mentir.
+// WHY READ THEM RATHER THAN WRITE THEM BY HAND: a list written here falls out
+// of sync the first day you touch a bind. This parses the real file
+// (resolving $mainMod) and reloads only when it changes, so it cannot lie.
 //
-// Esta es YA la única lista de atajos: Super+K abría un rofi aparte
-// (~/.config/hypr/list_keybinds.sh) que hacía este mismo parseo del mismo
-// fichero, o sea dos listas que solo coincidían mientras nadie tocara ninguna.
-// Desde 2026-08-19 esa tecla entra directamente aquí (GlobalShortcut
-// "keybinds" en SettingsWindow.qml) y el script se archivó.
+// This is NOW the only list of shortcuts: Super+K used to open a separate rofi
+// (~/.config/hypr/list_keybinds.sh) that did this same parsing of the same
+// file, i.e. two lists that only agreed as long as nobody touched either.
+// Since 2026-08-19 that key comes straight here (GlobalShortcut "keybinds" in
+// SettingsWindow.qml) and the script was archived.
 //
-// De momento es SOLO LECTURA: reasignar teclas implicaría reescribir el .conf
-// con el riesgo de destrozar comentarios y orden, y ese fichero es la fuente de
-// verdad del rice.
+// For now it is READ-ONLY: reassigning keys would mean rewriting the .conf
+// with the risk of mangling comments and order, and that file is the rice's
+// source of truth.
 import Quickshell
 import Quickshell.Io
 import QtQuick
@@ -43,10 +42,10 @@ Flickable {
         onLoaded: root.binds = root.parseConf(text())
     }
 
-    // La lista se construye UNA vez, al leer el fichero: no es un binding.
-    // Como los rótulos de tecla y de dispatcher SÍ están traducidos, al
-    // cambiar de idioma hay que volver a parsear o se quedarían en el
-    // idioma anterior hasta que alguien tocara hyprland.conf.
+    // The list is built ONCE, when the file is read: it is not a binding.
+    // Since the key and dispatcher labels ARE translated, a language change
+    // has to parse again, or they would stay in the previous language until
+    // someone touched hyprland.conf.
     Connections {
         target: I18n
         function onLangChanged() {
@@ -55,7 +54,7 @@ Flickable {
         }
     }
 
-    // ─────────── parseo ───────────
+    // ─────────── parsing ──────────
     function parseConf(txt) {
         if (!txt || txt.length === 0) return [];
         const vars = {};
@@ -83,10 +82,10 @@ Flickable {
 
             out.push({
                 combo: root.comboLabel(mods, key),
-                // El comentario viene del propio hyprland.conf, en castellano, y
-                // se traduce aqui: asi la config de Hyprland -que es de Diego y
-                // esta en castellano a proposito- no hay que tocarla para cambiar
-                // de idioma. La clave del diccionario es el comentario literal.
+                // The comment comes from hyprland.conf itself, in Spanish, and is
+                // translated here: that way the bind comments -the one part of
+                // that file left in Spanish, on purpose- do not have to be touched
+                // to change language. The dictionary key is the literal comment.
                 what: comment.length > 0 ? I18n.tr(comment) : root.dispLabel(disp, args),
                 group: root.groupOf(disp, args)
             });
@@ -168,7 +167,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cShell
-            title: I18n.tr("EL SHELL")
+            title: I18n.tr("El shell")
             Repeater {
                 model: root.ofGroup("shell")
                 onItemAdded: cShell.recount()
@@ -179,7 +178,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cWin
-            title: I18n.tr("VENTANAS")
+            title: I18n.tr("Ventanas")
             Repeater {
                 model: root.ofGroup("win")
                 onItemAdded: cWin.recount()
@@ -190,7 +189,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cWs
-            title: I18n.tr("ESCRITORIOS")
+            title: I18n.tr("Escritorios")
             Repeater {
                 model: root.ofGroup("ws")
                 onItemAdded: cWs.recount()
@@ -201,7 +200,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cApps
-            title: I18n.tr("APPS Y SCRIPTS")
+            title: I18n.tr("Apps y scripts")
             Repeater {
                 model: root.ofGroup("apps")
                 onItemAdded: cApps.recount()
@@ -212,7 +211,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cSys
-            title: I18n.tr("SISTEMA")
+            title: I18n.tr("Sistema")
             Repeater {
                 model: root.ofGroup("sys")
                 onItemAdded: cSys.recount()
@@ -235,7 +234,7 @@ Flickable {
         }
     }
 
-    // ─────────── fila de atajo ───────────
+    // ─────────── shortcut row ────────────
     component KeyRow: Rectangle {
         id: kr
         required property var modelData
@@ -253,7 +252,7 @@ Flickable {
         Layout.preferredHeight: 34
         visible: kr.matches
         radius: Appearance.radS
-        color: krHover.hovered ? Qt.rgba(1, 1, 1, 0.05) : "transparent"
+        color: krHover.hovered ? Colors.fill2 : "transparent"
         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
         HoverHandler {
@@ -272,12 +271,12 @@ Flickable {
                 Layout.preferredWidth: 152
                 Layout.preferredHeight: 22
                 radius: 7
-                color: Qt.rgba(1, 1, 1, 0.07)
+                color: Colors.fill3
                 Text {
                     anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
                     verticalAlignment: Text.AlignVCenter
                     text: kr.modelData.combo
-                    color: "#d6d6d6"
+                    color: Colors.label
                     elide: Text.ElideRight
                     font.family: Appearance.fontUI
                     font.pixelSize: Appearance.fsXS
@@ -287,7 +286,7 @@ Flickable {
             Text {
                 Layout.fillWidth: true
                 text: kr.modelData.what
-                color: "#9a9a9a"
+                color: Colors.label2
                 elide: Text.ElideRight
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsXS

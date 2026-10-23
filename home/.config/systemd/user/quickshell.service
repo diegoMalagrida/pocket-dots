@@ -1,23 +1,23 @@
 [Unit]
-# Quickshell (barra + notch + paneles) supervisado por systemd.
+# Quickshell (bar + notch + panels) supervised by systemd.
 #
-# Antes vivia en 'exec-once = qs' de hyprland.conf, o sea como hijo suelto del
-# compositor: si qs se moria, NADIE lo levantaba y te quedabas sin barra ni
-# notch hasta relanzarlo a mano. Paso de verdad el 2026-08-05 a las 15:37:11
-# (SIGSEGV en el cargador de tipos QML) y de paso solto el nombre D-Bus de las
-# notificaciones, que se llevo swaync para siempre.
+# It used to live in hyprland.conf's 'exec-once = qs', in other words as a loose
+# child of the compositor: if qs died, NOBODY brought it back and you were left
+# without bar or notch until you relaunched it by hand. It really happened on
+# 2026-08-05 at 15:37:11 (SIGSEGV in the QML type loader), and on the way out it
+# dropped the notifications D-Bus name, which swaync then took for good.
 #
-# --no-duplicate hace que un 'qs' lanzado a mano salga solo si ya hay instancia,
-# asi que esta unidad y la costumbre de relanzar desde la terminal conviven sin
-# acabar con dos barras.
-Description=Quickshell: barra, notch y paneles
+# --no-duplicate makes a 'qs' launched by hand exit on its own if an instance
+# is already running, so this unit and the habit of relaunching from the
+# terminal live together without ending up with two bars.
+Description=Quickshell: bar, notch and panels
 Documentation=file:///home/diego/.config/quickshell/README.md
 PartOf=graphical-session.target
 After=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
 
-# Si la config QML esta rota, qs sale al instante: sin este limite systemd
-# reintentaria en bucle cerrado. Cinco intentos en un minuto y se rinde.
+# If the QML config is broken, qs exits instantly: without this limit systemd
+# would retry in a tight loop. Five attempts in a minute and it gives up.
 StartLimitIntervalSec=60
 StartLimitBurst=5
 

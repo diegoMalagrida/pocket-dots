@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# Datos pequenos para hyprlock. No dependen del locale global: la sesion usa
-# LC_TIME=C, mientras que el resto de la interfaz presenta las fechas en espanol.
+# Small bits of data for hyprlock. They do not depend on the global locale: the
+# session uses LC_TIME=C, while the rest of the interface shows dates in Spanish.
 set -uo pipefail
 
-# El idioma sale del mismo language.conf que carga hyprlock, para que la isla
-# y esta linea no puedan acabar hablando idiomas distintos.
+# The language comes from the same language.conf hyprlock loads, so that the
+# island and this line cannot end up speaking different languages.
 . "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/scripts/lang.sh" 2>/dev/null || RICE_LANG="${RICE_LANG:-es}"
 
 case "${1:-}" in
   date)
     if [[ "$RICE_LANG" == en ]]; then
-      # En ingles no hace falta tabla: se le pide a date. Va con LC_ALL=C
-      # EXPLICITO y no confiando en que la sesion tenga LC_TIME=C: si alguien
-      # exporta LC_TIME o LC_ALL en espanol -cosa que pasa- el dia saldria en
-      # castellano con el shell en ingles, y nadie lo notaria hasta ver el
-      # bloqueo. Aqui no se hereda el entorno, se fija.
+      # In English no table is needed: date is asked for it. It runs with an
+      # EXPLICIT LC_ALL=C instead of trusting the session to have LC_TIME=C: if
+      # someone exports LC_TIME or LC_ALL in Spanish -which happens- the day
+      # would come out in Spanish with the shell in English, and nobody would
+      # notice until they saw the lock screen. The environment is not inherited
+      # here, it is pinned.
       printf '%s · %d %s\n' "$(LC_ALL=C date +%A)" "$(date +%-d)" "$(LC_ALL=C date +%B)"
     else
       days=(lunes martes miércoles jueves viernes sábado domingo)

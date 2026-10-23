@@ -1,7 +1,7 @@
-// MediaControls.qml — reproductor flotante (MPRIS) con carátula, progreso y
-// controles. Toggle por GlobalShortcut "media" (bind en hyprland.conf) o
-// `hyprctl dispatch global quickshell:media`. La carátula aporta el acento y
-// pywal queda como fallback cuando el reproductor no publica ninguna.
+// MediaControls.qml — floating player (MPRIS) with cover art, progress and
+// controls. Toggled by the GlobalShortcut "media" (bind in hyprland.conf) or
+// `hyprctl dispatch global quickshell:media`. The cover art supplies the
+// accent, and pywal is the fallback when the player publishes none.
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
@@ -32,7 +32,7 @@ Scope {
 
     PanelWindow {
         id: win
-        // Solo en la pantalla que estas mirando, no siempre en la primera.
+        // Only on the screen you are looking at, not always on the first one.
         screen: ShellState.focusedScreen
         visible: root.open
         color: "transparent"
@@ -41,8 +41,8 @@ Scope {
         implicitHeight: card.implicitHeight + 40
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-        // Sin namespace no hay layerrule posible: es el asa por la que
-        // Hyprland anima ESTA superficie y no todas por igual.
+        // Without a namespace no layerrule is possible: it is the handle by which
+        // Hyprland animates THIS surface rather than all of them alike.
         WlrLayershell.namespace: "quickshell:media"
 
         Item {
@@ -58,7 +58,7 @@ Scope {
                 radius: Appearance.radL
                 color: Colors.bg
                 border.width: 1
-                border.color: Qt.rgba(Colors.fg.r, Colors.fg.g, Colors.fg.b, 0.10)
+                border.color: Colors.hairline
                 property real anim: root.open ? 1 : 0
                 Behavior on anim { NumberAnimation { duration: Appearance.mInScale; easing.type: Easing.OutBack; easing.overshoot: Appearance.mInOvershoot } }
                 opacity: anim
@@ -73,7 +73,7 @@ Scope {
                     anchors { fill: parent; margins: 16 }
                     spacing: 16
 
-                    // ---- carátula ----
+                    // ---- cover art ----
                     Rectangle {
                         Layout.preferredWidth: 116; Layout.preferredHeight: 116
                         radius: Appearance.radM
@@ -83,7 +83,7 @@ Scope {
                             anchors.fill: parent
                             source: (root.player && root.player.trackArtUrl) ? root.player.trackArtUrl : ""
                             fillMode: Image.PreserveAspectCrop
-                            // Decodifica al tamaño de pintado, no al nativo.
+                            // Decode at the painted size, not the native one.
                             sourceSize.width: 116
                             visible: status === Image.Ready
                         }
@@ -105,7 +105,7 @@ Scope {
                         }
                     }
 
-                    // ---- info + progreso + controles ----
+                    // ---- info + progress + controls ----
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 4
@@ -123,18 +123,24 @@ Scope {
                             elide: Text.ElideRight
                         }
                         Item { Layout.fillHeight: true }
-                        // progreso
+                        // progress
                         Rectangle {
                             id: prog
                             Layout.fillWidth: true; height: 6; radius: 3
-                            color: Qt.rgba(Colors.fg.r, Colors.fg.g, Colors.fg.b, 0.15)
+                            color: Colors.fill1
                             visible: root.len > 0
                             Rectangle {
+                                // The fraction, not the width: the rail stretches with the
+                                // panel as it opens, and animating the width puts that
+                                // stretch into the same animation as the song's progress.
+                                // See PokeTeamPanel.
+                                property real p: Math.max(0, Math.min(1, root.len > 0 ? root.pos / root.len : 0))
+                                Behavior on p { NumberAnimation { duration: Appearance.mTick } }
+
                                 height: parent.height; radius: 3
-                                width: parent.width * Math.max(0, Math.min(1, root.len > 0 ? root.pos / root.len : 0))
+                                width: parent.width * p
                                 color: root.accent
                                 Behavior on color { ColorAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
-                                Behavior on width { NumberAnimation { duration: Appearance.mTick } }
                             }
                             MouseArea {
                                 anchors.fill: parent; hoverEnabled: false

@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""poke-battle — an exhibition battle between two members of the team.
+
+Theatre, not an engine: two pokémon come out onto the desktop, each runs to
+its corner, they charge towards the centre, CLASH and bounce off, pull back,
+clash again and the one on the left chases the other to the corner. About
+twenty seconds and everything is back as it was.
+
+The choreography does not live here: it is the CombateIzq and CombateDer
+behaviours that poke-shimeji-pixel injects into every prototype (Frequency 0,
+invocable only). The clash point is the centre of the work area, so neither
+needs to know where the other one is: they reach the same spot at the same
+time by construction. This script only puts the two actors on stage and gives
+them the cue.
+
+    poke-battle                 the leader against another team member at random
+    poke-battle karpo zapdos    these two (nickname or species, either works)
+    poke-battle --quedarse      do not restore the leader at the end
+"""
+from __future__ import annotations
+import argparse, json, os, random, subprocess, sys, time
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+HOME = Path.home()
+ESTADO = HOME / ".config" / "poke-equipo" / "equipo.json"
+MARCA = HOME / ".config" / "poke-equipo" / "pasea-estado"
+FUNCION = HOME / ".config" / "poke-equipo" / "funcion-en-marcha"
+REGISTRO = HOME / ".cache" / "pokepalette" / "shimejis-pixel.json"
+DIR_SHINY = HOME / ".cache" / "pokeshiny"
+
+
+
+def correr(args: list, timeout: int = 20):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def telon(arriba: bool) -> None:
+    """Raises or lowers the curtain: the signal for "show on the desktop".
+
+    During the ~31 s of choreography the two fighters run on timed behaviours
+    and NOBODY ELSE may talk to them. Without this signal, any old notification
+    made poke-mood send a Sobresalto (startle) to one of the two -- it saw
+    pasea-estado written and assumed the critter on screen was the leader --
+    and the next charge came out with that offset: the two reach the centre at
+    the same time by geometry, so moving one is enough for the clash to show
+    up somewhere else. The same with poke-leader-shimeji, which would also have
+    restarted the daemon in the middle of the show.
+
+    It is a file and not a variable because the three are separate processes.
+    Those that read it apply an expiry (180 s) in case this one dies halfway.
+    """
+    if arriba:
+        try:
+            FUNCION.parent.mkdir(parents=True, exist_ok=True)
+            FUNCION.write_text(json.dumps({"que": "combate", "pid": os.getpid(),
+                                           "desde": time.time()}) + "\n")
+        except OSError:
+            pass
+    else:
+        FUNCION.unlink(missing_ok=True)
+
+
+def equipo() -> list[dict]:
+    try:
+        return json.loads(ESTADO.read_text()).get("equipo") or []
+    except (OSError, ValueError):
+        return []
+
+
+def elegir(nombres: list[str]) -> tuple[dict, dict]:
+    eq = equipo()
+    if len(eq) < 2:
+        raise SystemExit(tr("hacen falta al menos dos en el equipo",
+                            "You need at least two Pokémon in the team"))
+    if not nombres:
+        a = eq[0]
+        b = random.choice(eq[1:])
+        return a, b
+    elegidos = []
+    for n in nombres:
+        n = n.lower()
+        # by nickname first (it is the most personal), by number, and failing
+        # that the species has to be resolved against the name registry
+        cand = [m for m in eq if (m.get("mote") or "").lower() == n]
+        if not cand and n.isdigit():
+            cand = [m for m in eq if m["num"] == int(n)]
+        if not cand:
+            mapa = {}
+            tsv = HOME / ".cache" / "pokepalette" / "nombres.tsv"
+            if tsv.exists():
+                for l in tsv.read_text().splitlines():
+                    num, _, nom = l.partition("\t")
+                    if num.isdigit():
+                        mapa[nom.strip().lower()] = int(num)
+            if n in mapa:
+                cand = [m for m in eq if m["num"] == mapa[n]]
+        if not cand:
+            raise SystemExit(tr(f"'{n}' no esta en el equipo", f"'{n}' is not in the team"))
+        elegidos.append(cand[0])
+    if len(elegidos) == 1:
+        otros = [m for m in eq if m is not elegidos[0]]
+        elegidos.append(random.choice(otros))
+    return elegidos[0], elegidos[1]
+
+
+def prototipo_de(miembro: dict) -> str:
+    """The prototype label for this critter, building it if necessary."""
+    try:
+        reg = json.loads(REGISTRO.read_text())
+    except (OSError, ValueError):
+        reg = {}
+    num = miembro["num"]
+    quiere_shiny = bool(miembro.get("shiny")) and (DIR_SHINY / f"{num}.gif").exists()
+    # first, one that already exists with the right finish
+    for etiqueta, n in reg.items():
+        if n == num and ("Shiny" in etiqueta) == quiere_shiny:
+            return etiqueta
+    # build it: a stable name by number so as not to litter the registry
+    etiqueta = f"P{num}{'Shiny' if quiere_shiny else ''}"
+    args = ["poke-shimeji-pixel", str(num), "--nombre", etiqueta]
+    if quiere_shiny:
+        args += ["--gif", str(DIR_SHINY / f"{num}.gif")]
+    r = correr(args, 240)
+    if not r or r.returncode != 0:
+        raise SystemExit(tr(f"no pude fabricar el prototipo de #{num}",
+                            f"Could not build the prototype for #{num}"))
+    return etiqueta
+
+
+
+
+def ids_posibles() -> list[int]:
+    """The mascot ids worth probing.
+
+    The daemon cannot list mascots and their ids do NOT start at zero: each
+    object type lives in its own space, and mascots get 2<<24 (33554432,
+    33554433... checked by probing; environments go in 1<<24). Plain 0 is
+    probed too in case an old version of the daemon numbered them flat.
+    Probing just 0..5 worked for a whole day by chance and broke without
+    warning: "Mascot not found" looked like a vanished critter and was a sum
+    done wrong.
+    """
+    return [b + k for b in (2 << 24, 0) for k in range(8)]
+
+def escenario_limpio():
+    """Leaves the overlay empty and freshly started, ids from zero.
+
+    It is poke-leader-shimeji's recipe: stop socket and service, finish off the
+    process (the only real way to clear it), and start the socket so that the
+    first summon wakes the daemon. With the stage empty, the two summons below
+    get ids 0 and 1 -- which is what makes set-behavior by id reliable,
+    because the daemon cannot list its mascots.
+    """
+    correr(["systemctl", "--user", "stop", "wl_shimeji.socket", "wl_shimeji.service"])
+    correr(["pkill", "-f", "shimeji-overlay" + "d"])
+    time.sleep(0.5)
+    correr(["systemctl", "--user", "start", "wl_shimeji.socket"])
+    time.sleep(0.4)
+
+
+def funcion(pa: str, pb: str) -> None:
+    """The whole show, from putting the actors on stage to the last clash."""
+    escenario_limpio()
+    # --do-not-start on the summons too, which were the last two commands going
+    # without it. Here it does NOT get in the way: escenario_limpio() leaves the
+    # socket started and it is the connection to the socket that wakes the
+    # daemon through systemd activation -- shimejictl only launches an overlayd
+    # of its own when it cannot even connect. And that is exactly the dangerous
+    # window: we have just killed the daemon, so without the flag a summon that
+    # arrives half a second early starts a ~360 MB shimeji-overlayd OUTSIDE
+    # systemd that keeps the socket, and from then on the panel's switch no
+    # longer controls what is on screen. Better for the battle to fail than to
+    # leave that in place.
+    for quien in (pa, pb):
+        r = correr(["shimejictl", "--do-not-start", "summon", quien])
+        # Looking at the exit CODE and not just whether there was a reply: with
+        # --do-not-start a failure is no longer a hang but an "Overlay is not
+        # running" with exit 1, and that used to pass as fine and was found
+        # out four seconds later in the probe. If this blows up, the stage is
+        # left empty: the next read of the team picks it up, since it already
+        # checks that someone is on screen before accepting itself.
+        if not r or r.returncode != 0:
+            raise SystemExit(tr(f"no pude invocar a {quien}", f"Could not summon {quien}"))
+    time.sleep(0.6)
+
+    # The two actors on stage: first find them. With the stage freshly started,
+    # the first two live ids in the probe are them, in summon order -- the
+    # ABSOLUTE numbers depend on the id space (2<<24 after a compositor
+    # restart), so no taking 0 and 1 for granted.
+    vivos = []
+    for i in ids_posibles():
+        # 2026-09-15: it was "Stand", which is NOT a behaviour but an ACTION.
+        # In the prototypes, "Stand" appears 29 times in actions.xml and ZERO
+        # in behaviors.xml; "StandUp" is in both. set-behavior needs a
+        # BEHAVIOUR, so the daemon silently dropped the command and each
+        # critter carried on with whatever it was doing (walking, climbing,
+        # falling) -- exactly the initial offset this phase exists to absorb.
+        # poke-mood already spells it right in its CONDUCTA table.
+        # --do-not-start on ALL behaviour commands: without it, a shimejictl
+        # that finds no daemon starts one of its OWN, outside systemd, which
+        # keeps the socket and 360 MB -- and this phase runs right after
+        # killing the daemon, which is the worst possible window. It is
+        # documented in poke-mood, which already sends them that way.
+        r = correr(["shimejictl", "--do-not-start", "set-behavior", "-i", str(i), "StandUp"])
+        if r and "not found" not in ((r.stdout or "") + (r.stderr or "")):
+            vivos.append(i)
+        if len(vivos) == 2:
+            break
+    if len(vivos) < 2:
+        raise SystemExit(tr("no encontre a los dos luchadores en el escenario",
+                            "Could not find both fighters on stage"))
+
+    def fase(izq: str, der: str, espera: float):
+        """The same command to both AT ONCE, and wait for them to carry it out.
+
+        This is where the fix for the first version lives, which was a single
+        long sequence per critter and drifted out of sync: each one started
+        from wherever it was and that offset dragged the whole show along
+        (they once clashed at x=1420 with the centre at 960). In phases, the
+        wait in the first one absorbs any offset -- both end up PARKED in
+        their corner, facing each other- and from there the distances are
+        mirrored: they reach the centre together because geometry guarantees
+        it.
+        """
+        correr(["shimejictl", "--do-not-start", "set-behavior", "-i", str(vivos[0]), izq])
+        correr(["shimejictl", "--do-not-start", "set-behavior", "-i", str(vivos[1]), der])
+        time.sleep(espera)
+
+    # to the corner (worst case: crossing the whole screen at 8 px/tick, ~9 s)
+    fase("CombateRinconIzq", "CombateRinconDer", 9.5)
+    # first round: charge, clash in the centre and back to the corner (~9 s)
+    fase("CombateAsaltoIzq", "CombateAsaltoDer", 10.0)
+    # the finale: charge, clash, and the one on the left chases the other (~10 s)
+    fase("CombateFinalIzq", "CombateFinalDer", 11.0)
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("luchadores", nargs="*", help=tr("0, 1 o 2 nombres (mote o especie)",
+                                                    "0, 1 or 2 names (nickname or species)"))
+    p.add_argument("--quedarse", action="store_true",
+                   help=tr("dejar a los dos en pantalla al acabar, sin restaurar",
+                           "leave both on screen afterwards, without restoring the leader"))
+    args = p.parse_args()
+
+    a, b = elegir(args.luchadores)
+    pa, pb = prototipo_de(a), prototipo_de(b)
+    print(tr(f"{a.get('mote') or pa} contra {b.get('mote') or pb}",
+             f"{a.get('mote') or pa} against {b.get('mote') or pb}"))
+
+    # The curtain goes up AFTER building (that is up to 240 s per critter and
+    # there is still nothing on stage then) and comes down whatever happens,
+    # also if the show blows up halfway: a curtain left up keeps poke-mood
+    # mute and poke-leader-shimeji still until it expires.
+    telon(True)
+    try:
+        funcion(pa, pb)
+    finally:
+        telon(False)
+
+    if args.quedarse:
+        return 0
+
+    # tidy up: clean stage again and the leader back if it is due a walk.
+    # The curtain is already down on purpose: poke-leader-shimeji leaves
+    # empty-handed if it sees it up, and right now is exactly when it has to
+    # work.
+    escenario_limpio()
+    try:
+        MARCA.unlink(missing_ok=True)
+    except OSError:
+        pass
+    correr(["poke-leader-shimeji"], 300)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

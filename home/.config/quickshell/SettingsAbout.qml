@@ -1,10 +1,10 @@
-// SettingsAbout.qml — información del sistema. Una sola pasada de shell, no un
-// poll: esto no cambia mientras miras la ventana (salvo el uptime, que se
-// refresca al volver a entrar en la sección).
+// SettingsAbout.qml — system information. A single shell pass, not a poll:
+// none of this changes while you look at the window (except the uptime, which
+// refreshes when you come back into the section).
 //
-// Cada dato lleva su valor también como `hint`, así que si el texto no cabe en
-// la fila (el nombre del procesador, por ejemplo) sale entero en la franja del
-// pie al pasar por encima.
+// Every item also carries its value as `hint`, so if the text does not fit in
+// the row (the processor name, for example) it appears in full in the footer
+// strip when you hover over it.
 import Quickshell
 import Quickshell.Io
 import QtQuick
@@ -45,6 +45,7 @@ Flickable {
                                           else if(h>0) printf "%d h %d min", h, m;
                                           else printf "%d min", m}' /proc/uptime)"
             printf 'pkgs\\t%s\\n'   "$(pacman -Qq 2>/dev/null | wc -l) ${I18n.tr("paquetes")}"
+            [ -r "$HOME/.config/motion-language.md" ] && printf 'motion\\t1\\n'
         `]
         stdout: SplitParser {
             onRead: function (line) {
@@ -80,7 +81,7 @@ Flickable {
         y: 16
         spacing: 10
 
-        // ─────────────────── cabecera con el logo ───────────────────
+        // ─────────────────── header with the logo ───────────────────
         RowLayout {
             Layout.fillWidth: true
             Layout.bottomMargin: 4
@@ -97,14 +98,14 @@ Flickable {
                 spacing: 2
                 Text {
                     text: root.info["distro"] || "Arch Linux"
-                    color: "#ffffff"
+                    color: Colors.label
                     font.family: Appearance.fontUI
                     font.pixelSize: 17
                     font.weight: Font.DemiBold
                 }
                 Text {
                     text: root.info["wm"] || ""
-                    color: "#8a8a8a"
+                    color: Colors.label2
                     font.family: Appearance.fontUI
                     font.pixelSize: Appearance.fsS
                 }
@@ -113,7 +114,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cSw
-            title: I18n.tr("SOFTWARE")
+            title: I18n.tr("Software")
             Repeater {
                 model: root.sw
                 onItemAdded: cSw.recount()
@@ -128,7 +129,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cHw
-            title: I18n.tr("EQUIPO")
+            title: I18n.tr("Hardware")
             Repeater {
                 model: root.hw
                 onItemAdded: cHw.recount()
@@ -143,7 +144,7 @@ Flickable {
 
         SettingsControls.Card_ {
             id: cRice
-            title: I18n.tr("ESTE RICE")
+            title: I18n.tr("Este rice")
 
             SettingsControls.Row_ {
                 label: I18n.tr("Ajustes guardados en")
@@ -156,6 +157,14 @@ Flickable {
                 SettingsControls.Val_ { text: "~/.config/quickshell/" }
             }
             SettingsControls.Row_ {
+                // ONLY IF THE FILE IS REALLY THERE.
+                //
+                // The motion spec is a working notebook, not configuration,
+                // so it is not versioned. On a freshly cloned install it does
+                // not exist, and showing the path anyway would send the user to
+                // an empty place from the one screen of the desktop that exists
+                // to tell them where things are.
+                shown: root.info["motion"] === "1"
                 label: I18n.tr("Lenguaje de movimiento")
                 hint: I18n.tr("La spec de duraciones, curvas y forma que siguen Hyprland y Quickshell.")
                 SettingsControls.Val_ { text: "~/.config/motion-language.md" }

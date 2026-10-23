@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""poke-evolutions — stores locally who evolves into whom and at what level.
+
+The notch's pokemon team uses it to make the critters evolve as they level up
+with your commits. It runs ONCE: there are 541 chains and from then on
+everything comes out of ~/.cache/pokepalette/evoluciones.json.
+
+    poke-evolutions            downloads whatever is missing
+    poke-evolutions --force    rebuilds it from scratch
+
+File format: {"4": [{"a": 5, "nivel": 16, "como": "nivel"}], ...}
+that is, pokemon number -> LIST of possible evolutions, each one with what it
+evolves into, at what level and why. It is a list because there are branches:
+Eevee has eight, Tyrogue three.
+
+EVOLUTIONS THAT ARE NOT BY LEVEL GO IN TOO, with a made-up level. Eevee evolves
+by stone, Golem by trade, Umbreon by friendship at night... and none of that
+exists here: if only the 'level-up' ones were stored, half the pokedex would
+never evolve and the team would be dull. They are given NIVEL_INVENTADO and it
+is noted in 'como' so that the interface can tell the truth ("evoluciona con
+Piedra Fuego", i.e. evolves with a Fire Stone) instead of pretending it levels
+up.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+CACHE = Path.home() / ".cache" / "pokepalette"
+DESTINO = CACHE / "evoluciones.json"
+NOMBRES = CACHE / "nombres.tsv"
+API = "https://pokeapi.co/api/v2"
+NIVEL_INVENTADO = 30     # for the ones that do not go by level in the game
+HILOS = 8                # enough not to be slow and not to hammer the API
+
+
+def pedir(url: str) -> dict:
+    pet = urllib.request.Request(url, headers={"User-Agent": "poke-evolutions/1.0"})
+    with urllib.request.urlopen(pet, timeout=30) as r:
+        return json.load(r)
+
+
+def leer_nombres() -> dict[str, int]:
+    """name -> number. Without this the chain cannot be translated, since it
+    comes with species names and not with numbers."""
+    if not NOMBRES.exists():
+        datos = pedir(f"{API}/pokemon?limit=1025")
+        CACHE.mkdir(parents=True, exist_ok=True)
+        filas = []
+        for fila in datos.get("results", []):
+            num = int(fila["url"].rstrip("/").rsplit("/", 1)[-1])
+            filas.append(f"{num}\t{fila['name']}\n")
+        NOMBRES.write_text("".join(filas))
+    fuera = {}
+    for linea in NOMBRES.read_text().splitlines():
+        num, _, nom = linea.partition("\t")
+        if num.isdigit() and nom:
+            fuera[nom] = int(num)
+    return fuera
+
+
+def recorrer(nodo: dict, por_nombre: dict[str, int], fuera: dict[int, list]) -> None:
+    """Walks down the chain noting each jump: who it leaves, who it becomes."""
+    origen = por_nombre.get(nodo["species"]["name"])
+    for hijo in nodo.get("evolves_to", []):
+        destino = por_nombre.get(hijo["species"]["name"])
+        detalles = hijo.get("evolution_details") or [{}]
+        d = detalles[0]
+        disparador = (d.get("trigger") or {}).get("name", "")
+        nivel = d.get("min_level")
+        if origen and destino:
+            # the reason in plain words, so the interface can explain it
+            if nivel:
+                como = "nivel"
+            elif disparador == "use-item":
+                como = (d.get("item") or {}).get("name", "objeto")
+            elif disparador == "trade":
+                como = "intercambio"
+            else:
+                como = disparador or "otro"
+            # A LIST, not a single target: Eevee has eight evolutions,
+            # Tyrogue three, Wurmple two. Storing only the last one processed,
+            # Eevee always ended up evolving into Sylveon and the other seven
+            # were lost.
+            fuera.setdefault(origen, []).append(
+                {"a": destino, "nivel": int(nivel or NIVEL_INVENTADO), "como": como})
+        recorrer(hijo, por_nombre, fuera)
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--force", action="store_true", help=tr("rehace el fichero entero",
+                                                           "rebuild the whole file"))
+    p.add_argument("-q", "--quiet", action="store_true")
+    args = p.parse_args()
+
+    if DESTINO.exists() and not args.force:
+        ya = json.loads(DESTINO.read_text())
+        print(tr(f"ya estaba: {len(ya)} evoluciones en {DESTINO}",
+                 f"Already present: {len(ya)} evolutions in {DESTINO}"))
+        return 0
+
+    por_nombre = leer_nombres()
+    total = pedir(f"{API}/evolution-chain?limit=1")["count"]
+
+    fuera: dict[int, list] = {}
+    fallos = 0
+
+    def una(i: int):
+        try:
+            return pedir(f"{API}/evolution-chain/{i}")
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=HILOS) as pool:
+        for n, cadena in enumerate(pool.map(una, range(1, total + 1)), 1):
+            if cadena is None:
+                fallos += 1
+                continue
+            recorrer(cadena["chain"], por_nombre, fuera)
+            if not args.quiet and n % 100 == 0:
+                print(f"  {n}/{total}", file=sys.stderr)
+
+    CACHE.mkdir(parents=True, exist_ok=True)
+    tmp = DESTINO.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({str(k): v for k, v in sorted(fuera.items())},
+                              ensure_ascii=False, indent=0))
+    tmp.replace(DESTINO)
+    ramas = sum(len(v) for v in fuera.values())
+    por_nivel = sum(1 for v in fuera.values() for e in v if e["como"] == "nivel")
+    print(tr(f"{len(fuera)} pokemon evolucionan, {ramas} ramas en total "
+             f"({por_nivel} por nivel, {ramas - por_nivel} por otra cosa); "
+             f"{fallos} cadenas ilegibles -> {DESTINO}",
+             f"{len(fuera)} Pokémon evolve, {ramas} branches in total "
+             f"({por_nivel} by level, {ramas - por_nivel} by other means); "
+             f"{fallos} unreadable chains -> {DESTINO}"))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(1)

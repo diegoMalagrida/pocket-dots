@@ -1,6 +1,6 @@
-// NotchSlider.qml — slider compacto (icono + barra + %) para el panel del notch.
-// Colores fijos oscuros porque vive dentro del negro del notch; el relleno usa
-// el acento de pywal que le pases.
+// NotchSlider.qml — compact slider (icon + bar + %) for the notch panel.
+// The ink and the rail come from the Colors tokens, so they are re-themed by
+// pywal like everything else; the fill uses whatever accent you pass it.
 import QtQuick
 import QtQuick.Layouts
 
@@ -8,15 +8,15 @@ RowLayout {
     id: root
     property string icon: ""
     property real value: 0          // 0..100
-    property color accent: "#61afef"
+    property color accent: Colors.accent
     signal moved(real v)
     signal iconClicked()
 
-    // Se anima el VALOR, no el ancho. El ancho es derivado (carril x fracción):
-    // si lo animas, cualquier cambio de tamaño del contenedor —el notch
-    // expandiéndose al abrir el panel— hace que la barra persiga al carril con
-    // retraso y se vea un rebote raro. Animando el valor, redimensionar es
-    // instantáneo y solo se anima un cambio real de volumen o brillo.
+    // The VALUE is animated, not the width. The width is derived (track x
+    // fraction): if you animate it, any change in the container's size —the
+    // notch expanding as the panel opens— makes the bar chase the track with a
+    // lag and you see an odd bounce. Animating the value, resizing is instant
+    // and only a real change of volume or brightness gets animated.
     property real shown: root.value
     Behavior on shown {
         enabled: !drag.pressed
@@ -27,7 +27,7 @@ RowLayout {
 
     Text {
         text: root.icon
-        color: iconMouse.containsMouse ? root.accent : "#ffffff"
+        color: iconMouse.containsMouse ? root.accent : Colors.label
         font.family: Appearance.font
         font.pixelSize: Appearance.fsM
         Layout.preferredWidth: 18
@@ -46,7 +46,7 @@ RowLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: 6
         radius: 3
-        color: "#242424"
+        color: Colors.fill3
 
         Rectangle {
             id: fill
@@ -58,7 +58,7 @@ RowLayout {
 
         Rectangle {
             width: 11; height: 11; radius: 6
-            color: "#ffffff"
+            color: Colors.label
             x: Math.max(0, Math.min(track.width - width, fill.width - width / 2))
             anchors.verticalCenter: parent.verticalCenter
             opacity: drag.containsMouse || drag.pressed ? 1 : 0
@@ -82,10 +82,10 @@ RowLayout {
 
     Text {
         text: Math.round(root.shown) + "%"
-        color: "#888888"
+        color: Colors.label3
         Layout.preferredWidth: 34
         horizontalAlignment: Text.AlignRight
         font.family: Appearance.font
-        font.pixelSize: 10
+        font.pixelSize: Appearance.fsXXS
     }
 }

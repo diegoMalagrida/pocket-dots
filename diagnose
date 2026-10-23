@@ -35,6 +35,63 @@ bad()     { printf '  %sBAD %s %s\n' "$C_BAD" "$C_OFF" "$*"; FAILURES=$((FAILURE
 eye()     { printf '  %sHUH %s %s\n' "$C_WARN" "$C_OFF" "$*"; WARNINGS=$((WARNINGS+1)); }
 note()    { printf '      %s%s%s\n' "$C_DIM" "$*" "$C_OFF"; }
 
+# The digest manifest install.sh leaves behind: the sha256 of every file the
+# repo and $HOME were last seen to AGREE on. Same path as over there, and
+# spelled out from $HOME for the same reason: $XDG_STATE_HOME can point
+# somewhere else, and a test run must not read another run's manifest.
+DIGESTS="$HOME/.local/state/dotfiles/digests"
+
+# sha256 of a file, or nothing at all if it cannot be read.
+sum_of() { local s; s="$(sha256sum -- "$1" 2>/dev/null)"; printf '%s' "${s%% *}"; }
+
+# The lines of a config file that actually DO something: no comments, no blanks.
+#
+# WHAT THIS IS NOT FOR, because getting it wrong is how a report starts lying:
+# it never decides whether two files are EQUAL. Equal means byte for byte here,
+# which is what install.sh means by it too -- phase_system and phase_config both
+# decide with `cmp -s` -- so that nothing in this report can call a file settled
+# while the installer still has it on its list to rewrite. This only GRADES a
+# difference that has already been found: same meaning, different bytes means
+# the comments moved and no setting did.
+meaningful() { grep -vE '^[[:space:]]*(#|$)' -- "$1" 2>/dev/null; }
+
+# Where else the settings of a repo drop-in could already be living: the file
+# that the .d directory extends, and the drop-ins already sitting next to it.
+# Printed as one path per line; only paths that exist are printed.
+etc_family() {
+    local dir="${1%/*}" parent
+    # logind.conf.d -> logind.conf, oomd.conf.d -> oomd.conf, and so on.
+    case "$dir" in
+        *.d) [ -f "/etc/${dir%.d}" ] && printf '/etc/%s\n' "${dir%.d}" ;;
+    esac
+    # NetworkManager's own shape: <name>/conf.d extends <name>/<name>.conf.
+    case "$dir" in
+        */conf.d)
+            parent="${dir%/conf.d}"
+            [ -f "/etc/$parent/${parent##*/}.conf" ] \
+                && printf '/etc/%s/%s.conf\n' "$parent" "${parent##*/}"
+            ;;
+    esac
+    [ -d "/etc/$dir" ] && find "/etc/$dir" -maxdepth 1 -type f 2>/dev/null
+    return 0
+}
+
+# True when every line of $1 that does something is already there, word for word
+# and not commented out, in one of the files named after it. A key set to a
+# DIFFERENT value does not match, which is the point: that is a real absence.
+settings_live() {
+    local src="$1" pool line any=0
+    shift
+    [ "$#" -gt 0 ] || return 1
+    pool="$(cat -- "$@" 2>/dev/null | grep -vE '^[[:space:]]*(#|$)')"
+    [ -n "$pool" ] || return 1
+    while IFS= read -r line; do
+        any=1
+        printf '%s\n' "$pool" | grep -qxF -- "$line" || return 1
+    done < <(meaningful "$src")
+    [ "$any" = 1 ]
+}
+
 # --------------------------------------------------------------- the basics
 
 heading "System"
@@ -679,6 +736,228 @@ done
 note "of ~/.config: $linked entries linked to the repo, $own standalone copies"
 if [ "$linked" -eq 0 ] && [ "$own" -gt 0 ]; then
     eye "nothing is linked: either you installed with --copy, or the repo is not deployed"
+fi
+
+# --- has the desktop drifted away from the repo? ---
+#
+# Only worth asking in copy mode: a symlink cannot disagree with its target.
+# And it is worth asking, because the answer was 28 files on 2026-09-12 and
+# nothing was saying so. Two of those were the GitHub panel, which lived only
+# on the desktop and would have been lost by a reinstall, and one was
+# ~/.zprofile, the rescue path out of a dead login, which lived only in the
+# repo and so was not actually protecting anything.
+#
+# Drift goes BOTH ways and both are bad: what is only on the disk is one
+# reinstall away from gone, and what is only in the repo is a fix you believe
+# you have and do not.
+#
+# EXPECTED lists the files that are supposed to disagree, so that the ones
+# that are not supposed to stand out. They are of two kinds: yours and not
+# the rice's (the git identity, your own settings, your XDG folders), and
+# rewritten by pywal on every wallpaper change -- for those the repo copy is
+# the seed a fresh install starts from, never a picture of this machine.
+if [ "$own" -gt 0 ] && [ -d "$REPO/home" ]; then
+    EXPECTED=".gitconfig .config/quickshell-rice.json .config/mimeapps.list
+              .config/user-dirs.dirs .config/kdeglobals .config/gtk-3.0/gtk.css
+              .config/gtk-4.0/gtk.css .config/qt5ct/colors/pywal.conf
+              .config/qt6ct/colors/pywal.conf
+              .config/spicetify/Themes/termspot/color.ini
+              .config/spicetify/Themes/text/color.ini
+              .config/gtk-3.0/settings.ini .config/gtk-4.0/settings.ini
+              .gtkrc-2.0 .config/qt5ct/qt5ct.conf .config/qt6ct/qt6ct.conf"
+    # The last five are new (2026-09-12): gtk-pywal.sh writes the theme NAME
+    # into them, and that name carries the hash of the day's palette
+    # (pywal-gtk-<hash>, pywal-folders-<hash>). So they diverge from the repo by
+    # design: the repo holds the generic names, and the machine the one for
+    # whatever wallpaper is on right now. The two Qt .conf files are there for
+    # the same reason: qt-pywal.py copies the icon_theme into them, so Qt
+    # applications also come out with the tinted folders.
+    #
+    # Unquoted on purpose: it collapses the line breaks and the indentation
+    # above into a single space. With quotes, the `case` below only recognised
+    # the entries on the first line and the rest came out as drift.
+    EXPECTED=$(echo $EXPECTED)
+    # WHO MOVED, and not just "these differ". Knowing that 15 files disagree is
+    # not actionable: you still have to read 15 diffs and remember which side
+    # you touched last. install.sh writes down the digest of what the two sides
+    # last AGREED on, which makes this a three-way comparison and lets the
+    # answer be a direction instead of a shrug.
+    #
+    # "Differ" still means byte for byte, exactly as it did before and exactly
+    # as install.sh means it. The manifest only ever explains a difference that
+    # cmp already found; it can never talk one away.
+    declare -A AGREED=()
+    if [ -f "$DIGESTS" ]; then
+        while IFS= read -r line; do
+            msum="${line%% *}"; mrel="${line#* }"; mrel="${mrel# }"
+            [ ${#msum} -eq 64 ] && [ -n "$mrel" ] && AGREED["$mrel"]="$msum"
+        done < "$DIGESTS"
+    fi
+
+    absent=0; ahead_disk=0; ahead_repo=0; clash=0; unknown=0
+    first_absent=""; first_disk=""; first_repo=""; first_clash=""; first_unknown=""
+    while IFS= read -r f; do
+        rel="${f#"$REPO"/home/}"
+        case " $EXPECTED " in *" $rel "*) continue ;; esac
+        if [ ! -e "$HOME/$rel" ]; then
+            absent=$((absent+1)); [ -z "$first_absent" ] && first_absent="$rel"
+            continue
+        fi
+        # Identical is the common case, the cheap one, and the one the manifest
+        # could most easily get wrong: when diego edits ~/.config and copies it
+        # INTO the repo by hand, the two sides match and nothing is asked --
+        # manifest or no manifest, up to date or stale.
+        cmp -s "$f" "$HOME/$rel" && continue
+        base="${AGREED[$rel]:-}"
+        rsum="$(sum_of "$f")"; dsum="$(sum_of "$HOME/$rel")"
+        if [ -z "$base" ] || [ -z "$rsum" ] || [ -z "$dsum" ]; then
+            unknown=$((unknown+1)); [ -z "$first_unknown" ] && first_unknown="$rel"
+        elif [ "$rsum" = "$base" ]; then
+            ahead_disk=$((ahead_disk+1)); [ -z "$first_disk" ] && first_disk="$rel"
+        elif [ "$dsum" = "$base" ]; then
+            ahead_repo=$((ahead_repo+1)); [ -z "$first_repo" ] && first_repo="$rel"
+        else
+            clash=$((clash+1)); [ -z "$first_clash" ] && first_clash="$rel"
+        fi
+    done < <(find "$REPO/home" -type f 2>/dev/null)
+
+    if [ "$absent" -gt 0 ]; then
+        eye "$absent file(s) in the repo never reached \$HOME (e.g. $first_absent)"
+        note "  a fix that is only in the repo is not protecting this machine"
+    fi
+    if [ "$ahead_disk" -gt 0 ]; then
+        eye "$ahead_disk file(s) changed on the DESKTOP only (e.g. $first_disk)"
+        note "  the desktop is ahead. Copy them into $REPO/home/, then:"
+        note "    ./install.sh digests"
+    fi
+    if [ "$ahead_repo" -gt 0 ]; then
+        eye "$ahead_repo file(s) changed in the REPO only (e.g. $first_repo)"
+        note "  the repo is ahead. One file at a time, which is what you want"
+        note "  here -- './install.sh --copy config' would lay down all of them:"
+        note "    cp $REPO/home/$first_repo \$HOME/$first_repo && ./install.sh digests"
+    fi
+    if [ "$clash" -gt 0 ]; then
+        eye "$clash file(s) changed on BOTH sides (e.g. $first_clash)"
+        note "  the only real conflict: read both before overwriting either"
+        note "    diff $REPO/home/$first_clash \$HOME/$first_clash"
+    fi
+    if [ "$unknown" -gt 0 ]; then
+        eye "$unknown file(s) differ and nothing says which side moved (e.g. $first_unknown)"
+        if ! command -v sha256sum >/dev/null 2>&1; then
+            note "  there is no sha256sum on this machine, so no manifest can be"
+            note "  read or written: install coreutils and the question goes away"
+        elif [ -f "$DIGESTS" ]; then
+            note "  no digest on record for these: settle them, then ./install.sh digests"
+        else
+            note "  there is no manifest yet (${DIGESTS/#$HOME/\~}): settle these by"
+            note "  hand once and run  ./install.sh digests  -- from then on this"
+            note "  section names the side that moved instead of asking you"
+        fi
+        note "  run:  diff -ru --brief $REPO/home \$HOME 2>/dev/null | grep -v '^Only in \$HOME'"
+    fi
+    [ "$absent" -eq 0 ] && [ $((ahead_disk + ahead_repo + clash + unknown)) -eq 0 ] \
+        && good "the repo and \$HOME agree, bar the files expected to differ"
+fi
+
+# --- and has /etc drifted away from the repo? ---
+#
+# system/etc is the half of the rice that does NOT live in $HOME: the firewall,
+# zram, the login drop-in, the logind keys. Nothing keeps it in step -- the
+# 'system' phase runs once, and a package update drops a .pacnew straight on top
+# -- so it is the easiest part of the repo to be wrong about, and until now
+# nothing looked at it at all.
+#
+# ONE DEFINITION OF "THE SAME", AND IT IS BYTES. install.sh decides with
+# `cmp -s` and rewrites anything that is not identical, so that is what this
+# section has to mean by it too. A report that says "/etc says what the repo
+# says" about a file the installer is about to overwrite is worse than no
+# report at all. Measured here on 2026-09-25: 8 of the 10 files differ byte for
+# byte and in every one of the 8 the difference is comments -- stock Arch files
+# with our lines edited in, around vendor comment blocks that an update rewrites.
+#
+# So bytes decide, and the comments only decide how LOUDLY to say it: a
+# difference that no setting shares is reported quietly, as work the installer
+# will do, and never as agreement. Nothing here is ever called equal that
+# install.sh would rewrite.
+#
+# (`diff -I '^#'` would be the obvious way to spot the quiet ones and it is not
+# enough: -I only drops a hunk when EVERY changed line in it matches, so a blank
+# line inside a comment block, or a real line that merely MOVED between two
+# comment blocks -- --protocol in reflector.conf -- drags the whole hunk back in.
+# Both happen here. Comparing the meaningful lines has no such edge.)
+heading "System files (/etc)"
+
+if [ ! -d "$REPO/system/etc" ]; then
+    note "the repo has no system/etc: nothing to compare"
+else
+    etc_absent=0; etc_elsewhere=0; etc_drift=0; etc_quiet=0; etc_blind=0
+    first_etc_absent=""; first_etc_elsewhere=""
+    first_etc_drift=""; first_etc_quiet=""
+    while IFS= read -r src; do
+        rel="${src#"$REPO"/system/etc/}"
+        dest="/etc/$rel"
+        if [ ! -e "$dest" ]; then
+            # No file of that NAME. Before calling the machine unconfigured,
+            # look at where else those lines could be living: a drop-in says
+            # nothing about whether its keys are in force, and both of the repo
+            # files in this state today have theirs in the main file next door.
+            mapfile -t fam < <(etc_family "$rel")
+            if [ "${#fam[@]}" -gt 0 ] && settings_live "$src" "${fam[@]}"; then
+                etc_elsewhere=$((etc_elsewhere+1))
+                [ -z "$first_etc_elsewhere" ] && first_etc_elsewhere="$rel"
+            else
+                etc_absent=$((etc_absent+1))
+                [ -z "$first_etc_absent" ] && first_etc_absent="$rel"
+            fi
+        elif [ ! -r "$dest" ]; then
+            # Read-only tool, so no sudo is asked for: it says what it could not
+            # see instead of prompting for a password in the middle of a report.
+            etc_blind=$((etc_blind+1))
+        elif ! cmp -s "$src" "$dest"; then
+            if [ "$(meaningful "$src")" = "$(meaningful "$dest")" ]; then
+                etc_quiet=$((etc_quiet+1))
+                [ -z "$first_etc_quiet" ] && first_etc_quiet="$rel"
+            else
+                etc_drift=$((etc_drift+1))
+                [ -z "$first_etc_drift" ] && first_etc_drift="$rel"
+            fi
+        fi
+    done < <(find "$REPO/system/etc" -type f 2>/dev/null | sort)
+
+    if [ "$etc_absent" -gt 0 ]; then
+        eye "$etc_absent file(s) of system/etc are missing from /etc (e.g. $first_etc_absent)"
+        note "  and their settings are nowhere else either, so this machine is"
+        note "  really not configured the way the repo believes"
+        note "  ./install.sh system puts them there, but read it first:"
+        note "    ./install.sh -n system"
+        note "  that phase walks the WHOLE of system/etc and rewrites every file"
+        note "  that is not byte for byte the repo's -- the SDDM, logind and"
+        note "  pam.d files included. What it overwrites is kept as"
+        note "  .before-dotfiles; what it creates from nothing is not, and comes"
+        note "  back off by hand with rm."
+    fi
+    if [ "$etc_elsewhere" -gt 0 ]; then
+        note "$etc_elsewhere drop-in(s) of system/etc have no file of their own under /etc,"
+        note "  but every line they carry is already in force from the file next"
+        note "  door (e.g. $first_etc_elsewhere). Nothing is missing here: the repo"
+        note "  spells as a drop-in what this machine got by editing the main file."
+    fi
+    if [ "$etc_drift" -gt 0 ]; then
+        eye "$etc_drift file(s) in /etc no longer say what the repo says (e.g. $first_etc_drift)"
+        note "  a setting moved, not a comment"
+        note "  look:  diff $REPO/system/etc/$first_etc_drift /etc/$first_etc_drift"
+        note "  a .pacnew landing on an update is the usual cause"
+    fi
+    if [ "$etc_quiet" -gt 0 ]; then
+        note "$etc_quiet file(s) under /etc differ from the repo in comments only"
+        note "  (e.g. $first_etc_quiet). No setting moved -- but ./install.sh system"
+        note "  compares bytes, the same as this does, so it would still rewrite"
+        note "  them. To settle one:  cp /etc/FILE $REPO/system/etc/FILE"
+    fi
+    [ "$etc_blind" -gt 0 ] \
+        && note "$etc_blind file(s) under /etc need root to read and were not compared"
+    [ "$etc_absent" -eq 0 ] && [ "$etc_drift" -eq 0 ] && [ "$etc_quiet" -eq 0 ] \
+        && good "/etc is byte for byte what the repo says"
 fi
 
 # --------------------------------------------------------------- summary

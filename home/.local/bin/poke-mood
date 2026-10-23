@@ -1,0 +1,339 @@
+#!/usr/bin/env python3
+"""poke-mood — the desktop pokémon reacts to the machine.
+
+It draws nothing: it translates real signals into shimeji behaviours through
+wl_shimeji's socket, with 'shimejictl set-behavior'. Three signals, three
+reactions:
+
+    low battery (<=20% and discharging) ->  lies down, exhausted
+    CPU running hot (>=85% two samples) ->  runs, nervous
+    incoming notification               ->  Sobresalto (startle): jumps and looks at you
+
+The first two are STATES: they are sent when the threshold is crossed and
+REPEATED every 60 s while the cause lasts, never on every sample, or the
+creature could not live its life. The reminder is needed because shimeji
+behaviours are single-use (LieDown lasts 20 to 60 s): without it, crossing 20%
+battery meant half a minute lying down and then back to normal life with the
+battery dying. The third is an EVENT with its own cool-down: at most one jump
+every 45 s, so a burst of notifications does not turn it into popcorn.
+
+It keeps still (the program, not the creature) when there is nothing to do:
+if walking is switched off in the team, if there is no creature on screen, if
+a show is running (the battle) or if there is no battery to watch (the tower),
+each signal skips itself without breaking the others.
+
+    poke-mood                  the daemon (started by systemd --user)
+    poke-mood --probar X       forces a reaction so you can see it: sobresalto,
+                                agotado, nervioso, normal
+"""
+from __future__ import annotations
+import json, os, subprocess, sys, time
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+HOME = Path.home()
+ESTADO = HOME / ".config" / "poke-equipo" / "equipo.json"
+MARCA = HOME / ".config" / "poke-equipo" / "pasea-estado"
+FUNCION = HOME / ".config" / "poke-equipo" / "funcion-en-marcha"
+
+MUESTREO = 5          # seconds between looks at battery and CPU
+CPU_ROJO = 85         # % usage that counts as "running hot"
+BAT_BAJA = 20         # % battery that counts as exhausted
+CALMA_SOBRESALTO = 45 # minimum seconds between notification jumps
+REFUERZO = 60         # seconds between reminders while the mood lasts
+FUNCION_TTL = 180     # seconds the battle signal stays valid (it lasts ~31 s)
+ATERRIZAR = 0.6       # seconds between the StandUp and the real behaviour
+
+# The moods that are HELD while the cause lasts. Shimeji behaviours are
+# single-use -- LieDown lasts 20 to 60 s and then the creature goes back to its
+# life -- so a mood that is only sent when the threshold is crossed evaporates:
+# at 20% battery it lay down for half a minute and then carried on with normal
+# life while the battery died. They are repeated every REFUERZO seconds until
+# the cause passes.
+PERSISTENTES = ("agotado", "nervioso")
+
+# Which behaviour each mood asks for. The names are real behaviors from the
+# prototypes: Sobresalto is injected by poke-shimeji-pixel (Frequency 0, only
+# invocable); the rest come from the usual template.
+CONDUCTA = {
+    "sobresalto": "Sobresalto",
+    "agotado":    "LieDown",
+    "nervioso":   "RunAlongWorkAreaFloor",
+    "normal":     "StandUp",
+}
+
+
+def funcion_en_marcha() -> bool:
+    """A show is running on the desktop and the mood has no business there.
+
+    During the ~31 s of poke-battle's battle the two fighters follow timed
+    behaviours (to the corner, charge, clash) and geometry is the only thing
+    keeping them in sync. A Sobresalto for some random notification pulls ONE
+    of the two out of place and the whole choreography falls apart -- they
+    once clashed at x=1420 with the centre at 960 because of a drift like that.
+
+    The signal expires by itself: if poke-battle dies halfway, the file stays
+    behind, and with no cap the creature would stay mute for the rest of the
+    session. 180 s is almost six times the length of the show.
+    """
+    try:
+        d = json.loads(FUNCION.read_text())
+    except (OSError, ValueError):
+        return False
+    return time.time() - float(d.get("desde") or 0) < FUNCION_TTL
+
+
+def hay_bicho() -> bool:
+    """Whether there is a pokémon out walking to tell something to.
+
+    The truth lives in three places and all three are needed: the team's
+    'pasear' flag (the intent), a non-empty pasea-estado (poke-leader-shimeji
+    really did bring it out) and no show running (the ones in the show are not
+    the leader and are not interrupted).
+    """
+    if funcion_en_marcha():
+        return False
+    try:
+        if not json.loads(ESTADO.read_text()).get("pasear", True):
+            return False
+    except (OSError, ValueError):
+        return False
+    try:
+        return bool(MARCA.read_text().strip())
+    except OSError:
+        return False
+
+
+
+
+def ids_posibles() -> list[int]:
+    """The mascot ids worth probing.
+
+    The daemon cannot list mascots and their ids do NOT start at zero: each
+    object type lives in its own space, and mascots get 2<<24 (33554432,
+    33554433... checked by probing; environments live at 1<<24). Plain 0 is
+    probed too in case an old daemon version numbered flat. Probing plain 0..5
+    worked for a whole day by chance and broke without warning: "Mascot not
+    found" looked like a vanished creature and was a miscount.
+    """
+    return [b + k for b in (2 << 24, 0) for k in range(8)]
+
+def daemon_vivo() -> bool:
+    """Whether the overlay is UP, before starting to probe ids.
+
+    Measured on 2026-09-25 at 23:31: --do-not-start stops shimejictl from
+    starting a daemon OF ITS OWN, but it does not stop the other thing -- with
+    the daemon stopped, the mere CONNECTION to the socket wakes it through
+    systemd activation, and since it is born without mascots it dies as soon as
+    the client hangs up. Four calls in a row like that raised and buried four
+    daemons in two seconds, and systemd cuts off at five starts in ten (its
+    defaults, which wl_shimeji.service does not touch): 'start-limit-hit' and
+    wl_shimeji.socket FAILED, i.e. walking dead until someone runs a
+    reset-failed by hand.
+
+    One probe of ids_posibles() is up to 16 calls: it brings that on all by
+    itself. So systemd is asked first, which wakes nobody and costs ~10 ms.
+    Besides, it is the right answer: with no daemon there is no creature to
+    hear.
+    """
+    try:
+        r = subprocess.run(["systemctl", "--user", "is-active", "wl_shimeji.service"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.stdout.strip() == "active"
+
+
+def orden(id_mascota: int, conducta: str) -> bool:
+    """One order to one specific mascot. True = the daemon accepted it.
+
+    shimejictl set-behavior without -i opens the MOUSE picker, which for a
+    daemon means hanging while it waits for a click that will never come. The
+    ids come from ids_posibles(), which deduces them from the environments.
+    """
+    # --do-not-start IS MANDATORY HERE, and it goes BEFORE the subcommand because
+    # it is a global flag (shimejictl [-s] [--do-not-start] {mascot,...}).
+    # Without it, shimejictl STARTS THE DAEMON itself if the socket does not
+    # answer. And this is a daemon that reacts to notifications and to the CPU,
+    # so it fires at any moment -- including the brief second in which
+    # poke-leader-shimeji or poke-battle are stopping wl_shimeji to change
+    # pokémon. In that window it would raise its own shimeji-overlayd (~360 MB)
+    # OUTSIDE systemd, which would also grab the socket and void the start that
+    # comes right after: from then on the panel's "Pasea por el escritorio"
+    # (Walk on the desktop) switch no longer rules the creature you see.
+    # Checked: `shimejictl --socket /nonexistent/path set-behavior ...` leaves
+    # "Failed to start overlay: -6", which is the SIGABRT of the daemon it had
+    # just launched.
+    try:
+        r = subprocess.run(["shimejictl", "--do-not-start",
+                            "set-behavior", "-i", str(id_mascota), conducta],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    # returncode == 0 is the strict and sufficient condition: shimejictl exits
+    # with 1 both on "Mascot not found" and on "Overlay is not running".
+    # The old check looked for "not found" in the text, and "Overlay is not
+    # running" does NOT contain it: it took the failure for a success.
+    return r.returncode == 0
+
+
+def decir(conducta: str) -> bool:
+    """Stands the creature up and THEN asks it for the mood. Both steps matter.
+
+    returncode 0 only says the daemon accepted the order, not that it shows:
+    the mood behaviours are FLOOR ones (LieDown, RunAlongWorkAreaFloor, Sprawl)
+    and almost half of normal life's draw are wall, ceiling and window
+    behaviours. If the signal arrived while the creature was climbing, it was
+    logged as delivered, never retried and nothing was seen.
+
+    StandUp first, which is the behaviour that brings it back to the floor, and
+    the real one after ATERRIZAR seconds -- the time it takes to let go and
+    fall. The StandUp also serves as a probe: the first id that accepts it is
+    the creature, and the mood goes to that same one, so finding it costs no
+    extra call (the daemon cannot list its mascots, you have to ask by id).
+    """
+    if not daemon_vivo():
+        return False        # see daemon_vivo: probing with it stopped kills it
+    for i in ids_posibles():
+        if not orden(i, "StandUp"):
+            continue
+        if conducta == "StandUp":
+            return True         # the 'normal' mood IS standing up
+        time.sleep(ATERRIZAR)
+        return orden(i, conducta)
+    return False
+
+
+def bateria() -> tuple[int, bool] | None:
+    """(capacity, discharging), or None if there is no battery (the tower)."""
+    base = Path("/sys/class/power_supply")
+    for bat in sorted(base.glob("BAT*")):
+        try:
+            cap = int((bat / "capacity").read_text().strip())
+            est = (bat / "status").read_text().strip()
+            return cap, est == "Discharging"
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def cpu_uso(previo: tuple[int, int] | None) -> tuple[float, tuple[int, int]]:
+    """% usage since the previous sample, reading /proc/stat directly."""
+    campos = [int(x) for x in Path("/proc/stat").read_text().splitlines()[0].split()[1:]]
+    total, parado = sum(campos), campos[3] + campos[4]
+    if previo is None:
+        return 0.0, (total, parado)
+    dt, dp = total - previo[0], parado - previo[1]
+    uso = 100.0 * (dt - dp) / dt if dt > 0 else 0.0
+    return uso, (total, parado)
+
+
+def vigilar_notificaciones():
+    """dbus-monitor on the Notify calls: each one, a jump (with a cool-down).
+
+    It runs as a separate process and this loop only reads lines: if
+    dbus-monitor dies (session restart), it is relaunched on the next pass.
+    """
+    return subprocess.Popen(
+        ["dbus-monitor", "--profile", "interface='org.freedesktop.Notifications',member='Notify'"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+
+
+def demonio() -> int:
+    import selectors
+    sel = selectors.DefaultSelector()
+    mon = vigilar_notificaciones()
+    os.set_blocking(mon.stdout.fileno(), False)
+    sel.register(mon.stdout, selectors.EVENT_READ)
+
+    humor = "normal"
+    previo_cpu = None
+    rojo_seguidas = 0
+    ultimo_bote = 0.0
+    ultima_muestra = 0.0
+    ultimo_refuerzo = 0.0
+
+    while True:
+        for llave, _ in sel.select(timeout=1.0):
+            for linea in iter(llave.fileobj.readline, ""):
+                if "Notify" not in linea:
+                    continue
+                ahora = time.monotonic()
+                if ahora - ultimo_bote >= CALMA_SOBRESALTO and hay_bicho():
+                    if decir(CONDUCTA["sobresalto"]):
+                        ultimo_bote = ahora
+
+        if mon.poll() is not None:
+            sel.unregister(mon.stdout)
+            mon = vigilar_notificaciones()
+            os.set_blocking(mon.stdout.fileno(), False)
+            sel.register(mon.stdout, selectors.EVENT_READ)
+
+        ahora = time.monotonic()
+        if ahora - ultima_muestra < MUESTREO:
+            continue
+        ultima_muestra = ahora
+
+        uso, previo_cpu = cpu_uso(previo_cpu)
+        rojo_seguidas = rojo_seguidas + 1 if uso >= CPU_ROJO else 0
+        bat = bateria()
+
+        # The order is the priority: running out of battery overrides everything.
+        if bat and bat[0] <= BAT_BAJA and bat[1]:
+            nuevo = "agotado"
+        elif rojo_seguidas >= 2:
+            nuevo = "nervioso"
+        else:
+            nuevo = "normal"
+
+        # Sent on CROSSING; repeated while it LASTS. The mood is a state and the
+        # behaviour that expresses it is single-use, so without the reminder the
+        # state lived only in this variable: the creature lay down for 20-60 s
+        # over the low battery and then strolled about quite happily at 12%.
+        if nuevo != humor:
+            if hay_bicho() and decir(CONDUCTA[nuevo]):
+                humor = nuevo
+                ultimo_refuerzo = ahora
+            elif not hay_bicho():
+                humor = nuevo   # recorded anyway: when the creature returns, nothing carries over
+                ultimo_refuerzo = ahora
+        elif humor in PERSISTENTES and ahora - ultimo_refuerzo >= REFUERZO:
+            # Every 60 s, which is exactly how long the longest LieDown lasts:
+            # less would trample a behaviour still on screen, and more would
+            # leave gaps of normal life in the middle of a mood that still holds.
+            if hay_bicho() and decir(CONDUCTA[humor]):
+                ultimo_refuerzo = ahora
+            elif not hay_bicho():
+                ultimo_refuerzo = ahora   # with no creature, no insisting every 5 s
+
+
+def main() -> int:
+    if len(sys.argv) >= 3 and sys.argv[1] == "--probar":
+        cual = sys.argv[2]
+        if cual not in CONDUCTA:
+            print(tr(f"no conozco '{cual}'; hay: {', '.join(CONDUCTA)}",
+                     f"Unknown mood '{cual}'; available: {', '.join(CONDUCTA)}"), file=sys.stderr)
+            return 2
+        if not hay_bicho():
+            print(tr("no hay bicho paseando (enciende 'Pasea por el escritorio')",
+                     "No Pokémon is walking (enable 'Walk around the desktop')"), file=sys.stderr)
+            return 1
+        return 0 if decir(CONDUCTA[cual]) else 1
+    try:
+        return demonio()
+    except KeyboardInterrupt:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

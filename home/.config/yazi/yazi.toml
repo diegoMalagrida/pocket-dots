@@ -25,12 +25,12 @@ cursor_blink = false
 
 [opener]
 browser = [
-	{ run = 'xdg-open "$@"', desc = "Abrir en el navegador", orphan = true, for = "unix" },
+	{ run = 'xdg-open "$@"', desc = "Open in the browser", orphan = true, for = "unix" },
 ]
 
 [open]
 prepend_rules = [
-	# HTML: Enter lo abre en el navegador; con O se elige (editar, revelar...)
+	# HTML: Enter opens it in the browser; with O you choose (edit, reveal...)
 	{ mime = "text/html", use = [ "browser", "edit", "reveal" ] },
 	{ url = "*.htm", use = [ "browser", "edit", "reveal" ] },
 	{ url = "*.xhtml", use = [ "browser", "edit", "reveal" ] },

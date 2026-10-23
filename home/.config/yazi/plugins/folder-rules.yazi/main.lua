@@ -1,11 +1,11 @@
---- Reglas de orden por carpeta.
+--- Per-folder sort rules.
 ---
---- Downloads se ordena por fecha de modificación, lo más reciente arriba, y
---- sin anclar las carpetas al principio (si no, no sería un orden por fecha
---- de verdad). Cualquier otra carpeta recupera lo que dice yazi.toml.
+--- Downloads is sorted by modification date, most recent at the top, and
+--- without pinning folders to the start (otherwise it would not really be a
+--- sort by date). Any other folder gets back what yazi.toml says.
 ---
---- Si algún día cambias [mgr] sort_* en yazi.toml, cambia también `defecto()`
---- o esta regla te lo pisará al salir de Downloads.
+--- If some day you change [mgr] sort_* in yazi.toml, change `defecto()` too,
+--- or this rule will override it when you leave Downloads.
 
 local function defecto()
 	return { "alphabetical", reverse = false, dir_first = true, sensitive = false }

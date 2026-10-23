@@ -849,35 +849,35 @@ button[data-testid="control-button-seek-forward-15"] > span:first-child::after {
 }
 
 /*  ================================================================
-    PARCHE LOCAL (diego) — no viene de fdeox/termspot.
-    Si actualizas el tema desde upstream, vuelve a añadir este bloque.
+    LOCAL PATCH (diego) — it does not come from fdeox/termspot.
+    If you update the theme from upstream, add this block back.
     ================================================================ */
 
-/* Con la biblioteca colapsada en modo iconos el rail mide ~85px, pero el chip
-   "~/library" mide ~100px + 10px de margen: se desbordaba encima del panel
-   ~/main. Con el rail colapsado usamos la forma corta. El marcador
-   'headerIsCollapsed' lo pone el propio Spotify (xpui). */
+/* With the library collapsed into icon mode the rail measures ~85px, but the
+   "~/library" chip measures ~100px + 10px of margin: it overflowed on top of
+   the ~/main panel. With the rail collapsed we use the short form. The
+   'headerIsCollapsed' marker is set by Spotify itself (xpui). */
 .Root__nav-bar
     .main-yourLibraryX-entryPoints:has(.main-yourLibraryX-headerIsCollapsed)::before {
     content: "~/lib";
 }
 
-/* 2. El chip "~/nav" se dibujaba FUERA de la ventana. Los chips van a
-   'top: 0' con 'margin: -9px', o sea 9px por encima del borde de su panel; el
-   resto de paneles tienen hueco de sobra, pero .Root__globalNav va pegado al
-   borde superior de la ventana. El tema solo reserva ese hueco en Windows y
-   macOS (--global-nav-margin-top, para los controles de ventana), no en Linux.
-   10px = los 9px que sobresale el chip + 1px de respiro. */
+/* 2. The "~/nav" chip was drawn OUTSIDE the window. The chips sit at
+   'top: 0' with 'margin: -9px', that is, 9px above the edge of their panel;
+   the other panels have room to spare, but .Root__globalNav is stuck to the
+   top edge of the window. The theme only reserves that room on Windows and
+   macOS (--global-nav-margin-top, for the window controls), not on Linux.
+   10px = the 9px the chip sticks out + 1px of breathing room. */
 .Root__globalNav {
     margin-top: 10px;
 }
 
-/* 3. El tratamiento monocromo de fósforo solo cubría <img> (la lista COVERS de
-   theme.js), así que el canvas de vídeo del now-playing salía a todo color y
-   rompía el duotono de toda la interfaz. Reusamos el MISMO filtro que calcula
-   el tema desde el acento activo (--termspot-mono-filter), así que el vídeo
-   cambia de tinte con el wallpaper igual que las carátulas. Va colgado de
-   body.termspot-mono, con lo que el toggle ':mono' lo sigue controlando. */
+/* 3. The monochrome phosphor treatment only covered <img> (the COVERS list in
+   theme.js), so the now-playing video canvas came out in full colour and
+   broke the duotone of the whole interface. We reuse the SAME filter the
+   theme computes from the active accent (--termspot-mono-filter), so the video
+   changes tint with the wallpaper just like the cover art. It hangs off
+   body.termspot-mono, so the ':mono' toggle still controls it. */
 body.termspot-mono video {
     filter: var(
         --termspot-mono-filter,
@@ -885,16 +885,17 @@ body.termspot-mono video {
     );
     transition: filter 0.25s ease;
 }
-/* Hover devuelve el color, igual que en las carátulas. .termspot-reveal lo pone
-   theme.js porque aquí :hover a secas no es fiable (ver su comentario). */
+/* Hover brings the colour back, just as on the cover art. .termspot-reveal is
+   set by theme.js because a bare :hover is not reliable here (see its
+   comment). */
 body.termspot-mono video:hover,
 body.termspot-mono .termspot-reveal video {
     filter: none;
 }
 
-/* 4. Carátula en la barra de reproducción: el tema la trae apagada de fábrica.
-   Al encenderla entra sola en el tratamiento monocromo, porque COVERS ya
-   incluye '.main-coverSlotCollapsed-container img'. */
+/* 4. Cover art in the playback bar: the theme ships with it turned off.
+   Once turned on it falls into the monochrome treatment by itself, because
+   COVERS already includes '.main-coverSlotCollapsed-container img'. */
 :root {
     --display-coverart-image: block;
 }
@@ -903,14 +904,15 @@ body.termspot-mono .termspot-reveal video {
     border: var(--border-width) var(--border-style) var(--spice-border-inactive);
 }
 
-/* 5. El prompt del saludo se cortaba: la extensión lo pinta con
-   'white-space: pre' y tu panel ~/main tiene ~415px útiles, insuficientes para
-   "diegomalagrida@termspot:~ $ ..." (28 caracteres solo el prompt). Con pre-wrap
-   hace lo que haría una terminal de verdad: seguir en la línea siguiente. El
-   prefijo 'html' es para ganarle en especificidad al <style> que la extensión
-   inyecta en runtime, que va después de este fichero en la cascada.
-   Si lo prefieres en una sola línea, acorta el nombre en el menú de Perfil ->
-   Terminal Greeting settings (guarda en localStorage, no aquí). */
+/* 5. The greeting prompt was getting cut off: the extension draws it with
+   'white-space: pre' and your ~/main panel has ~415px of usable width, not
+   enough for "diegomalagrida@termspot:~ $ ..." (28 characters for the prompt
+   alone). With pre-wrap it does what a real terminal would: carry on on the
+   next line. The 'html' prefix is there to beat, on specificity, the <style>
+   the extension injects at runtime, which comes after this file in the
+   cascade.
+   If you prefer it on a single line, shorten the name in the Profile menu ->
+   Terminal Greeting settings (stored in localStorage, not here). */
 html #terminal-greeting-banner {
     white-space: pre-wrap;
     overflow-wrap: break-word;

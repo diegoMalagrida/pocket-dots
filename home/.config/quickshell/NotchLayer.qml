@@ -1,35 +1,37 @@
-// NotchLayer.qml — una "cara" del notch (reposo, hover, OSD, panel...).
+// NotchLayer.qml — one "face" of the notch (rest, hover, OSD, panel...).
 //
-// Aquí se decide cómo entra y sale TODO lo que vive dentro del notch: son once
-// caras y todas cruzan por este fichero. Cambiar esto cambia el shell entero.
+// This is where it is decided how EVERYTHING that lives inside the notch comes
+// in and goes out: there are eleven faces and all of them pass through this
+// file. Changing this changes the whole shell.
 //
-// Dos ideas, y ninguna es "una curva más bonita":
+// Two ideas, and neither of them is "a prettier curve":
 //
-// 1. LA CARA ENTRA POR EL LADO DEL BOTÓN QUE LA INVOCA. El launcher nace a la
-//    izquierda porque su botón está a la izquierda; el panel de control y los
-//    de red, bluetooth y apagado nacen a la derecha, que es donde están sus
-//    iconos. Lo ambiental (reloj, música, notificaciones) no viaja: crece en el
-//    centro, porque no lo has pedido tú desde ningún sitio.
-//    Como el notch RECORTA (clip en TopShell), el contenido viaja por dentro de
-//    la ranura: no lo ves aparecer, lo ves llegar.
+// 1. THE FACE COMES IN FROM THE SIDE OF THE BUTTON THAT SUMMONS IT. The
+//    launcher is born on the left because its button is on the left; the
+//    control panel and the network, bluetooth and power panels are born on the
+//    right, which is where their icons are. The ambient stuff (clock, music,
+//    notifications) does not travel: it grows in the centre, because you did
+//    not ask for it from anywhere.
+//    Since the notch CLIPS (clip in TopShell), the content travels inside the
+//    slot: you do not see it appear, you see it arrive.
 //
-// 2. LA ESCALA Y EL VIAJE VAN CON MUELLE, no con duración fija. Un muelle
-//    guarda velocidad, así que si abres un panel mientras otro aún se está
-//    yendo, el segundo CONTINÚA el movimiento del primero en vez de cortarlo y
-//    empezar de cero. Es justo el momento en que un shell se delata, y es
-//    donde antes se sentía de goma.
+// 2. SCALE AND TRAVEL RUN ON A SPRING, not on a fixed duration. A spring keeps
+//    its velocity, so if you open a panel while another one is still leaving,
+//    the second one CONTINUES the movement of the first instead of cutting it
+//    off and starting from zero. That is exactly the moment a shell gives
+//    itself away, and it is where it used to feel rubbery.
 //
-// La opacidad se queda en bézier a propósito: un muelle en la opacidad se
-// pasaría de 1 y provocaría un parpadeo. Y conserva el desfase (mStagger) que
-// evita el borrón de dos caras visibles a la vez — lo nuevo empieza a entrar
-// cuando lo viejo ya se ha ido.
+// Opacity stays on a bézier on purpose: a spring on opacity would overshoot 1
+// and cause a flicker. And it keeps the offset (mStagger) that avoids the smear
+// of two faces visible at once — the new one starts coming in when the old one
+// has already gone.
 import QtQuick
 
 Item {
     id: layer
     property bool active: false
 
-    // -1 nace a la izquierda · 0 crece en el centro · +1 nace a la derecha
+    // -1 born on the left · 0 grows in the centre · +1 born on the right
     property int origin: 0
 
     visible: opacity > 0.01
@@ -58,8 +60,8 @@ Item {
         }
     }
 
-    // El viaje lateral. Al salir vuelve hacia su lado, así que una cara se
-    // retira por donde vino: el gesto se lee igual de ida que de vuelta.
+    // The sideways travel. On the way out it goes back towards its side, so a
+    // face withdraws the way it came: the gesture reads the same going as coming.
     property real slide: active ? 0 : origin * Appearance.mTravel
     Behavior on slide {
         SequentialAnimation {

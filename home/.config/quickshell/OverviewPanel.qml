@@ -1,32 +1,32 @@
-// OverviewPanel.qml — el mapa de escritorios, desplegado DESDE el notch.
+// OverviewPanel.qml — the workspace map, unfolded FROM the notch.
 //
-// Sustituye al Overview.qml antiguo, que tomaba la pantalla entera y enseñaba
-// las ventanas en una parrilla suelta. El problema de aquello no era estético:
-// una parrilla no dice EN QUÉ ESCRITORIO está cada cosa, que es justo lo único
-// que quieres saber cuando pulsas Super+Tab. Aquí cada celda es un escritorio a
-// escala, con sus ventanas colocadas donde están de verdad, así que el mapa se
-// lee igual que el escritorio.
+// It replaces the old Overview.qml, which took the whole screen and showed the
+// windows in a loose grid. The problem with that was not aesthetic: a grid does
+// not tell you WHICH WORKSPACE each thing is on, which is exactly the one thing
+// you want to know when you press Super+Tab. Here each cell is a workspace to
+// scale, with its windows placed where they really are, so the map reads just
+// like the desktop.
 //
-// Y lo importante: LAS VENTANAS SE ARRASTRAN. Coges una miniatura con el ratón y
-// la sueltas en otra celda; eso es un `movetoworkspacesilent`. Si es flotante y
-// la sueltas dentro de su propia celda, se recoloca ahí dentro
-// (`movewindowpixel`). Reordenar el escritorio deja de ser una secuencia de
-// atajos y pasa a ser un gesto.
+// And the important part: WINDOWS CAN BE DRAGGED. You grab a thumbnail with the
+// mouse and drop it on another cell; that is a `movetoworkspacesilent`. If it is
+// floating and you drop it inside its own cell, it is repositioned in there
+// (`movewindowpixel`). Rearranging the desktop stops being a sequence of
+// shortcuts and becomes a gesture.
 //
-// Dos cosas que no se ven leyendo el código:
+// Two things you do not see by reading the code:
 //
-// 1. EL ESCRITORIO DE CADA VENTANA SE LEE DE `toplevel.workspace`, PERO SU
-//    POSICIÓN DE `lastIpcObject`. Medido: Quickshell mantiene `workspace` al día
-//    solo (escucha los sucesos de Hyprland), pero `lastIpcObject` — que es de
-//    donde salen `at` y `size` — se queda CONGELADO hasta que alguien llama a
-//    refreshToplevels(). Por eso hay un temporizador que lo pide mientras el
-//    overview está abierto, y solo mientras lo está.
+// 1. EACH WINDOW'S WORKSPACE IS READ FROM `toplevel.workspace`, BUT ITS
+//    POSITION FROM `lastIpcObject`. Measured: Quickshell keeps `workspace` up to
+//    date by itself (it listens to Hyprland's events), but `lastIpcObject` —
+//    which is where `at` and `size` come from — stays FROZEN until someone calls
+//    refreshToplevels(). That is why there is a timer asking for it while the
+//    overview is open, and only while it is.
 //
-// 2. EL MODELO PASA POR ScriptModel A PROPÓSITO. La lista se recalcula cada vez
-//    que una ventana cambia de escritorio, y un Repeater sobre un array nuevo
-//    DESTRUYE Y RECREA todos sus delegados: cada arrastre apagaría y volvería a
-//    encender las diez capturas de pantalla, con su parpadeo. ScriptModel
-//    compara por identidad y solo toca lo que ha cambiado de verdad.
+// 2. THE MODEL GOES THROUGH ScriptModel ON PURPOSE. The list is recomputed every
+//    time a window changes workspace, and a Repeater over a new array DESTROYS
+//    AND RECREATES all its delegates: every drag would switch the ten screen
+//    captures off and on again, flicker included. ScriptModel compares by
+//    identity and only touches what has really changed.
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Widgets
@@ -37,7 +37,7 @@ Item {
 
     readonly property bool active: ShellState.panel === "overview"
 
-    // ─── geometría (la calcula ShellState, que también dimensiona el notch) ───
+    // ─── geometry (computed by ShellState, which also sizes the notch) ───
     readonly property int cols: ShellState.ovCols
     readonly property int rows: ShellState.ovRows
     readonly property int cells: ShellState.ovCount
@@ -52,33 +52,34 @@ Item {
     readonly property real radOut: 18
     readonly property real radIn: 10
 
-    // ─── estado de interacción ───
-    property string dragAddr: ""     // dirección de la ventana que vuela ahora mismo
-    property int dropWs: -1          // celda bajo el cursor mientras arrastras
-    property int hoverWs: -1         // celda bajo el cursor sin arrastrar
-    // La ventana señalada, para la franja del pie. Se guarda el TOPLEVEL y no su
-    // lastIpcObject: ese mapa se reconstruye en cada refresco, así que comparar
-    // dos lecturas con === daría siempre falso y el resaltado no se apagaría
-    // nunca. El toplevel es el mismo objeto mientras la ventana exista, y al
-    // cerrarse QML pone esta propiedad a null él solo (por eso es QtObject y no
-    // var: un `var` se quedaría apuntando a un objeto muerto).
+    // ─── interaction state ───
+    property string dragAddr: ""     // address of the window flying right now
+    property int dropWs: -1          // cell under the cursor while dragging
+    property int hoverWs: -1         // cell under the cursor when not dragging
+    // The pointed-at window, for the footer strip. The TOPLEVEL is stored and
+    // not its lastIpcObject: that map is rebuilt on every refresh, so comparing
+    // two reads with === would always be false and the highlight would never
+    // turn off. The toplevel is the same object for as long as the window
+    // exists, and when it closes QML sets this property to null by itself
+    // (that is why it is QtObject and not var: a `var` would be left pointing
+    // at a dead object).
     property QtObject hoverTl: null
-    property int selWs: 1            // selección de teclado
+    property int selWs: 1            // keyboard selection
 
-    // Viene de ShellState y no se recalcula aquí: la cara "ws" del notch lee el
-    // mismo dato, y dos derivaciones de lo mismo es justo cómo empiezan a
-    // desincronizarse las cosas.
+    // It comes from ShellState and is not recomputed here: the notch's "ws"
+    // face reads the same value, and two derivations of the same thing is
+    // exactly how things start to drift out of sync.
     readonly property int activeWs: ShellState.activeWs
 
-    // Hyprland 0.55+ interpreta `dispatch` como una expresion Lua. Quickshell
-    // envia directamente lo que recibe Hyprland.dispatch(), asi que aqui hay
-    // que construir dispatchers `hl.dsp.*`; la sintaxis hyprlang antigua
-    // ("movetoworkspacesilent 2,address:...") se acepta en el QML pero el
-    // compositor la rechaza al soltar la miniatura.
+    // Hyprland 0.55+ interprets `dispatch` as a Lua expression. Quickshell
+    // sends whatever Hyprland.dispatch() receives as is, so `hl.dsp.*`
+    // dispatchers have to be built here; the old hyprlang syntax
+    // ("movetoworkspacesilent 2,address:...") is accepted by the QML but the
+    // compositor rejects it when the thumbnail is dropped.
     function winSelector(addr) { return '"address:' + addr + '"'; }
 
-    // Se filtran los escritorios especiales (id negativo: el scratchpad de la IA,
-    // por ejemplo) y los que caen fuera de la rejilla.
+    // Special workspaces are filtered out (negative id: the AI scratchpad, for
+    // example) along with those that fall outside the grid.
     readonly property var wins: [...Hyprland.toplevels.values].filter(t =>
         t.workspace && t.workspace.id >= 1 && t.workspace.id <= root.cells && t.wayland)
 
@@ -90,27 +91,27 @@ Item {
         const c = Math.floor(px / (root.cellW + root.gap));
         const r = Math.floor(py / (root.cellH + root.gap));
         if (c < 0 || c >= root.cols || r < 0 || r >= root.rows) return -1;
-        // El hueco entre celdas no es de nadie: soltar ahí no mueve nada.
+        // The gap between cells belongs to no one: dropping there moves nothing.
         if (px - c * (root.cellW + root.gap) > root.cellW) return -1;
         if (py - r * (root.cellH + root.gap) > root.cellH) return -1;
         return r * root.cols + c + 1;
     }
 
-    // ── irse de aquí: primero cerrar, DESPUÉS pedir el foco ──
-    // Al cerrar el panel se suelta el HyprlandFocusGrab, y Hyprland responde
-    // devolviendo el foco a la ventana que lo tenía antes de abrirse el
-    // overview. Si el `focuswindow` va en el mismo instante, no está garantizado
-    // quién llega el último, y si llega la devolución te quedas en la ventana de
-    // la que venías: justo lo que acabas de pedir que NO pase. Los 60 ms dejan
-    // que la devolución ocurra primero y que nuestra petición tenga la última
-    // palabra. Es el mismo remedio que usa Tide-island (allí, 50 ms).
+    // ── leaving: close first, THEN ask for focus ──
+    // Closing the panel releases the HyprlandFocusGrab, and Hyprland responds by
+    // giving focus back to the window that had it before the overview opened.
+    // If the `focuswindow` goes at the same instant, there is no guarantee who
+    // arrives last, and if the hand-back wins you stay on the window you came
+    // from: exactly what you have just asked NOT to happen. The 60 ms let the
+    // hand-back happen first and give our request the last word. It is the
+    // same remedy Tide-island uses (50 ms there).
     //
-    // HONESTIDAD sobre cómo se llegó aquí: esto se escribió creyendo haber visto
-    // la carrera en vivo, y la prueba estaba viciada — la sesión estaba en el
-    // estado "lockscreen crashed" de Hyprland, donde NINGUNA ventana puede coger
-    // el foco y `focuswindow` contesta `ok` sin hacer nada. O sea que la carrera
-    // es real por construcción pero NO está observada. Se deja porque cuesta
-    // 60 ms y el fallo que evita es de los que solo aparecen de vez en cuando.
+    // HONESTY about how this came about: it was written believing the race had
+    // been seen live, and the test was flawed — the session was in Hyprland's
+    // "lockscreen crashed" state, where NO window can take focus and
+    // `focuswindow` answers `ok` without doing anything. So the race is real by
+    // construction but has NOT been observed. It stays because it costs 60 ms
+    // and the bug it prevents is the kind that only shows up now and then.
     property int pendingWs: -1
     property string pendingAddr: ""
     Timer {
@@ -149,10 +150,10 @@ Item {
         return n;
     }
 
-    // ── refresco de datos ──
-    // Solo con el overview abierto. Un refreshToplevels() es una consulta al
-    // socket de Hyprland: pedirla siempre sería pagarla siempre, y el 99 % del
-    // tiempo esto no se está mirando.
+    // ── data refresh ──
+    // Only with the overview open. A refreshToplevels() is a query to
+    // Hyprland's socket: asking for it all the time would mean paying for it
+    // all the time, and 99 % of the time nobody is looking at this.
     Timer { id: poll; interval: 90; onTriggered: Hyprland.refreshToplevels() }
     Connections {
         target: Hyprland
@@ -173,7 +174,7 @@ Item {
         Hyprland.refreshToplevels();
         root.selWs = root.activeWs;
         keys.forceActiveFocus();
-        refocus.restart();   // seguro: la capa tarda un instante en aceptar foco
+        refocus.restart();   // safety net: the layer takes a moment to accept focus
     }
     Timer {
         id: refocus
@@ -181,7 +182,7 @@ Item {
         onTriggered: if (root.active) keys.forceActiveFocus()
     }
 
-    // absorbe los clics del hueco para que no cierren el panel
+    // absorbs clicks on the empty space so they do not close the panel
     MouseArea { anchors.fill: parent }
 
     Item {
@@ -195,8 +196,8 @@ Item {
         Keys.onDownPressed: if (root.selWs <= root.cells - root.cols) root.selWs += root.cols
         Keys.onReturnPressed: root.goTo(root.selWs)
         Keys.onEnterPressed: root.goTo(root.selWs)
-        // 1..9 y 0 saltan directamente, igual que Super+1..0 fuera del overview:
-        // el atajo que ya tienes en los dedos sigue valiendo aquí dentro.
+        // 1..9 and 0 jump straight there, just like Super+1..0 outside the
+        // overview: the shortcut already in your fingers still works in here.
         Keys.onPressed: function (e) {
             if (e.key >= Qt.Key_1 && e.key <= Qt.Key_9) { root.goTo(e.key - Qt.Key_0); e.accepted = true; }
             else if (e.key === Qt.Key_0) { root.goTo(root.cells); e.accepted = true; }
@@ -230,7 +231,7 @@ Item {
 
                 x: root.wsX(ws); y: root.wsY(ws)
                 width: root.cellW; height: root.cellH
-                color: "#0a0a0a"
+                color: Colors.surface1
                 antialiasing: true
                 contentUnderBorder: true
                 topLeftRadius: (atL && atT) ? root.radOut : root.radIn
@@ -238,13 +239,13 @@ Item {
                 bottomLeftRadius: (atL && atB) ? root.radOut : root.radIn
                 bottomRightRadius: (atR && atB) ? root.radOut : root.radIn
                 border.width: 1
-                border.color: cell.isDrop ? Colors.accent : Qt.rgba(1, 1, 1, 0.07)
+                border.color: cell.isDrop ? Colors.accent : Colors.hairline
 
-                // El fondo de pantalla, a tamaño de celda. Es lo que convierte
-                // diez rectángulos grises en diez PANTALLAS: sin él no hay forma
-                // de leer una celda vacía como un escritorio.
-                // Las diez comparten source y sourceSize, así que Qt descodifica
-                // el JPEG UNA vez y reparte el mismo pixmap.
+                // The wallpaper, at cell size. It is what turns ten grey
+                // rectangles into ten SCREENS: without it there is no way to
+                // read an empty cell as a workspace.
+                // All ten share source and sourceSize, so Qt decodes the JPEG
+                // ONCE and hands out the same pixmap.
                 Image {
                     anchors.fill: parent
                     source: Colors.wallpaper
@@ -256,8 +257,8 @@ Item {
                     visible: status === Image.Ready
                 }
 
-                // Velo. El fondo tiene que quedar por DEBAJO de las miniaturas en
-                // jerarquía visual: si compite, la rejilla se vuelve ruido.
+                // Veil. The wallpaper has to stay BELOW the thumbnails in the
+                // visual hierarchy: if it competes, the grid turns into noise.
                 Rectangle {
                     anchors.fill: parent
                     color: cell.isDrop ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.20)
@@ -265,14 +266,14 @@ Item {
                     Behavior on color { ColorAnimation { duration: Appearance.mQuick } }
                 }
 
-                // Número del escritorio. Grande y tenue si está vacío (es lo único
-                // que hay que mirar ahí); pequeño en la esquina si tiene ventanas,
-                // para no pintar por encima de ellas.
+                // Workspace number. Large and faint if it is empty (it is the
+                // only thing to look at there); small in the corner if it has
+                // windows, so as not to paint over them.
                 Text {
                     anchors.centerIn: parent
                     visible: cell.empty
                     text: String(cell.ws)
-                    color: Qt.rgba(1, 1, 1, 0.22)
+                    color: Colors.label3
                     font.family: Appearance.fontUI
                     font.pixelSize: Math.round(root.cellH * 0.34)
                     font.weight: Font.DemiBold
@@ -281,18 +282,18 @@ Item {
         }
 
         // ══════════════ clic en el hueco: ir a ese escritorio ══════════════
-        // Va DEBAJO de las miniaturas: si pinchas una ventana manda la ventana,
-        // y si pinchas el fondo de la celda manda esto.
+        // It sits BELOW the thumbnails: if you click a window the window wins,
+        // and if you click the cell's background this wins.
         MouseArea {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onPositionChanged: function (m) { root.hoverWs = root.wsAt(m.x, m.y); root.hoverTl = null; }
-            // Aquí NO se toca hoverTl. Al entrar el puntero en una miniatura,
-            // esta zona pierde el hover y dispara su onExited: si limpiara
-            // hoverTl podría hacerlo DESPUÉS de que la miniatura lo haya puesto
-            // (el orden entre salir de uno y entrar en otro no está garantizado)
-            // y la franja del pie se quedaría muda justo al señalar una ventana.
+            // hoverTl is NOT touched here. When the pointer enters a thumbnail,
+            // this area loses hover and fires its onExited: if it cleared
+            // hoverTl it might do so AFTER the thumbnail has set it (the order
+            // between leaving one and entering another is not guaranteed) and
+            // the footer strip would go silent just as you point at a window.
             onExited: root.hoverWs = -1
             onClicked: function (m) {
                 const ws = root.wsAt(m.x, m.y);
@@ -301,19 +302,19 @@ Item {
         }
 
         // ══════════════ las ventanas ══════════════
-        // Una sola copia por ventana: es a la vez lo que ves y lo que agarras.
-        // Puede volar libre por toda la rejilla porque nadie la recorta (ver la
-        // nota 2 de OverviewWindow.qml).
+        // A single copy per window: it is both what you see and what you grab.
+        // It can fly freely across the whole grid because nothing clips it
+        // (see note 2 in OverviewWindow.qml).
         Repeater {
             model: winModel
 
             OverviewWindow {
                 id: tile
                 required property var modelData
-                // OJO: `toplevel.address` viene SIN el "0x" y los despachadores
-                // de Hyprland lo exigen ("address:0x5637..."). Sin el prefijo
-                // todos los dispatch de aquí contestan "moveWindow: no window" y
-                // el arrastre no hace nada, en silencio.
+                // CAREFUL: `toplevel.address` comes WITHOUT the "0x" and
+                // Hyprland's dispatchers require it ("address:0x5637...").
+                // Without the prefix every dispatch here answers "moveWindow: no
+                // window" and the drag does nothing, silently.
                 readonly property string addr: {
                     const a = String(modelData.address || "");
                     return a.startsWith("0x") ? a : "0x" + a;
@@ -337,10 +338,10 @@ Item {
                 dragging: root.dragAddr === addr
                 hovered: pointer.containsMouse
                 pressed: pointer.pressed
-                // Una ventana a pantalla completa tapa a las demás, y una
-                // flotante va por encima de las embaldosadas: el mismo orden que
-                // tienen de verdad en el escritorio. La que vuela, por encima de
-                // todo, incluso del marco del escritorio activo.
+                // A fullscreen window covers the others, and a floating one
+                // goes above the tiled ones: the same order they really have on
+                // the desktop. The one in flight goes above everything, even
+                // the active workspace's frame.
                 z: dragging ? 300 : (client && client.fullscreen ? 30 : 20) + (client && client.floating ? 5 : 0)
 
                 MouseArea {
@@ -350,20 +351,20 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
 
-                    // EL ARRASTRE VA A MANO, y no con `drag.target` de Qt.
+                    // THE DRAG IS DONE BY HAND, not with Qt's `drag.target`.
                     //
-                    // Con `drag.target` la miniatura no se movía: Qt la mueve
-                    // desde C++ (QQuickItem::setX) y eso NO rompe el binding
-                    // `x: initX`, así que el binding la devolvía a su celda a
-                    // cada evento del ratón y los dos se peleaban. Medido en el
-                    // log del shell: x alternaba entre 1100 -su sitio- y 2606,
-                    // que está fuera de una rejilla de 1372 px, o sea fuera de
-                    // la pantalla. En cámara se veía como que la ventana no se
-                    // arrastra: solo se encendía la celda de destino y al soltar
-                    // aparecía allí.
+                    // With `drag.target` the thumbnail did not move: Qt moves it
+                    // from C++ (QQuickItem::setX) and that does NOT break the
+                    // `x: initX` binding, so the binding sent it back to its
+                    // cell on every mouse event and the two fought each other.
+                    // Measured in the shell's log: x alternated between 1100
+                    // -its place- and 2606, which is outside a 1372 px grid,
+                    // i.e. off the screen. On camera it looked as if the window
+                    // would not drag: only the target cell lit up and on
+                    // release it appeared there.
                     //
-                    // Moverla desde QML es además lo único que rompe el binding
-                    // de verdad, así que el arreglo y el gesto son la misma cosa.
+                    // Moving it from QML is also the only thing that truly
+                    // breaks the binding, so the fix and the gesture are one.
                     property real grabX: 0
                     property real grabY: 0
                     property bool moved: false
@@ -381,10 +382,10 @@ Item {
                     onPositionChanged: function (m) {
                         if (!(pointer.pressedButtons & Qt.LeftButton)) return;
 
-                        // El umbral que separa un clic de un arrastre. Diez
-                        // píxeles, los mismos que usaba Qt: por debajo, un clic
-                        // con pulso tembloroso levantaría la miniatura y se
-                        // leería como un arrastre fallido.
+                        // The threshold that separates a click from a drag. Ten
+                        // pixels, the same Qt used: below that, a click with a
+                        // shaky hand would lift the thumbnail and read as a
+                        // failed drag.
                         if (!pointer.moved) {
                             if (Math.hypot(m.x - pointer.grabX, m.y - pointer.grabY) < 10)
                                 return;
@@ -394,17 +395,18 @@ Item {
                             root.dropWs = tile.ws;
                         }
 
-                        // El cursor en coordenadas de la rejilla se calcula ANTES
-                        // de mover la miniatura: después, `m.x` ya no es lo que
-                        // era porque el sistema de coordenadas se ha movido con
-                        // ella.
+                        // The cursor in grid coordinates is worked out BEFORE
+                        // moving the thumbnail: afterwards, `m.x` is no longer
+                        // what it was because the coordinate system has moved
+                        // with it.
                         const p = tile.mapToItem(stage, m.x, m.y);
                         tile.x += m.x - pointer.grabX;
                         tile.y += m.y - pointer.grabY;
 
-                        // Una embaldosada se suelta donde apunta el CURSOR (es
-                        // enorme y solaparía tres celdas a la vez); una flotante,
-                        // por su CENTRO, que es como se lee un objeto que dejas.
+                        // A tiled one drops where the CURSOR points (it is huge
+                        // and would overlap three cells at once); a floating one,
+                        // by its CENTRE, which is how you read an object you put
+                        // down.
                         root.dropWs = tile.floating
                             ? root.wsAt(tile.x + tile.width / 2, tile.y + tile.height / 2)
                             : root.wsAt(p.x, p.y);
@@ -412,10 +414,9 @@ Item {
 
                     onReleased: function (m) {
                         if (m.button === Qt.RightButton) {
-                            // Solo si sueltas ENCIMA. Cerrar es lo único
-                            // irreversible que hay aquí, así que sacar el puntero
-                            // antes de soltar tiene que ser una forma de echarse
-                            // atrás.
+                            // Only if you release ON it. Closing is the only
+                            // irreversible thing here, so moving the pointer off
+                            // before releasing has to be a way to back out.
                             if (pointer.containsMouse)
                                 Hyprland.dispatch("hl.dsp.window.close({ window = "
                                     + root.winSelector(tile.addr) + " })");
@@ -448,9 +449,9 @@ Item {
         }
 
         // ══════════════ marco del escritorio activo ══════════════
-        // Viaja con muelle en vez de aparecer ya puesto en la celda nueva: si
-        // cambias de escritorio con el overview abierto, el marco RECORRE el
-        // camino, así que ves de dónde vienes.
+        // It travels on a spring instead of appearing already in the new cell:
+        // if you switch workspace with the overview open, the frame TRAVELS the
+        // path, so you see where you are coming from.
         Rectangle {
             property real tx: root.wsX(root.activeWs)
             property real ty: root.wsY(root.activeWs)
@@ -465,9 +466,9 @@ Item {
             Behavior on y { SpringAnimation { spring: Appearance.sprTight; damping: Appearance.dmpTight; epsilon: Appearance.eppPx } }
         }
 
-        // Marco de la selección de teclado. Solo sale cuando la selección se
-        // separa del escritorio activo: si coincidieran serían dos marcos
-        // pintados uno encima del otro diciendo lo mismo.
+        // Keyboard selection frame. It only appears when the selection moves
+        // away from the active workspace: if they coincided there would be two
+        // frames painted one on top of the other saying the same thing.
         Rectangle {
             visible: root.selWs !== root.activeWs
             x: root.wsX(root.selWs); y: root.wsY(root.selWs)
@@ -483,10 +484,11 @@ Item {
     }
 
     // ══════════════ la franja del pie ══════════════
-    // El mismo patrón que la app de Ajustes: el detalle NO se pinta sobre cada
-    // cosa (a esta escala un título no cabe en la miniatura y encima taparía la
-    // ventana), va a una franja fija que enseña lo que tienes debajo del ratón.
-    // Cuando no señalas nada, recuerda lo que se puede hacer aquí.
+    // The same pattern as the Settings app: the detail is NOT painted over each
+    // thing (at this scale a title does not fit in the thumbnail and would
+    // cover the window anyway), it goes to a fixed strip that shows whatever is
+    // under the mouse. When you point at nothing, it reminds you what can be
+    // done here.
     Text {
         anchors {
             left: parent.left; right: parent.right
@@ -502,20 +504,21 @@ Item {
             const c = t.lastIpcObject;
             return c ? (c["class"] || "") : "";
         }
-        color: root.hoverTl ? "#e6e6e6" : "#6e6e6e"
+        color: root.hoverTl ? Colors.label : Colors.label3
         font.family: Appearance.fontUI
-        font.pixelSize: 11
+        font.pixelSize: Appearance.fsXS
         font.weight: root.hoverTl ? Font.Medium : Font.Normal
         Behavior on color { ColorAnimation { duration: Appearance.mQuick } }
     }
 
-    // ── qué pasa al soltar ──
-    // Vive aquí, fuera del manejador del ratón, por dos razones: el manejador ya
-    // era demasiado largo para leerlo de un vistazo, y así el efecto de soltar se
-    // puede provocar sin ratón (es como se probó, con la pantalla bloqueada).
+    // ── what happens on drop ──
+    // It lives here, outside the mouse handler, for two reasons: the handler was
+    // already too long to read at a glance, and this way the drop's effect can
+    // be triggered without a mouse (which is how it was tested, with the screen
+    // locked).
     function applyDrop(tile, target, moved) {
         if (!moved) {
-            // Un clic sin viaje es "llévame ahí".
+            // A click with no travel means "take me there".
             root.focusWin(tile.addr);
             tile.rebind();
             return;
@@ -523,9 +526,9 @@ Item {
 
         if (target >= 1 && target !== tile.ws) {
             if (tile.floating) {
-                // Primero el escritorio y luego la posición: al cambiar de
-                // escritorio Hyprland recoloca las flotantes, así que hacerlo al
-                // revés perdería el sitio donde la has dejado.
+                // First the workspace and then the position: when changing
+                // workspace Hyprland repositions floating windows, so doing it
+                // the other way round would lose the spot where you left it.
                 const p = root.desktopPos(tile, target);
                 tile.setHint(p.x, p.y);
                 Hyprland.dispatch("hl.dsp.window.move({ workspace = " + target
@@ -543,18 +546,19 @@ Item {
                 + ", relative = false, window = " + root.winSelector(tile.addr) + " })");
         }
 
-        // Suelte donde suelte, la posición vuelve a mandarla el dato real: o cae
-        // en su hueco nuevo, o el muelle la devuelve a donde estaba.
+        // Wherever it is dropped, the real data takes charge of the position
+        // again: either it lands in its new slot, or the spring returns it to
+        // where it was.
         tile.rebind();
         poll.restart();
     }
 
-    // ── de coordenadas de la rejilla a píxeles del escritorio ──
-    // La inversa exacta de lo que hace OverviewWindow para colocarse: se le quita
-    // el origen de la celda, se divide por la escala y se le suma otra vez el
-    // origen del monitor y la banda reservada. Y se ata al área útil, porque
-    // soltar una ventana medio fuera de la rejilla la dejaría medio fuera de la
-    // pantalla de verdad.
+    // ── from grid coordinates to desktop pixels ──
+    // The exact inverse of what OverviewWindow does to place itself: subtract
+    // the cell's origin, divide by the scale and add back the monitor's origin
+    // and the reserved band. And it is clamped to the usable area, because
+    // dropping a window half outside the grid would leave it half off the real
+    // screen.
     function desktopPos(tile, ws) {
         const res = (root.mon && root.mon.reserved) ? root.mon.reserved : [0, 0, 0, 0];
         const mx = root.mon ? root.mon.x : 0;

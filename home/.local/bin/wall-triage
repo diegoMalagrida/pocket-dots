@@ -1,44 +1,71 @@
 #!/usr/bin/env bash
-# wall-triage — revisa los fondos uno a uno y aparta los que descartes.
+# wall-triage — goes through the wallpapers one by one and sets aside the ones
+# you discard.
 #
-#   g / espacio  guardar        d  descartar
-#   u            deshacer       q  salir (retoma donde lo dejaste)
+#   g / space    keep           d  discard
+#   u            undo           q  quit (picks up where you left off)
 #
-# No borra nada: los descartados se mueven a ~/Pictures/wallpapers/.descartes/
-# El borrado definitivo lo haces tú despues de repasar esa carpeta.
+# It deletes nothing: discarded ones are moved to ~/Pictures/wallpapers/.descartes/
+# The final deletion is yours to do after going through that folder.
 
 set -uo pipefail
+
+. "$HOME/.config/hypr/scripts/lang.sh" 2>/dev/null || tr_() { printf '%s' "$1"; }
 
 DIR="${1:-$HOME/Pictures/wallpapers}"
 TRASH="$DIR/.descartes"
 STATE="$HOME/.cache/wall-triage.state"
 
-[[ -d "$DIR" ]] || { echo "no existe el directorio: $DIR"; exit 1; }
+[[ -d "$DIR" ]] || { echo "$(tr_ "no existe el directorio: $DIR" "Directory does not exist: $DIR")"; exit 1; }
 
 LOG="$HOME/.cache/wall-triage.log"
 : > "$LOG"
 
-# Motor de dibujo: kitty si estamos dentro de kitty, si no timg o chafa.
+# Drawing engine: kitty if we are inside kitty, otherwise timg or chafa.
+#
+# 2026-09-14: `command -v` is NOT enough for timg and chafa. It checks that the
+# file exists and is executable, but not that it STARTS. On 23 August ffmpeg 9
+# came in and left timg (1.6.3-2, built against ffmpeg 8) asking for libraries
+# that are no longer there:
+#   $ timg --version
+#   error while loading shared libraries: libavformat.so.62: No such file...
+#   $ echo $?    -> 127
+# With the old detection the script picked timg all the same, because the
+# binary WAS STILL THERE, and outside kitty not a single image was drawn: the
+# wallpaper review went blind, without one visible error message (they all go
+# to the LOG). Launching the binary is the only test that tells "installed"
+# from "works".
+motor_va() { command -v "$1" >/dev/null 2>&1 && "$1" --version >/dev/null 2>&1; }
+
 if [[ -n "${KITTY_WINDOW_ID:-}" ]] && command -v kitten >/dev/null; then
   ENGINE=kitty; ICAT=(kitten icat)
 elif [[ -n "${KITTY_WINDOW_ID:-}" ]] && command -v kitty >/dev/null; then
   ENGINE=kitty; ICAT=(kitty +kitten icat)
-elif command -v timg >/dev/null; then
+elif motor_va timg; then
   ENGINE=timg
-elif command -v chafa >/dev/null; then
+elif motor_va chafa; then
   ENGINE=chafa
 else
-  echo "no encuentro kitty, timg ni chafa para dibujar las imagenes."; exit 1
+  echo "$(tr_ "no encuentro kitty, timg ni chafa para dibujar las imagenes." "Cannot find kitty, timg or chafa to display the images.")"
+  # If one of them is installed but does not start, say so: otherwise the
+  # message above lies and sends you off to reinstall something already there.
+  for m in timg chafa; do
+    if command -v "$m" >/dev/null 2>&1 && ! "$m" --version >/dev/null 2>&1; then
+      echo "$(tr_ "  ojo: $m esta instalado pero no arranca (libreria rota tras una actualizacion?)." "  Warning: $m is installed but will not start (broken library after an update?).")"
+      echo "$(tr_ "       reconstruyelo con: yay -S --rebuild $m" "       Rebuild it with: yay -S --rebuild $m")"
+    fi
+  done
+  exit 1
 fi
 
-# El timeout es por si el protocolo grafico no llega (tmux sin passthrough, ssh)
-# y icat se queda esperando respuesta del terminal.
+# The timeout is in case the graphics protocol does not get through (tmux
+# without passthrough, ssh) and icat is left waiting for the terminal's answer.
 #
-# --foreground es OBLIGATORIO: sin el, timeout mete el comando en su propio
-# grupo de procesos, deja de ser el grupo en primer plano del tty, y en cuanto
-# icat intenta leer la respuesta del handshake grafico le llega SIGTTIN y se
-# queda parado. Resultado: pantalla en negro y ninguna imagen.
-draw() {  # draw <fichero> <cols> <filas>
+# --foreground is MANDATORY: without it, timeout puts the command in its own
+# process group, it stops being the tty's foreground group, and as soon as
+# icat tries to read the answer to the graphics handshake it gets SIGTTIN and
+# is stopped. Result: a black screen and no image.
+draw() {  # draw <file> <cols> <rows>
   case "$ENGINE" in
     kitty) timeout --foreground 5 "${ICAT[@]}" --clear --align center \
              --place "${2}x${3}@0x2" "$1" 2>>"$LOG" ;;
@@ -47,8 +74,8 @@ draw() {  # draw <fichero> <cols> <filas>
   esac
 }
 if [[ ! -t 0 ]]; then
-  echo "Esto necesita una terminal interactiva."
-  echo "Abre una kitty y ejecuta:  wall-triage"
+  echo "$(tr_ "Esto necesita una terminal interactiva." "This requires an interactive terminal.")"
+  echo "$(tr_ "Abre una kitty y ejecuta:  wall-triage" "Open kitty and run:  wall-triage")"
   exit 1
 fi
 
@@ -60,7 +87,7 @@ GRN=$'\e[38;5;114m'; RED=$'\e[38;5;203m'; YEL=$'\e[38;5;179m'; CYA=$'\e[38;5;110
 
 cleanup() { printf '\e[?25h\e[2J\e[H'; }
 trap cleanup EXIT
-printf '\e[?25l'   # oculta el cursor
+printf '\e[?25l'   # hides the cursor
 
 mapfile -t ALL < <(find "$DIR" -maxdepth 1 -type f \
   \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort)
@@ -73,8 +100,8 @@ done
 total=${#FILES[@]}
 if (( total == 0 )); then
   cleanup
-  echo "Nada nuevo que revisar en $DIR"
-  echo "${D}(borra $STATE si quieres repasarlos todos otra vez)${R}"
+  echo "$(tr_ "Nada nuevo que revisar en $DIR" "Nothing new to review in $DIR")"
+  echo "$(tr_ "${D}(borra $STATE si quieres repasarlos todos otra vez)${R}" "${D}(delete $STATE to review them all again)${R}")"
   exit 0
 fi
 
@@ -99,7 +126,7 @@ while (( i < total )); do
   draw "$f" "$cols" "$imgrows"
 
   printf '\e[%d;1H' $(( rows - 1 ))
-  printf ' %sg%s guardar  %sd%s descartar  %su%s deshacer  %sq%s salir   %s│  %d guardados · %d descartados%s' \
+  printf "$(tr_ ' %sg%s guardar  %sd%s descartar  %su%s deshacer  %sq%s salir   %s│  %d guardados · %d descartados%s' ' %sg%s keep  %sd%s discard  %su%s undo  %sq%s quit   %s│  %d kept · %d discarded%s')" \
     "$GRN" "$R" "$RED" "$R" "$YEL" "$R" "$D" "$R" "$D" "$kept" "$dropped" "$R"
 
   IFS= read -rsn1 key </dev/tty || break
@@ -121,7 +148,16 @@ while (( i < total )); do
       if [[ "$pa" == drop ]]; then
         mv -f "$TRASH/$pn" "$pf" 2>/dev/null; (( dropped > 0 )) && ((dropped--))
       else
-        grep -Fxv "$pn" "$STATE" > "$STATE.tmp" 2>/dev/null && mv "$STATE.tmp" "$STATE"
+        # 2026-09-14: there used to be an `&& mv` here, and that is why «u» did
+        # not undo the FIRST keep of a batch. grep -Fxv exits with code 1 when
+        # it prints no line, which is exactly what happens if the state file
+        # only held that one: there is nothing left to keep. With `&&`, that 1
+        # was taken as an error, the mv never ran, the name stayed marked as
+        # kept and on top of that an empty .tmp was left lying around.
+        # It did not show today because the state has 15 lines; it would show
+        # the day a review is started from scratch.
+        grep -Fxv "$pn" "$STATE" > "$STATE.tmp" 2>/dev/null || true
+        mv -f "$STATE.tmp" "$STATE"
         (( kept > 0 )) && ((kept--))
       fi
       unset 'HIST_F[last]' 'HIST_A[last]'
@@ -136,14 +172,14 @@ done
 
 cleanup
 n_trash=$(find "$TRASH" -maxdepth 1 -type f | wc -l)
-echo " ${B}Repasadas${R} $((kept + dropped)) de $total   ${GRN}$kept guardadas${R} · ${RED}$dropped descartadas${R}"
+echo "$(tr_ " ${B}Repasadas${R} $((kept + dropped)) de $total   ${GRN}$kept guardadas${R} · ${RED}$dropped descartadas${R}" " ${B}Reviewed${R} $((kept + dropped)) of $total   ${GRN}$kept kept${R} · ${RED}$dropped discarded${R}")"
 if (( i < total )); then
-  echo " ${D}Quedan $(( total - i )) sin ver — vuelve a lanzar wall-triage y sigue donde ibas.${R}"
+  echo "$(tr_ " ${D}Quedan $(( total - i )) sin ver — vuelve a lanzar wall-triage y sigue donde ibas.${R}" " ${D}$(( total - i )) left to review — run wall-triage again to carry on.${R}")"
 fi
 if (( n_trash > 0 )); then
   echo
-  echo " En ${B}$TRASH${R} hay $n_trash ficheros apartados:"
+  echo "$(tr_ " En ${B}$TRASH${R} hay $n_trash ficheros apartados:" " $n_trash files set aside in ${B}$TRASH${R}:")"
   find "$TRASH" -maxdepth 1 -type f -printf '   %f\n' | sort
   echo
-  echo " ${D}Ya no salen en el picker. Bórralos de esa carpeta cuando los hayas repasado.${R}"
+  echo "$(tr_ " ${D}Ya no salen en el picker. Bórralos de esa carpeta cuando los hayas repasado.${R}" " ${D}They no longer appear in the picker. Delete them from that folder once reviewed.${R}")"
 fi

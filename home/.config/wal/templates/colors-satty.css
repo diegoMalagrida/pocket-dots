@@ -1,4 +1,4 @@
-/* Interfaz de Satty; los colores de las anotaciones siguen siendo contrastados. */
+/* Satty's interface; the annotation colours stay high-contrast. */
 .outer_box,
 .toolbar {{
     color: {foreground};

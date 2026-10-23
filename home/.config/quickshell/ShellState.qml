@@ -1,8 +1,8 @@
-// ShellState.qml — hub de datos y de estado de la superficie superior.
+// ShellState.qml — data and state hub for the top surface.
 //
-// Al estilo de caelestia (services/): toda la lógica y los datos viven aquí, y
-// TopShell.qml se queda siendo UI pura. Así la barra y el notch leen EXACTAMENTE
-// el mismo estado y no pueden desincronizarse.
+// In caelestia's style (services/): all the logic and the data live here, and
+// TopShell.qml stays pure UI. That way the bar and the notch read EXACTLY the
+// same state and cannot fall out of sync.
 pragma Singleton
 
 import Quickshell
@@ -21,48 +21,59 @@ Singleton {
     id: root
 
     readonly property string home: Quickshell.env("HOME")
-    // El locale con el que TODO el shell da formato a fechas y números. Tiene
-    // que seguir al idioma: con el shell en inglés, un "miércoles" en el notch
-    // canta tanto como una etiqueta sin traducir.
+    // The locale with which the WHOLE shell formats dates and numbers. It has
+    // to follow the language: with the shell in English, a "miércoles" in the
+    // notch sticks out as much as an untranslated label.
     //
-    // en_GB y no en_US porque el inglés de este repo es el británico del README
-    // ("recoloured", "licence", "centre"), y porque el formato acompaña: en_GB
-    // pone el día antes que el mes (3/9/2026) y la hora en 24 h, igual que el
-    // castellano. Con en_US la fecha se daría la vuelta (9/3/2026) y saldría el
-    // "PM", que aquí no lo usa nadie.
+    // en_GB and not en_US because this repo's English is the British of the
+    // README ("recoloured", "licence", "centre"), and because the format fits:
+    // en_GB puts the day before the month (3/9/2026) and the time in 24 h, just
+    // like Spanish. With en_US the date would flip round (9/3/2026) and "PM"
+    // would appear, which nobody here uses.
     readonly property var loc: Qt.locale(I18n.english ? "en_GB" : "es_ES")
 
-    // ═══════════════════════ estado del notch ═══════════════════════
-    // El notch es el punto de entrada del escritorio: de él se despliegan
-    // paneles. "" = ninguno. Añadir uno nuevo = un valor más aquí, su tamaño en
-    // notchW/notchH, y su capa en NotchContent.qml.
-    property string panel: ""     // "" | "control" | "system" | "launcher" | "power" | "network" | "bluetooth" | "overview" | "calendar"
+    // ═════════════════════════ notch state ══════════════════════════
+    // The notch is the desktop's entry point: panels unfold from it.
+    // "" = none. Adding a new one = one more value here, its size in
+    // notchW/notchH, and its layer in NotchContent.qml.
+    property string panel: ""     // "" | "control" | "system" | "launcher" | "power" | "network" | "bluetooth" | "overview" | "calendar" | "github" | "poke"
     readonly property bool open: panel !== ""
 
-    // La app de Ajustes NO es un panel del notch (ver SettingsWindow.qml), pero
-    // se lanza desde él, así que su estado vive aquí.
+    // The edge-revealed organiser is independent of the notch and remembers
+    // its enabled state across shell and session restarts.
+    readonly property bool stageEnabled: Config.stageEnabled
+    function toggleStage() {
+        if (root.stageEnabled) { root.closeStage(); return; }
+        root.closePanel();
+        Config.stageEnabled = true;
+        Hyprland.refreshToplevels();
+    }
+    function closeStage() { Config.stageEnabled = false; }
+
+    // The Settings app is NOT a notch panel (see SettingsWindow.qml), but it
+    // is launched from it, so its state lives here.
     property bool settingsOpen: false
     function toggleSettings() { root.settingsOpen = !root.settingsOpen; }
 
-    // Abrir Ajustes YA EN una sección concreta, en vez de en la de siempre.
-    // Lo estrena Super+K, que hasta ahora lanzaba un rofi aparte
-    // (~/.config/hypr/list_keybinds.sh) para enseñar una lista de atajos
-    // sacada del MISMO hyprland.conf que ya lee SettingsShortcuts.qml. No
-    // hacía falta otra vista: hacía falta una puerta a la que ya había.
+    // Open Settings ALREADY ON a specific section, instead of the usual one.
+    // Super+K is the first to use it; until now it launched a separate rofi
+    // (~/.config/hypr/list_keybinds.sh) to show a list of shortcuts taken
+    // from the SAME hyprland.conf that SettingsShortcuts.qml already reads.
+    // Another view was not needed: a door into the existing one was.
     //
-    // Va por señal y no por una propiedad de aquí porque quien manda en qué
-    // sección se ve es la ventana de Ajustes; ShellState solo sabe si está
-    // abierta o cerrada.
+    // It goes through a signal and not a property here because what decides
+    // which section is shown is the Settings window; ShellState only knows
+    // whether it is open or closed.
     signal settingsSection(string id)
     function openSettingsAt(id) { root.settingsSection(id); }
 
-    // Buscador de Ajustes. Vive aquí y no en la ventana porque quien decide si
-    // una fila se ve es la propia fila (SettingsControls.Row_), que es un
-    // componente en línea y no alcanza el id de la ventana.
+    // Settings search. It lives here and not in the window because what
+    // decides whether a row is shown is the row itself (SettingsControls.Row_),
+    // which is an inline component and cannot reach the window's id.
     property string settingsQuery: ""
     function settingsFold(value) {
-        // Buscar "bateria" debe encontrar "Batería": al escribir deprisa no
-        // tiene sentido exigir tildes exactas en un buscador de ajustes.
+        // Searching "bateria" must find "Batería": when typing fast it makes
+        // no sense to demand exact accents in a settings search box.
         return String(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     }
     function settingsMatch(label, hint) {
@@ -71,46 +82,122 @@ Singleton {
         return root.settingsFold(String(label) + " " + String(hint)).indexOf(q) >= 0;
     }
 
-    // La descripción de un ajuste NO va debajo de su etiqueta: iría siempre
-    // visible, haría cada fila de tres líneas y en una ventana de 520 px solo
-    // cabrían siete ajustes. Va a una franja fija al pie de la ventana, que
-    // enseña la del ajuste que tienes debajo del ratón. Cero reflow, cero
-    // popups tapando cosas, y no se pierde ni una palabra.
+    // A setting's description does NOT go under its label: it would always be
+    // visible, would make every row three lines tall, and a 520 px window would
+    // only fit seven settings. It goes to a fixed strip at the foot of the window,
+    // which shows the one for the setting under the mouse. Zero reflow, zero
+    // popups covering things, and not a single word is lost.
     property string settingsHint: ""
 
     function togglePanel(name) {
-        // El lanzador es el único panel que abre en varios modos, así que tiene
-        // su propia puerta (openLauncher). Por aquí se entra SIEMPRE en "apps":
-        // ni Super+R ni el logo de Arch piden portapapeles ni ventanas.
+        // The launcher is the only panel that opens in several modes, so it has
+        // its own door (openLauncher). Through here you ALWAYS enter "apps":
+        // neither Super+R nor the Arch logo asks for the clipboard or windows.
         if (name === "launcher") { root.openLauncher("apps"); return; }
         root.panel = (root.panel === name) ? "" : name;
     }
     function closePanel() { root.panel = ""; }
-    property bool hovered: false             // ratón sobre el notch
+
+    // The transient dies with the panel, on opening it AND on closing it. It is
+    // the other half of the fix above: flash() stops it being BORN covered, and
+    // this stops it SURVIVING a panel that opens afterwards. It goes on the
+    // property change and not in closePanel() because there are seven places
+    // that assign `root.panel` by hand (the ">" mode actions, openLauncher, the
+    // toggle) and all of them would have to remember.
+    onPanelChanged: {
+        if (root.panel !== "") {
+            // A PANEL OPENS. Whatever expires with the gesture that caused it
+            // -volume, brightness, workspace, song, notification- is dropped:
+            // showing it later is noise. What is NOT dropped is frozen, and
+            // that is three things: the two pokémon ceremonies, which happen
+            // weeks apart and missing them is missing them, and the "Copiado"
+            // (Copied) receipt, which was born of a gesture of yours inside the panel.
+            if (root.activity === "evo" || root.activity === "shiny" || root.activity === "toast") {
+                activityTimer.stop();
+            } else if (root.activity !== "") {
+                root.activity = "";
+                activityTimer.stop();
+            }
+        } else {
+            // IT CLOSES. Whatever was frozen starts now, with its full clock.
+            if (root.activity !== "")
+                activityTimer.restart();
+            // The check is repeated WHEN THE CALL RUNS, not only when it is
+            // scheduled: closing the team panel from pokeEvoSiguiente() starts
+            // the ceremony in that same call, and a deferred call that did not
+            // look again found the queue empty and set pokeEvo to null. The
+            // notch then showed the ceremony with neither sprite nor text.
+            if (!root.pokeEvo && root.pokeEvoCola.length > 0)
+                Qt.callLater(function () {
+                    if (!root.pokeEvo && root.pokeEvoCola.length > 0)
+                        root.pokeEvoSiguiente();
+                });
+        }
+    }
+    property bool hovered: false             // mouse over the notch
     property string activity: ""             // "" | "volume" | "brightness" | "track"
-    property bool armed: false               // ya pasó el arranque: se permiten OSD
+    property bool armed: false               // start-up is over: OSDs are allowed
 
     Timer { interval: 1500; running: true; onTriggered: root.armed = true }
     Timer { id: activityTimer; onTriggered: root.activity = "" }
 
-    function flash(kind) {
+    function flash(kind, ms) {
+        // WITH A PANEL IN FRONT THERE IS NO NOTICE TO GIVE.
+        //
+        // `mode` puts `panel !== ""` first, so with any panel open the notice
+        // is not seen. But the clock started anyway: you moved the volume in
+        // the control centre, closed it, and the OSD came out AFTERWARDS, when
+        // it was no longer relevant. With a notification it is worse, because
+        // the clock is 4200 or 11000 ms. It is dropped at the source, as
+        // impasto's IslandState.qml:96-107 does.
+        //
+        // The "Copiado" (Copied) receipt is spared on purpose: it was born of a
+        // gesture of yours INSIDE the panel -clicking in the launcher's
+        // clipboard- and seeing it a moment late is better than not seeing it.
+        // The two pokémon ceremonies need no exception because
+        // pokeEvoSiguiente() no longer takes them off the queue while something
+        // is in front.
+        if (root.panel !== "" && kind !== "toast")
+            return;
         root.activity = kind;
-        // "ws" dura menos que el resto a proposito: no es informacion que
-        // tengas que leer, es el acuse de recibo de un gesto que acabas de hacer.
-        // Un OSD de volumen se mira; este solo se comprueba de reojo.
-        activityTimer.interval = (kind === "track" || kind === "notif") ? 4200
+        // "ws" lasts less than the rest on purpose: it is not information you
+        // have to read, it is the receipt of a gesture you have just made.
+        // A volume OSD is looked at; this one is only checked out of the corner
+        // of your eye. An explicit duration wins: today only notifications use
+        // it, being the only ones that bring a time requested from outside (see
+        // notifFlashMs). The other callers pass a single argument, so ms arrives
+        // undefined and the notch lasts exactly as long as it did.
+        activityTimer.interval = (ms !== undefined && ms > 0) ? ms
+            : (kind === "track" || kind === "notif") ? 4200
             : kind === "toast" ? 1600
             : kind === "ws" ? 1100
-            : kind === "charge" ? 2200 : 1800;
-        activityTimer.restart();
+            : kind === "charge" ? 2200
+            // the evolution ceremony: accelerating blink + reveal.
+            // It is the notch's longest face, and on purpose: it happens
+            // weeks apart, not minutes apart.
+            : kind === "evo" ? 5200
+            // the shiny does not alternate shapes: it bursts and is read. The two
+            // waves of the burst end around 1900 ms; 3600 lets you look at the
+            // creature for another second and a half and then goes. Evolution lasts
+            // longer because there is something to GUESS while it blinks; not here.
+            : kind === "shiny" ? 3600 : 1800;
+        // Covered does not count. The only one that gets here with a panel in
+        // front is the "Copiado" receipt, and onPanelChanged starts its clock on
+        // uncovering: that way it is read in full instead of arriving half spent.
+        if (root.panel === "")
+            activityTimer.restart();
     }
 
-    readonly property bool mediaLive: player !== null && player.isPlaying
+    // "There is music playing AND it rules the notch". The WHOLE music face
+    // hangs off this: the resting width (restW), the face, the shifted clock,
+    // the hidden date and battery and the cava visualiser. `mediaDrives`
+    // —defined next to the MPRIS block— is what leaves the browser out.
+    readonly property bool mediaLive: player !== null && player.isPlaying && root.mediaDrives
 
-    // btpair va POR DELANTE del panel abierto, y es la única cara que se salta
-    // esa regla. No es un aviso: es una pregunta con caducidad al otro lado de
-    // la cual hay un aparato esperando. Si se quedara detrás del panel que
-    // tuvieras abierto, el emparejamiento vencería sin que llegaras a verla.
+    // btpair goes AHEAD of the open panel, and it is the only face that breaks
+    // that rule. It is not a notice: it is a question with an expiry, with a
+    // device waiting on the other side. If it stayed behind whatever panel you
+    // had open, the pairing would expire without you ever seeing it.
     readonly property string mode: btAsking ? "btpair"
         : panel !== "" ? panel
         : activity === "notif" ? "notif"
@@ -118,28 +205,30 @@ Singleton {
         : activity === "track" ? "track"
         : activity === "ws" ? "ws"
         : activity === "charge" ? "charge"
+        : activity === "evo" ? "evo"
+        : activity === "shiny" ? "shiny"
         : activity !== "" ? "activity"
         : hovered ? "peek"
         : mediaLive ? "media" : "idle"
 
-    // Geometría objetivo del notch (isla suelta pegada al borde superior).
-    // REGLA: en reposo y con música la altura es EXACTAMENTE la banda reservada
-    // (barH) para que el notch no tape nunca ninguna ventana. Solo sobresale
-    // cuando tú provocas algo: hover, OSD, cambio de canción o el panel.
+    // Target geometry of the notch (a loose island stuck to the top edge).
+    // RULE: at rest and with music the height is EXACTLY the reserved band
+    // (barH) so that the notch never covers any window. It only sticks out
+    // when you cause something: hover, OSD, song change or the panel.
     readonly property int bandH: Config.bandH
 
-    // Hueco entre el borde de la pantalla y la píldora en modo isla. Vive aquí y
-    // no solo en TopShell porque los paneles que calculan su alto exacto tienen
-    // que descontarlo: TopShell dibuja el notch con `height: notchH - gap`.
+    // Gap between the screen edge and the pill in island mode. It lives here and
+    // not only in TopShell because the panels that compute their exact height
+    // have to subtract it: TopShell draws the notch with `height: notchH - gap`.
     readonly property int notchTopGap: Config.island ? Config.islandGap : 0
 
-    // Ningún panel puede ser más ancho que la pantalla donde sale. Los anchos de
-    // abajo se eligieron mirando ESTE portátil, donde caben de sobra (el más
-    // gordo, el centro de control, mide 1080 sobre 1920: 420 px de aire por
-    // lado). Pero son números fijos, y en una salida más estrecha el notch se
-    // saldría por los dos costados con el contenido cortado y sin ningún aviso.
-    // 48 px de respiro a cada lado; si no se sabe aún cuál es la pantalla, no se
-    // recorta nada, que es como se ha comportado hasta hoy.
+    // No panel can be wider than the screen it appears on. The widths below
+    // were chosen looking at THIS laptop, where they fit with room to spare (the
+    // fattest, the control centre, is 1080 on 1920: 420 px of air per side).
+    // But they are fixed numbers, and on a narrower output the notch would spill
+    // over both sides with its content cut off and no warning at all. 48 px of
+    // breathing room on each side; if the screen is not known yet, nothing is
+    // trimmed, which is how it has behaved until today.
     readonly property int notchW: Math.min(root.notchWWanted, root.maxNotchW)
     readonly property int maxNotchW: {
         const s = root.focusedScreen;
@@ -153,6 +242,17 @@ Singleton {
         : mode === "network" || mode === "bluetooth" ? 470
         : mode === "power" ? 520
         : mode === "calendar" ? 350
+        // 53 columns of 9 px with 2 of air = 581, plus the column of weekday
+        // initials and the margin. The whole year cannot get narrower without
+        // shrinking the square, and below 9 px you can no longer tell which is which.
+        : mode === "github" ? 640
+        // six columns (sprite, name, types, level, bar, actions)
+        // plus the margins: below 580 the row gets cramped. But 580 was
+        // also the CAP, and there was no reason for that: the pokédex has 1025
+        // creatures and at that width seven fit per row, so on a big monitor
+        // half the screen was wasted on extra scrolling.
+        : mode === "poke" ? root.pokeW
+        : mode === "evo" || mode === "shiny" ? 520
         : mode === "notif" ? 430
         : mode === "toast" ? 330
         : mode === "ws" ? 220
@@ -162,71 +262,126 @@ Singleton {
         : mode === "activity" ? 330
         : mode === "media" ? root.mediaW : root.idleW
 
+    // Width of the team panel: a floor of 580 -- what the team row needs so as
+    // not to get cramped -- and from there it grows with the screen. What is
+    // gained goes entirely to the pokédex grid, which is where it shows: at 580
+    // seven fit per row and at 760 ten fit. The cap exists so that on a wide
+    // monitor it does not turn into a bedsheet: a notch panel is still a panel,
+    // and beyond that the team row starts to have more air than content.
+    readonly property int pokeW: {
+        const s = root.focusedScreen;
+        const w = (s && s.width > 0) ? s.width : 1920;
+        return Math.max(580, Math.min(760, Math.round(w * 0.40)));
+    }
+
     readonly property int mediaW: 268
 
-    // Ancho del notch en su cara EN REPOSO: la hora sola, o la de música si hay
-    // algo sonando. Las caras PASAJERAS (paneles, OSD, el destello de cambio de
-    // canción, el mapa) no cuentan: esas sí tienen que tragarse la burbuja
-    // satélite y devolverla al encogerse, que es la metáfora.
+    // Width of the notch in its RESTING face: the time alone, or the music one
+    // if something is playing. The PASSING faces (panels, OSD, the song-change
+    // flash, the map) do not count: those really do have to swallow the
+    // satellite bubble and give it back as they shrink, which is the metaphor.
     //
-    // Antes esto era `idleW` a secas y la burbuja se quedaba debajo del notch
-    // durante toda la reproducción: con música puesta -o sea, casi siempre- una
-    // cuenta atrás corriendo era invisible.
+    // This used to be plain `idleW` and the bubble stayed under the notch for
+    // the whole of playback: with music on -i.e. nearly always- a running
+    // countdown was invisible.
     readonly property int restW: root.mediaLive ? root.mediaW : root.idleW
 
-    // El lanzador se ajusta a lo que hay: si buscas algo y salen tres apps, o si
-    // es una cuenta, el panel encoge hacia arriba en vez de dejar un hueco negro.
-    // LauncherPanel publica aquí cuántas filas tiene tras cada búsqueda.
+    // The launcher fits what there is: if you search for something and three apps
+    // come up, or it is a sum, the panel shrinks upwards instead of leaving a
+    // black hole. LauncherPanel publishes here how many rows it has after each search.
     property int launcherRows: 0
     property bool launcherCalc: false
-    // La fila de favoritos solo existe con el campo vacío, así que también entra
-    // y sale del alto del panel igual que la de la calculadora.
+    // The favourites row only exists with the field empty, so it too enters
+    // and leaves the panel's height just like the calculator's.
     property bool launcherFavs: false
 
-    // OJO con estas constantes: tienen que cuadrar EXACTAMENTE con los márgenes
-    // de LauncherPanel.qml. Si se quedan cortas, la lista recibe menos alto del
-    // que ocupan sus filas y la última se ve recortada por abajo.
-    //   4 (topMargin) + 50 (buscador) + 1 + 6 (separador) + 12 (margen inferior)
+    // CAREFUL with these constants: they have to match LauncherPanel.qml's margins
+    // EXACTLY. If they fall short, the list gets less height than its rows take
+    // up and the last one is clipped at the bottom.
+    //   4 (topMargin) + 50 (search box) + 1 + 6 (separator) + 12 (bottom margin)
     readonly property int launcherChrome: 73
-    // El alto de fila depende del MODO, y es el único que se sale de 48: una
-    // entrada del portapapeles enseña una miniatura de verdad, no un icono de
-    // 30 px, y a 48 las imágenes no se distinguían unas de otras.
+    // The row height depends on the MODE, and it is the only one that departs
+    // from 48: a clipboard entry shows a real thumbnail, not a 30 px icon, and at
+    // 48 the images could not be told apart.
     readonly property int launcherRowH: root.launcherMode === "clip" ? 60 : 48
-    readonly property int launcherCalcH: 62      // 56 de la fila + 6 de margen
-    readonly property int launcherFavH: 70       // 58 de la fila + 12 de margen
-    readonly property int launcherMaxRows: 7     // a partir de aquí, scroll
+    readonly property int launcherCalcH: 62      // 56 for the row + 6 of margin
+    readonly property int launcherFavH: 70       // 58 for the row + 12 of margin
+    readonly property int launcherMaxRows: 7     // beyond this, scrolling
 
     readonly property int launcherH: {
         const calc = root.launcherCalc ? root.launcherCalcH : 0;
         const favs = root.launcherFavs ? root.launcherFavH : 0;
         const rows = Math.min(root.launcherRows, root.launcherMaxRows) * root.launcherRowH;
         const vacio = (root.launcherRows === 0 && !root.launcherCalc) ? 46 : 0;  // "Sin resultados"
-        // El hueco del modo isla NO es alto útil: TopShell despega la píldora del
-        // borde con `height: nh - gap`, así que el contenido recibe islandGap menos
-        // de lo que pide este cálculo. Sin sumarlo aquí, la lista (fillHeight) se
-        // come el déficit y recorta la última fila justo por sus esquinas
-        // redondeadas — se ve sobre todo con un único resultado.
-        return root.launcherChrome + calc + favs + rows + vacio + root.notchTopGap;
+        // Island mode's gap is NOT usable height: TopShell lifts the pill off the
+        // edge with `height: nh - gap`, so the content gets islandGap less than
+        // this calculation asks for. Without adding it here, the list (fillHeight)
+        // swallows the shortfall and clips the last row right at its rounded
+        // corners — it shows most with a single result.
+        // The island gap is NO longer added here: notchH adds it for all the
+        // panel faces at once (see the carasDePanel block).
+        return root.launcherChrome + calc + favs + rows + vacio;
     }
 
-    // Config.idleW es el ancho para la hora SOLA. Si en Ajustes vuelves a
-    // encender la fecha o la batería, el notch se ensancha solo: si fuera un
-    // ancho fijo, al reactivarlas el contenido quedaría recortado.
+    // Config.idleW is the width for the time ALONE. If you turn the date or the
+    // battery back on in Settings, the notch widens by itself: with a fixed
+    // width, re-enabling them would leave the content clipped.
     readonly property int idleW: Config.idleW
         + (Config.showDate ? 92 : 0)
         + (Config.showBattery ? 64 : 0)
-    readonly property int notchH: mode === "launcher" ? launcherH
+    // Height of the pokémon team panel. It was a fixed 424 from when the list
+    // had as many rows as creatures you carried: with four there was a hole
+    // left over, and with a full team it falls SHORT -- the footer ended 3 px
+    // from the edge instead of the 16 the frame asks for, and everything looked
+    // cramped.
+    //
+    // Now the empty slots are drawn too, so the list ALWAYS measures `tamano`
+    // rows of 44. The 196 is everything around it, measured on the open panel:
+    // 18 of margin at the top, the header, the subtitle line, the badge strip,
+    // the footer with its separator and 16 of margin at the bottom, plus some
+    // breathing room between the last row and the footer.
+    //
+    // It is computed here and not in the panel for the same reason as the
+    // overview: the notch has to know how big it will be BEFORE the panel
+    // exists, because the shape morph starts on the same frame as the layer.
+    readonly property int pokeTeamH: 196 + 44 * Math.max(1, root.pokeTeam.tamano || 6)
+
+    // PANEL FACES ADD THE ISLAND GAP; NOTICE FACES DO NOT, AND IT IS NOT AN
+    // OVERSIGHT.
+    //
+    // TopShell draws the notch with `y: gap` and `height: nh - gap`, so the
+    // BOTTOM edge always lands at `nh` and the gap is eaten from the height. For
+    // a panel face that matters: it declares the height its content needs and
+    // without adding the gap it gets four pixels less -the control centre
+    // measured 522 where it declared 526-. For the notice faces and the resting
+    // one it is NOT added on purpose: there `nh` is the reserved band, and adding
+    // the gap would push the bottom edge OUT of the band, i.e. the notch would
+    // cover windows.
+    //
+    // Four faces added it by hand and seven had been left out (btpair,
+    // overview, control, system, network, bluetooth and power), with the comment
+    // next to them admitting it. It did not show today because those panels'
+    // fillHeight spacers swallowed the 4 px; it was an inconsistency waiting for
+    // someone to remove a spacer. Now there is a single list and it lives here,
+    // so adding a panel face does not rely on remembering.
+    readonly property var carasDePanel: ["launcher", "btpair", "overview", "control", "system",
+                                         "network", "bluetooth", "power", "calendar", "github",
+                                         "poke", "evo", "shiny"]
+    readonly property int notchGapDeCara: root.carasDePanel.indexOf(root.mode) >= 0 ? root.notchTopGap : 0
+
+    readonly property int notchH: root.notchBaseH + root.notchGapDeCara
+
+    readonly property int notchBaseH: mode === "launcher" ? launcherH
         : mode === "btpair" ? (btKind === "display" ? 96 : 112)
         : mode === "overview" ? ovH
         : mode === "control" ? 526
         : mode === "system" ? 420
         : mode === "network" || mode === "bluetooth" ? 412
         : mode === "power" ? 158
-        // +notchTopGap por lo mismo que el lanzador unas lineas mas arriba: en
-        // modo isla TopShell despega la pildora con `height: nh - gap`, asi que
-        // sin sumarlo se recortan los ultimos pixeles y la fila de abajo pierde
-        // el borde. Diego usa el notch en modo isla, o sea que esto se veia.
-        : mode === "calendar" ? 320 + root.notchTopGap
+        : mode === "calendar" ? 320
+        : mode === "github" ? 318
+        : mode === "poke" ? root.pokeTeamH
+        : mode === "evo" || mode === "shiny" ? 168
         : mode === "notif" ? 66
         : mode === "toast" ? 44
         : mode === "ws" ? 44
@@ -236,47 +391,46 @@ Singleton {
         : mode === "activity" ? 42
         : bandH
 
-    // ═══════════════════════ overview de escritorios ═══════════════════════
-    // La rejilla del overview (OverviewPanel.qml) se dimensiona SOLA a partir
-    // del monitor: cada celda es el área útil de la pantalla a escala. Está aquí
-    // y no en el panel porque el notch tiene que saber cuánto va a medir ANTES
-    // de que el panel exista — el morfeo de la forma empieza en el mismo
-    // fotograma que la capa.
+    // ═════════════════════════ workspace overview ══════════════════════════
+    // The overview grid (OverviewPanel.qml) sizes ITSELF from the monitor: each
+    // cell is the screen's usable area to scale. It is here and not in the
+    // panel because the notch has to know how big it will be BEFORE the panel
+    // exists — the shape morph starts on the same frame as the layer.
     //
-    // 5x2 no es un número bonito: son exactamente los diez escritorios que tiene
-    // atados hyprland.conf a Super+1..0. Si algún día hubiera doce, esto y los
-    // atajos tienen que cambiar a la vez o el mapa mentiría.
+    // 5x2 is not a pretty number: it is exactly the ten workspaces that
+    // hyprland.conf binds to Super+1..0. If one day there were twelve, this and
+    // the shortcuts have to change together or the map would lie.
     readonly property int ovCols: 5
     readonly property int ovRows: 2
     readonly property int ovCount: ovCols * ovRows
 
-    // La escala. 0.14 sale de una restricción real: 5 celdas + huecos + aire
-    // tienen que caber holgadas en 1920 px, y una celda por debajo de ~250 px de
-    // ancho ya no deja reconocer una ventana por su contenido, que es lo único
-    // que justifica capturar en vivo en vez de pintar iconos.
+    // The scale. 0.14 comes from a real constraint: 5 cells + gaps + air have
+    // to fit comfortably in 1920 px, and a cell below ~250 px wide no longer
+    // lets you recognise a window by its content, which is the only thing that
+    // justifies capturing live instead of painting icons.
     readonly property real ovScale: 0.14
-    readonly property real ovGap: 6          // hueco entre celdas
-    readonly property real ovPad: 14         // aire a los lados y por abajo
+    readonly property real ovGap: 6          // gap between cells
+    readonly property real ovPad: 14         // air at the sides and at the bottom
     readonly property real ovPadTop: 16
-    readonly property real ovFooterH: 24     // la franja con el título de la ventana señalada
+    readonly property real ovFooterH: 24     // the strip with the title of the pointed-at window
 
-    // Se descuenta la banda reservada (`reserved`), no el alto entero: las
-    // ventanas se colocan dentro del área ÚTIL, así que si la celda representara
-    // la pantalla completa todas saldrían desplazadas 32 px hacia arriba.
-    // Se busca por NOMBRE con el foco que ya tenemos sembrado (ver focusedMon,
-    // más abajo) en vez de fiarse de Hyprland.focusedMonitor: esa propiedad nace
-    // vacía y solo se rellena al primer evento, así que recién arrancada la shell
-    // el overview se dibujaba con el respaldo de 1920x1080. En este portátil no
-    // se notaba porque el panel MIDE 1920x1080; en una pantalla de otro tamaño
-    // las celdas salen con la proporción equivocada y las miniaturas no
-    // coinciden con las ventanas de verdad.
+    // The reserved band (`reserved`) is subtracted, not the whole height: windows
+    // are placed inside the USABLE area, so if the cell stood for the full screen
+    // they would all come out shifted 32 px upwards.
+    // It is looked up by NAME with the focus we already have seeded (see
+    // focusedMon, further down) instead of trusting Hyprland.focusedMonitor: that
+    // property is born empty and is only filled on the first event, so with the
+    // shell freshly started the overview was drawn with the 1920x1080 fallback.
+    // On this laptop it went unnoticed because the panel MEASURES 1920x1080; on
+    // a screen of another size the cells come out with the wrong proportion and
+    // the thumbnails do not match the real windows.
     readonly property var ovMon: {
         const ms = Hyprland.monitors ? Hyprland.monitors.values : [];
         for (let i = 0; i < ms.length; i++)
             if (ms[i] && ms[i].name === root.focusedMon) return ms[i].lastIpcObject;
         return Hyprland.focusedMonitor ? Hyprland.focusedMonitor.lastIpcObject : null;
     }
-    // Y si ni siquiera eso, la pantalla de Quickshell antes que un número fijo.
+    // And if not even that, Quickshell's screen rather than a fixed number.
     readonly property real ovMonW: (ovMon && ovMon.width) ? ovMon.width
         : (root.focusedScreen ? root.focusedScreen.width : 1920)
     readonly property real ovMonH: (ovMon && ovMon.height) ? ovMon.height
@@ -289,11 +443,11 @@ Singleton {
     readonly property int ovW: Math.round(ovGridW + 2 * ovPad)
     readonly property int ovH: Math.round(ovPadTop + ovGridH + ovFooterH + ovPad)
 
-    // ═══════════════════════ reloj ═══════════════════════
+    // ═══════════════════════ clock ═══════════════════════
     property var now: new Date()
     Timer { interval: 1000; running: true; repeat: true; onTriggered: root.now = new Date() }
 
-    // ═══════════════════════ ventana activa ═══════════════════════
+    // ═══════════════════════ active window ════════════════════════
     readonly property var activeToplevel: ToplevelManager.activeToplevel
     readonly property bool fullscreen: activeToplevel ? activeToplevel.fullscreen : false
     readonly property string appName: {
@@ -308,19 +462,54 @@ Singleton {
         const ps = Mpris.players.values;
         if (!ps || ps.length === 0) return null;
         for (let i = 0; i < ps.length; i++) if (ps[i].isPlaying) return ps[i];
-        // Con todo en pausa mandaba el primero de la lista, y ese suele ser una
-        // sesión de medios del navegador que ya no tiene nada cargado: el panel
-        // decía "Sin reproducción" con Spotify ahí al lado, con su canción
-        // puesta y en pausa, y los botones no controlaban nada.
+        // With everything paused the first in the list won, and that is usually
+        // a browser media session with nothing loaded any more: the panel said
+        // "Sin reproducción" (Nothing playing) with Spotify right beside it, its
+        // song loaded and paused, and the buttons controlled nothing.
         for (let i = 0; i < ps.length; i++) if (ps[i].trackTitle) return ps[i];
         return ps[0];
     }
 
-    // El acento de música nace de la carátula, no del fondo. ColorQuantizer es
-    // asíncrono: mientras llega una paleta nueva conserva el acento anterior y,
-    // si no hay imagen o la portada es prácticamente gris, vuelve a pywal.
-    // Se normaliza la luminosidad porque el color se usa sobre fondos oscuros:
-    // un tono fiel pero casi negro no serviría para una barra de 4 px.
+    // ─────────── who may change the notch's face? ───────────
+    //
+    // Any video in a tab registers its MPRIS session just like Spotify, so the
+    // notch widened to 268, hid the date and the battery and flashed for 4.2 s
+    // for anything that made a sound in the browser. For Spotify that is fine;
+    // for a background video, it is a nuisance.
+    //
+    // CAREFUL: this does NOT take the browser out of the player. `player` still
+    // returns it and the music panel still shows it, which is what lets you
+    // pause it from there. All it loses is ruling the notch's face at REST.
+    //
+    // All three fields are checked because each browser fills in different
+    // ones: Chromium publishes `org.mpris.MediaPlayer2.chromium.instance<pid>`
+    // and on some versions leaves `desktopEntry` empty, while others can only
+    // be told apart by `identity`.
+    readonly property var browserHints: ["chrome", "chromium", "brave", "edge",
+                                         "opera", "vivaldi", "firefox"]
+    function isBrowser(p) {
+        if (!p) return false;
+        const campos = [p.dbusName, p.desktopEntry, p.identity];
+        for (let i = 0; i < campos.length; i++) {
+            const v = String(campos[i] || "").toLowerCase();
+            if (v.length === 0) continue;
+            for (let j = 0; j < root.browserHints.length; j++)
+                if (v.indexOf(root.browserHints[j]) >= 0) return true;
+        }
+        return false;
+    }
+
+    // "Hay reproductor Y tiene derecho a cambiar la cara del notch."
+    // ("There is a player AND it has the right to change the notch's face.")
+    readonly property bool mediaDrives: root.player !== null
+        && (Config.browserMedia || !root.isBrowser(root.player))
+
+    // The music accent is born from the cover art, not the wallpaper.
+    // ColorQuantizer is asynchronous: while a new palette arrives it keeps the
+    // previous accent and, if there is no image or the cover is practically grey,
+    // it falls back to pywal. The lightness is normalised because the colour is
+    // used on dark backgrounds: a faithful but almost black tone would be no use
+    // for a 4 px bar.
     readonly property string mediaArtUrl: (player && player.trackArtUrl)
         ? String(player.trackArtUrl) : ""
     ColorQuantizer {
@@ -352,7 +541,7 @@ Singleton {
         let best = null, bestScore = -100;
         for (let i = 0; i < cs.length; i++) {
             const hsl = root.mediaHsl(cs[i]);
-            // Premia color y legibilidad; penaliza blancos y negros de portada.
+            // Rewards colour and legibility; penalises cover whites and blacks.
             const score = hsl.s * 1.75 - Math.abs(hsl.l - 0.56) * 1.35
                 - (hsl.l < 0.12 || hsl.l > 0.90 ? 1.5 : 0) + (i === 0 ? 0.04 : 0);
             if (score > bestScore) { bestScore = score; best = hsl; }
@@ -368,8 +557,8 @@ Singleton {
         interval: 500; repeat: true; running: root.player !== null && (root.open || root.mediaLive)
         onTriggered: root.pos = (root.player && root.player.positionSupported) ? root.player.position : 0
     }
-    // Solo la primera letra. Font.Capitalize de Qt capitaliza TODAS las palabras
-    // y en español deja cosas como "Martes, 4 De Agosto".
+    // Only the first letter. Qt's Font.Capitalize capitalises EVERY word
+    // and in Spanish leaves things like "Martes, 4 De Agosto".
     function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ""; }
 
     function fmt(sec) {
@@ -377,11 +566,94 @@ Singleton {
         const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
         return m + ":" + (s < 10 ? "0" + s : s);
     }
+    // The song-change flash does NOT hang off `mediaLive`, so it has to be
+    // filtered separately: without `mediaDrives`, the notch would keep opening
+    // to 400 px for 4.2 s every time the browser changed video, which is
+    // exactly what we want to avoid.
     Connections {
         target: root.player
         ignoreUnknownSignals: true
-        function onTrackTitleChanged() { if (root.armed && root.player && root.player.trackTitle) root.flash("track"); }
-        function onIsPlayingChanged() { if (root.armed && root.player && root.player.isPlaying) root.flash("track"); }
+        function onTrackTitleChanged() {
+            if (root.armed && root.mediaDrives && root.player && root.player.trackTitle) root.flash("track");
+            root.recordarTema();
+        }
+        function onIsPlayingChanged() { if (root.armed && root.mediaDrives && root.player && root.player.isPlaying) root.flash("track"); }
+    }
+
+    // ══════════════════ whatever played last ══════════════════
+    // When the player closes, MPRIS ceases to exist and the left column of the
+    // control centre was left as 260x486 px saying "Sin reproducción" (Nothing
+    // playing) inside an empty circle. Remembering the last track keeps that
+    // column telling you something, and above all lets you GO BACK to what you
+    // were listening to, which is the only thing you can really ask of it there.
+    //
+    // It goes to disk and not just to memory because the shell reloads every
+    // time a .qml is touched, and a "last thing" that is forgotten on every
+    // reload is not the last of anything.
+    property string ultimoTitulo: ""
+    property string ultimoArtista: ""
+    property string ultimoArte: ""
+    property string ultimoAppId: ""
+    readonly property bool hayUltimo: root.player === null && root.ultimoTitulo.length > 0
+
+    FileView {
+        id: ultimoFile
+        path: root.home + "/.cache/quickshell/ultimo-tema.json"
+        // watchChanges is NOT optional even though nobody is going to touch the
+        // file from outside: without it, FileView does not even do the INITIAL read
+        // and onLoaded never fires. No errors and no warnings -- it just stays
+        // empty, which is what this panel did until it was discovered.
+        watchChanges: true
+        onFileChanged: reload()
+        printErrors: false      // the first time it does not exist, and that is not a failure
+        onLoaded: {
+            try {
+                const d = JSON.parse(ultimoFile.text());
+                root.ultimoTitulo = d.titulo || "";
+                root.ultimoArtista = d.artista || "";
+                root.ultimoArte = d.arte || "";
+                root.ultimoAppId = d.app || "";
+            } catch (e) {
+                // Same rule as the team and github: with rubbish, touch
+                // nothing. An invented "last track" is worse than none.
+            }
+        }
+    }
+
+    function recordarTema(): void {
+        const p = root.player;
+        if (!p || !p.trackTitle)
+            return;
+        root.ultimoTitulo = p.trackTitle;
+        root.ultimoArtista = p.trackArtist || "";
+        root.ultimoArte = p.trackArtUrl ? String(p.trackArtUrl) : "";
+        root.ultimoAppId = p.desktopEntry || "";
+        ultimoFile.setText(JSON.stringify({
+            titulo: root.ultimoTitulo,
+            artista: root.ultimoArtista,
+            arte: root.ultimoArte,
+            app: root.ultimoAppId
+        }));
+    }
+
+    // It is also remembered when a player APPEARS, not only on a song change:
+    // if you open the player and close it without skipping a track, without this
+    // nothing would have been saved.
+    onPlayerChanged: if (root.player) root.recordarTema()
+
+    // The app that was playing it, if it is still installed. It is compared
+    // without the trailing ".desktop" because MPRIS gives it sometimes with it
+    // and sometimes without.
+    readonly property var ultimaApp: {
+        if (!root.ultimoAppId.length)
+            return null;
+        const pela = s => String(s || "").toLowerCase().replace(/\.desktop$/, "");
+        const id = pela(root.ultimoAppId);
+        const vs = DesktopEntries.applications ? DesktopEntries.applications.values : [];
+        for (let i = 0; i < vs.length; i++)
+            if (pela(vs[i].id) === id)
+                return vs[i];
+        return null;
     }
 
     // ═══════════════════════ audio (Pipewire) ═══════════════════════
@@ -390,8 +662,45 @@ Singleton {
     readonly property int vol: (sink && sink.audio) ? Math.round(sink.audio.volume * 100) : 0
     readonly property bool muted: (sink && sink.audio) ? sink.audio.muted : false
 
-    onVolChanged: if (armed) flash("volume")
-    onMutedChanged: if (armed) flash("volume")
+    // THE OSD MUST NOT APPEAR BECAUSE OF AN OUTPUT CHANGE.
+    //
+    // `vol` is derived from `sink`, so plugging in headphones, switching off the
+    // radio or choosing another output in Settings made `vol` jump without
+    // anybody having touched the volume, and an OSD you had not asked for
+    // appeared.
+    //
+    // Listening to onSinkChanged and lowering a flag is not enough: the order in
+    // which QML notifies `sink` and the `vol` that depends on it is not
+    // guaranteed, and if `vol` arrived first the notice would appear anyway.
+    // Comparing the sink against the last one we saw makes the result
+    // independent of the order. The grace window covers the burst of changes
+    // that arrives while the new output settles. It is what impasto calls
+    // suppressAudio() (OsdService.qml:33-35, called from
+    // ControlsService.qml:164-165).
+    property var _sinkVisto: null
+    Timer { id: sinkGracia; interval: 500 }
+
+    // The two paths, and both are needed. This one seeds the reference as soon
+    // as the output changes, so that the FIRST volume change after a shell
+    // reload does not swallow the notice. And the comparison in _audioEsTuyo()
+    // is the safety net in case QML notified `vol` before `sink`, which is an
+    // order that is not guaranteed.
+    onSinkChanged: {
+        root._sinkVisto = root.sink;
+        sinkGracia.restart();
+    }
+
+    function _audioEsTuyo() {
+        if (root.sink !== root._sinkVisto) {
+            root._sinkVisto = root.sink;
+            sinkGracia.restart();
+            return false;
+        }
+        return !sinkGracia.running;
+    }
+
+    onVolChanged: if (armed && _audioEsTuyo()) flash("volume")
+    onMutedChanged: if (armed && _audioEsTuyo()) flash("volume")
 
     function setVolume(pct) {
         if (!sink || !sink.audio) return;
@@ -400,27 +709,33 @@ Singleton {
     }
     function nudgeVolume(dir) {
         if (!sink || !sink.audio) return;
+        // Unmutes, same as setVolume. Without this, the wheel over the notch
+        // with the sound muted left the bar pinned at 0 while the real level
+        // climbed behind its back up to 140%: you unmuted and got slapped in
+        // the face. Moving the volume IS asking to hear.
+        sink.audio.muted = false;
         sink.audio.volume = Math.max(0, Math.min(1.4, sink.audio.volume + dir * 0.02));
     }
     function toggleMute() { if (sink && sink.audio) sink.audio.muted = !sink.audio.muted; }
 
-    // ═══════════════════ rueda horizontal sobre el notch ═══════════════════
-    // La idea viene de Tide-island (deslizar sobre la isla hace algo), pero allí
-    // el gesto cambia de CARA y aquí eso no cabe: en este shell cada cara sale
-    // de un estado o de un botón concreto, no de un carrusel. Lo que sí sobraba
-    // era el eje horizontal, que no hacía nada. Ahora cambia de escritorio.
+    // ═══════════════════ horizontal wheel over the notch ═══════════════════
+    // The idea comes from Tide-island (swiping over the island does something),
+    // but there the gesture changes FACE and here that does not fit: in this
+    // shell each face comes from a specific state or button, not from a
+    // carousel. What was going spare was the horizontal axis, which did
+    // nothing. Now it changes workspace.
     //
-    // Dos detalles que lo separan de "restar y sumar uno":
+    // Two details that set it apart from "subtract and add one":
     //
-    // · SE ACUMULA. Un panel táctil no manda un evento por gesto, manda una
-    //   ráfaga de decenas; sin acumular, un arrastre corto te cruzaría los diez
-    //   escritorios de golpe. 120 es el equivalente a una muesca de rueda, que es
-    //   la unidad que Qt usa para "un paso".
+    // · IT ACCUMULATES. A touchpad does not send one event per gesture, it sends
+    //   a burst of dozens; without accumulating, a short drag would take you
+    //   across all ten workspaces at once. 120 is the equivalent of one wheel
+    //   notch, which is the unit Qt uses for "one step".
     //
-    // · VA A `e+1`, NO A `id+1`. Es exactamente lo mismo que hace la rueda
-    //   vertical con Super en hyprland.lua: salta al siguiente escritorio que
-    //   EXISTE. Sumar al id te metería en escritorios vacíos que no habías
-    //   creado, y el mapa del overview los enseña de todas formas.
+    // · IT GOES TO `e+1`, NOT TO `id+1`. It is exactly what the vertical wheel
+    //   with Super does in hyprland.lua: it jumps to the next workspace that
+    //   EXISTS. Adding to the id would drop you into empty workspaces you had
+    //   not created, and the overview map shows them anyway.
     property real wsAccum: 0
     Timer { id: wsAccumReset; interval: 350; onTriggered: root.wsAccum = 0 }
 
@@ -430,40 +745,41 @@ Singleton {
         while (Math.abs(root.wsAccum) >= 120) {
             const dir = root.wsAccum > 0 ? 1 : -1;
             root.wsAccum -= dir * 120;
-            // `e+1` va ENTRECOMILLADO. Desde 0.55 el argumento de `dispatch` es
-            // una expresión Lua (ver la nota larga en OverviewPanel.qml), y ahí
-            // el destino del escritorio es de dos tipos según lo que pidas: un
-            // número suelto para "vete al 3", pero una CADENA para los destinos
-            // simbólicos como `e+1`. Sin las comillas, Lua lee `e` como una
-            // variable que no existe y revienta con error de sintaxis.
+            // `e+1` goes IN QUOTES. Since 0.55 the argument to `dispatch` is
+            // a Lua expression (see the long note in OverviewPanel.qml), and
+            // there the workspace target is of two kinds depending on what you
+            // ask for: a bare number for "go to 3", but a STRING for symbolic
+            // targets such as `e+1`. Without the quotes, Lua reads `e` as a
+            // variable that does not exist and blows up with a syntax error.
             Hyprland.dispatch('hl.dsp.focus({ workspace = "e' + (dir > 0 ? "+1" : "-1") + '" })');
-            // El destello se pide YA, sin esperar a que Hyprland conteste: la
-            // cara lee el escritorio activo con un binding vivo, así que si el
-            // primer fotograma llega con el número viejo se corrige solo en el
-            // siguiente, y eso pasa dentro de la propia animación de entrada.
+            // The flash is requested AT ONCE, without waiting for Hyprland to
+            // answer: the face reads the active workspace through a live binding,
+            // so if the first frame arrives with the old number it corrects
+            // itself on the next one, and that happens inside the entry
+            // animation itself.
             root.flash("ws");
         }
     }
 
     readonly property int activeWs: Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : 1
 
-    // ─────────────── monitor con el foco ───────────────
-    // Con varias pantallas, la barra se dibuja en TODAS pero los paneles y los
-    // overlays salen solo en esta. Nombre de la salida, p. ej. "eDP-1".
+    // ───────────────── focused monitor ─────────────────
+    // With several screens, the bar is drawn on ALL of them but the panels and
+    // the overlays appear only on this one. Name of the output, e.g. "eDP-1".
     //
-    // NO se usa Hyprland.focusedMonitor: en Quickshell 0.3.0 esa propiedad nace
-    // vacía —igual que focusedWorkspace y que monitor.focused— y solo se rellena
-    // cuando llega el primer evento. Recién arrancada la shell no sabría dónde
-    // está el foco hasta que cambiases de monitor a mano, y hasta entonces los
-    // paneles no aparecerían en ninguna parte. Comprobado con instancias de
-    // prueba: ni refreshMonitors() ni refreshWorkspaces() la siembran. Así que se
-    // pregunta una vez a hyprctl y a partir de ahí mandan los eventos.
+    // Hyprland.focusedMonitor is NOT used: in Quickshell 0.3.0 that property is
+    // born empty —like focusedWorkspace and monitor.focused— and is only filled
+    // when the first event arrives. With the shell freshly started it would not
+    // know where the focus is until you changed monitor by hand, and until then
+    // the panels would not appear anywhere. Checked with test instances:
+    // neither refreshMonitors() nor refreshWorkspaces() seeds it. So hyprctl is
+    // asked once and from then on the events rule.
     property string focusedMon: ""
 
-    // La misma idea pero como objeto de pantalla, que es lo que piden las
-    // superficies sueltas (picker de wallpaper, controles de medios) para salir
-    // solo donde estas mirando. Si aun no se sabe el foco, la primera pantalla:
-    // mas vale que salga en algun sitio que en ninguno.
+    // The same idea but as a screen object, which is what the loose surfaces
+    // (wallpaper picker, media controls) ask for in order to appear only where
+    // you are looking. If the focus is not known yet, the first screen: better
+    // that it appears somewhere than nowhere.
     readonly property var focusedScreen: {
         const ss = Quickshell.screens;
         for (let i = 0; i < ss.length; i++)
@@ -484,97 +800,120 @@ Singleton {
     function reseedMonitor(): void { monSeed.running = false; monSeed.running = true; }
     Component.onCompleted: root.reseedMonitor()
 
+    // One pass per burst of events, and with some slack: plugging in a screen
+    // emits several events in a row, and awww needs the output to exist to be
+    // able to paint it. The script does nothing if no output is blank, which is
+    // the case for nearly every trigger.
+    Timer {
+        id: awwwHotplug
+        interval: 700
+        onTriggered: Quickshell.execDetached([root.home + "/.config/hypr/awww-hotplug.sh"])
+    }
+
     Connections {
         target: Hyprland
         function onRawEvent(ev) {
             const n = String(ev.name);
             if (n === "focusedmon" || n === "focusedmonv2") {
-                // data = "NOMBRE,workspace" (v2 manda el id del workspace)
+                // data = "NAME,workspace" (v2 sends the workspace id)
                 const m = String(ev.data).split(",")[0].trim();
                 if (m !== "") root.focusedMon = m;
             } else if (n.indexOf("monitor") === 0) {
-                // monitoradded / monitorremoved / sus v2: cambió la lista de
-                // salidas, así que hay que volver a preguntar quién tiene el foco.
+                // monitoradded / monitorremoved / their v2s: the list of
+                // outputs changed, so we have to ask again who has the focus.
                 root.reseedMonitor();
+                // And the screen that has just come in needs a wallpaper. awww does
+                // NOT repaint a reconnected output, and on purpose: its installed
+                // README (0.12.1, :187-197) says they removed that and that
+                // "you should use a program that lets you run commands when a
+                // new output is connected". Here was the gap: a grep for awww over
+                // ~/.config/quickshell did not return A SINGLE line, and the only
+                // thing that knew how to do it -awww-start.sh- hangs off
+                // hl.on("hyprland.start"), which does not repeat during the session.
+                // It is the same as impasto's WallpaperService.qml:91-108.
+                awwwHotplug.restart();
             }
         }
     }
 
-    // ─────────────── espectro de audio (cava) ───────────────
-    // Las barritas del notch. Antes esto era un PwNodePeakMonitor: UN solo
-    // número (el pico global del sink) que se iba desplazando por el array. Eso
-    // no es un espectro, es la misma señal repetida 14 veces —todas las barras
-    // subían y bajaban juntas— y como el pico en lineal casi siempre roza 1, se
-    // quedaban clavadas al techo (efecto código de barras). Peor: onPeakChanged
-    // solo salta cuando el valor CAMBIA, así que en un tramo comprimido dejaba
-    // de llegar señal y las barras se CONGELABAN.
+    // ──────────────── audio spectrum (cava) ─────────────────
+    // The notch's little bars. This used to be a PwNodePeakMonitor: ONE single
+    // number (the sink's global peak) shifted along the array. That is not a
+    // spectrum, it is the same signal repeated 14 times —all the bars rose and
+    // fell together— and since the linear peak nearly always brushes 1, they
+    // stayed pinned to the ceiling (barcode effect). Worse: onPeakChanged only
+    // fires when the value CHANGES, so in a compressed stretch the signal
+    // stopped arriving and the bars FROZE.
     //
-    // cava sí hace FFT: da `bands` valores independientes por frame, de graves
-    // a agudos, y con su propio autosens (música baja llena igual, música alta
-    // no satura). Salida "raw" en ascii, una línea por frame: "0;312;…;\n".
-    // La configuración vive en scripts/cava.conf.
-    // Pocas y gruesas. Con 14 la tira se leía como una trama de rayas en vez
-    // de como un ecualizador: a 2,5 px de ancho no se distingue una barra de
-    // su vecina. Si cambias esto, cambia `bars` en scripts/cava.conf.
+    // cava does do an FFT: it gives `bands` independent values per frame, from
+    // bass to treble, and with its own autosens (quiet music fills just the
+    // same, loud music does not saturate). "raw" output in ascii, one line per
+    // frame: "0;312;…;\n". The configuration lives in scripts/cava.conf.
+    // Few and thick. With 14 the strip read as a pattern of stripes rather than
+    // as an equaliser: at 2.5 px wide you cannot tell one bar from its
+    // neighbour. If you change this, change `bars` in scripts/cava.conf.
     readonly property int bands: 8
 
-    // POR QUÉ NO SE PINTA EL VALOR DE CAVA TAL CUAL. Porque los valores de cava
-    // PEGAN SALTOS: una misma banda va de 2 a 1000 y vuelve en un puñado de
-    // fotogramas. Pintar eso directamente no es un ecualizador, es un
-    // estroboscopio — y era exactamente el temblor que se veía. Medido grabando
-    // el notch a 60 fps y midiendo las barras PINTADAS:
+    // WHY CAVA'S VALUE IS NOT PAINTED AS IT COMES. Because cava's values JUMP:
+    // a single band goes from 2 to 1000 and back in a handful of frames.
+    // Painting that directly is not an equaliser, it is a strobe — and it was
+    // exactly the jitter you could see. Measured by recording the notch at 60
+    // fps and measuring the PAINTED bars:
     //
-    //                            salto máximo   tirones
-    //   pintando el valor tal cual   16,7 px     0,200
-    //   con este seguidor             1,3 px     0,079
+    //                             max jump   jerks
+    //   painting the raw value     16.7 px   0.200
+    //   with this follower          1.3 px   0.079
     //
-    // Así que cava solo pone el OBJETIVO, y quien MUEVE la barra es el reloj de
-    // la pantalla: un FrameAnimation que en cada fotograma la acerca un poco,
-    // según el tiempo REAL transcurrido (frameTime). Es lo que hace caelestia
-    // (Internal/visualiserbars.cpp: alpha = 1 - exp(-dt/tau)), de donde viene la
-    // arquitectura de esta barra.
+    // So cava only sets the TARGET, and what MOVES the bar is the screen's
+    // clock: a FrameAnimation that on every frame brings it a little closer,
+    // according to the REAL time elapsed (frameTime). It is what caelestia does
+    // (Internal/visualiserbars.cpp: alpha = 1 - exp(-dt/tau)), which is where
+    // this bar's architecture comes from.
     //
-    // Exponencial a propósito: avanzar una FRACCIÓN de lo que falta no da saltos
-    // ni frenazos —la velocidad es continua— y al ir ligado al tiempo real da
-    // igual que se pierda un fotograma: la barra está siempre donde le toca.
+    // Exponential on purpose: advancing a FRACTION of what is left gives no
+    // jumps or sudden stops —the speed is continuous— and being tied to real
+    // time it does not matter if a frame is dropped: the bar is always where it
+    // should be.
     //
-    // Lo que NO funciona, probado y medido: suavizar en cava (noise_reduction),
-    // suavizar el valor recibido, o cuantizar la altura en escalones. Todo eso
-    // toca los NÚMEROS, y lo que tiene que ser continuo es el MOVIMIENTO.
+    // What does NOT work, tried and measured: smoothing in cava
+    // (noise_reduction), smoothing the received value, or quantising the height
+    // into steps. All of that touches the NUMBERS, and what has to be
+    // continuous is the MOTION.
     //
-    // SUBE RÁPIDO Y BAJA DESPACIO, como un vúmetro. Con una sola constante para
-    // los dos sentidos la barra se DESPLOMA tan deprisa como sube: a tau 35 se
-    // come el 38% de lo que le falta en cada fotograma, así que un pico se
-    // deshace en tres fotogramas (~50 ms). Eso no se lee como una barra que
-    // baja, se lee como una barra que se apaga — un parpadeo.
+    // IT RISES FAST AND FALLS SLOWLY, like a VU meter. With a single constant
+    // for both directions the bar COLLAPSES as fast as it rises: at tau 35 it
+    // eats 38% of what is left on every frame, so a peak comes apart in three
+    // frames (~50 ms). That does not read as a bar going down, it reads as a
+    // bar switching off — a blink.
     //
-    // Separando ataque y caída, el golpe sigue llegando igual de seco (es lo que
-    // marca el ritmo) pero el regreso es un deslizamiento de ~1/3 de segundo,
-    // que es tiempo de sobra para que el ojo lo siga como movimiento continuo.
+    // With attack and decay separated, the hit still lands just as crisply
+    // (it is what marks the rhythm) but the return is a glide of ~1/3 of a
+    // second, which is plenty of time for the eye to follow it as continuous
+    // motion.
     //
-    // tau = ms que tarda en comerse el 63% de lo que le falta. Más bajo = más
-    // pegado a la música y más nervioso; más alto = más suave y más perezoso.
-    // La caída no puede pasar de ~150: por encima, dos golpes seguidos de un
-    // bombo a 120 bpm se solapan y la barra deja de marcar el compás.
-    readonly property int cavaSube: 32    // ataque
-    readonly property int cavaBaja: 110   // caída
+    // tau = ms it takes to eat 63% of what is left. Lower = more glued to the
+    // music and more nervous; higher = smoother and lazier. The decay cannot go
+    // above ~150: beyond that, two consecutive kick-drum hits at 120 bpm
+    // overlap and the bar stops marking the beat.
+    readonly property int cavaSube: 32    // attack
+    readonly property int cavaBaja: 110   // decay
 
-    property var cavaTarget: new Array(bands).fill(0)   // lo que dice cava
-    property var levels: new Array(bands).fill(0)       // lo que se pinta
+    property var cavaTarget: new Array(bands).fill(0)   // what cava says
+    property var levels: new Array(bands).fill(0)       // what gets painted
     property bool cavaQuieto: true
 
     FrameAnimation {
-        // Sigue corriendo tras parar la música hasta que las barras han bajado
-        // del todo: así se deslizan hasta el suelo en vez de desaparecer de golpe.
+        // Keeps running after the music stops until the bars have come down
+        // completely: that way they glide to the floor instead of vanishing at once.
         running: cavaProc.running || !root.cavaQuieto
         onTriggered: {
-            // smoothFrameTime y no frameTime: el hueco real entre fotogramas
-            // fluctúa (16,7 · 12 · 21 · 16…), y como el paso del seguidor se
-            // calcula con ese hueco, usar el crudo hace que la barra avance a
-            // trompicones aunque la señal sea perfecta. Qt promedia esa medida
-            // justo para esto; el error de posición que introduce se corrige
-            // solo en el fotograma siguiente, porque el seguidor persigue el
-            // objetivo, no acumula.
+            // smoothFrameTime and not frameTime: the real gap between frames
+            // fluctuates (16.7 · 12 · 21 · 16…), and since the follower's step
+            // is computed from that gap, using the raw one makes the bar advance
+            // in fits and starts even when the signal is perfect. Qt averages
+            // that measurement precisely for this; the position error it
+            // introduces corrects itself on the next frame, because the follower
+            // chases the target, it does not accumulate.
             const dt = smoothFrameTime * 1000;
             const aSube = 1 - Math.exp(-dt / root.cavaSube);
             const aBaja = 1 - Math.exp(-dt / root.cavaBaja);
@@ -594,16 +933,16 @@ Singleton {
         }
     }
 
-    // Enciende y apaga cava con la música, y lo RESUCITA si se muere.
+    // Starts and stops cava with the music, and BRINGS IT BACK if it dies.
     //
-    // Aquí NO se pone `running: root.mediaLive`, que es lo natural y estuvo así
-    // hasta el 7-ago-2026: cuando el proceso muere (se cae, o alguien lo mata),
-    // quickshell escribe running=false, y esa escritura ROMPE el binding. A
-    // partir de ahí cava no vuelve a arrancar nunca —ni recargando la config— y
-    // el visualizador se queda con las ocho barras planas aunque suene música.
-    // Se gobierna a mano: el temporizador reafirma el estado cada 3 s, así que
-    // como mucho tarda eso en levantarse solo. triggeredOnStart = arranca ya al
-    // empezar a sonar, sin esperar al primer tic.
+    // `running: root.mediaLive` is NOT used here, which is the natural thing and
+    // was so until 7 Aug 2026: when the process dies (it crashes, or someone
+    // kills it), quickshell writes running=false, and that write BREAKS the
+    // binding. From then on cava never starts again —not even reloading the
+    // config— and the visualiser is left with eight flat bars even though music
+    // is playing. It is driven by hand: the timer reasserts the state every 3 s,
+    // so at most it takes that long to get back up by itself. triggeredOnStart
+    // = it starts at once when playback begins, without waiting for the first tick.
     Timer {
         interval: 3000
         repeat: true
@@ -622,20 +961,20 @@ Singleton {
                 const out = new Array(root.bands);
                 for (let i = 0; i < root.bands; i++) {
                     const v = Math.max(0, Math.min(1, (+parts[i] || 0) / 1000));
-                    // Gamma: en lineal los agudos son tan pequeños al lado de
-                    // los graves que en 18px de alto no se verían moverse.
+                    // Gamma: in linear the treble is so small next to the
+                    // bass that at 18px tall you would not see it move.
                     out[i] = Math.pow(v, 0.6);
                 }
-                root.cavaTarget = out;   // solo el objetivo; mover es del FrameAnimation
+                root.cavaTarget = out;   // only the target; moving is the FrameAnimation's job
                 root.cavaQuieto = false;
             }
         }
-        // Al pausar, cava muere y el objetivo se quedaría con la última foto:
-        // barras a media altura durante todo el fundido de salida.
+        // On pause, cava dies and the target would keep the last snapshot:
+        // bars at half height through the whole fade-out.
         onRunningChanged: if (!running) root.cavaTarget = new Array(root.bands).fill(0)
     }
 
-    // ═══════════════════════ brillo ═══════════════════════
+    // ═════════════════════ brightness ═════════════════════
     property int bright: -1
     Process {
         id: brightProc
@@ -646,13 +985,13 @@ Singleton {
             }
         }
     }
-    // `-c backlight` en TODAS las llamadas, y no por gusto: sin clase,
-    // brightnessctl recorre backlight y luego leds, y se queda con la primera
-    // que tenga algo. En un equipo sin panel interno no hay backlight, o sea
-    // que las teclas XF86MonBrightness acabarian encendiendo y apagando el LED
-    // de bloq-mayus y el OSD del notch te ensenaria ese 0/100 como si fuera el
-    // brillo de la pantalla. Con la clase fijada no hay dispositivo, no hay
-    // salida, no hay destello: la tecla no hace nada, que es la verdad.
+    // `-c backlight` on EVERY call, and not for the sake of it: without a class,
+    // brightnessctl walks backlight and then leds, and settles on the first one
+    // that has something. On a machine with no internal panel there is no
+    // backlight, so the XF86MonBrightness keys would end up switching the
+    // caps-lock LED on and off and the notch OSD would show you that 0/100 as
+    // if it were the screen brightness. With the class pinned there is no
+    // device, no output, no flash: the key does nothing, which is the truth.
     function stepBrightness(dir) {
         brightProc.command = ["bash", "-c",
             "brightnessctl -c backlight -m set 5%" + (dir === "down" ? "-" : "+") +
@@ -660,20 +999,20 @@ Singleton {
         brightProc.running = false;
         brightProc.running = true;
     }
-    // El 0 es alcanzable A PROPÓSITO (pantalla apagada del todo): no hay suelo
-    // en 1, solo se recorta al rango válido. brightnessctl también llega a 0
-    // por su cuenta con las teclas (5%- se queda en el raw 0, verificado).
+    // 0 is reachable ON PURPOSE (screen fully off): there is no floor at 1, it is
+    // only clamped to the valid range. brightnessctl also reaches 0 on its own
+    // with the keys (5%- stays at raw 0, verified).
     function setBrightness(pct) {
-        // Sin panel no hay nada que mover, y sin este guardia el slider (que ya
-        // no se dibuja, pero la funcion sigue siendo publica) escribiria sobre
-        // el primer LED que encontrase.
+        // With no panel there is nothing to move, and without this guard the
+        // slider (no longer drawn, but the function is still public) would write
+        // to the first LED it found.
         if (root.bright < 0) return;
         const v = Math.max(0, Math.min(100, Math.round(pct)));
         Quickshell.execDetached(["brightnessctl", "-c", "backlight", "-q", "set", v + "%"]);
         root.bright = v;
     }
 
-    // ═══════════════════════ sistema ═══════════════════════
+    // ═══════════════════════ system ════════════════════════
     property int cpu: 0
     property int mem: 0
     property int batt: -1
@@ -688,9 +1027,9 @@ Singleton {
     property int uptimeSeconds: 0
     property int cpuThreads: 1
 
-    // Sesenta muestras a 1,5 s: minuto y medio de contexto. Se sustituyen los
-    // arrays enteros (en vez de mutarlos) para que Canvas reciba valuesChanged
-    // y repinte las curvas aunque el porcentaje actual coincida con el anterior.
+    // Sixty samples at 1.5 s: a minute and a half of context. The arrays are
+    // replaced whole (instead of mutated) so that Canvas gets valuesChanged and
+    // repaints the curves even if the current percentage matches the previous one.
     property var cpuHistory: []
     property var memHistory: []
     property var tempHistory: []
@@ -699,9 +1038,30 @@ Singleton {
         next.push(isFinite(value) ? value : 0);
         return next;
     }
+    // 2026-09-14: this Process had neither an `id` nor an `onExited`, so if the
+    // script died NOBODY relaunched it. And it is the ONLY source of cpu, mem,
+    // batt, ac, disk, memUsedKib, memTotalKib, diskUsedBytes, diskTotalBytes,
+    // cpuTemp, cpuLoad, uptimeSeconds and cpuThreads: the bar, the control
+    // centre and the performance panel kept showing the LAST SNAPSHOT as if it
+    // were the current state, with no warning at all. Lying quietly is worse
+    // than saying nothing, above all in the panel you look at when the laptop
+    // is acting up. The realistic case is not hypothetical: systemd-oomd kills
+    // user processes under memory pressure, and this machine froze because of
+    // that the very same day.
     Process {
+        id: sysstatsProc
         command: [root.home + "/.config/quickshell/scripts/sysstats.sh"]
         running: true
+        // Relaunch with a 2 s breather. The breather matters: if the script
+        // were really broken (a syntax error, a missing binary) without it we
+        // would enter a relaunch loop at full speed, which is exactly what you
+        // do not want on a machine that has just run out of memory. With 2 s,
+        // a permanent failure costs half a process per second instead of
+        // thousands.
+        onExited: function (exitCode, exitStatus) {
+            console.warn(I18n.tr("sysstats.sh murio (code={0}, status={1}); relanzando en 2 s", exitCode, exitStatus));
+            sysstatsRestart.restart();
+        }
         stdout: SplitParser {
             onRead: function (line) {
                 const p = line.trim().split(/\s+/);
@@ -724,19 +1084,29 @@ Singleton {
                 root.memHistory = root.appendMetric(root.memHistory, root.mem);
                 if (root.cpuTemp >= 0)
                     root.tempHistory = root.appendMetric(root.tempHistory, root.cpuTemp);
-                if (root.bright < 0) root.bright = parseInt(p[4]);   // solo el valor inicial
+                if (root.bright < 0) root.bright = parseInt(p[4]);   // only the initial value
             }
         }
     }
-    // ENCHUFAR Y DESENCHUFAR son de las poquisimas cosas que le pasan al
-    // portatil SIN que tu toques nada y que quieres saber en el momento. El
-    // resto de lo que sale en el notch lo provocas tu; esto lo provoca el
-    // mundo, y por eso merece cara propia en vez de un icono mas en la barra.
+
+    // Companion to the onExited above. Outside the Process on purpose: a Timer
+    // inside the very object being restarted is fragile.
+    Timer {
+        id: sysstatsRestart
+        interval: 2000
+        repeat: false
+        onTriggered: if (!sysstatsProc.running) sysstatsProc.running = true;
+    }
+    // PLUGGING IN AND UNPLUGGING are among the very few things that happen to
+    // the laptop WITHOUT you touching anything and that you want to know about
+    // right away. Everything else that appears in the notch is caused by you;
+    // this is caused by the world, and that is why it deserves its own face
+    // instead of one more icon in the bar.
     //
-    // El `armed` no sobra: sysstats.sh escupe la primera linea a los pocos
-    // milisegundos de arrancar y ese primer valor NO es un cambio, es el estado
-    // inicial. Sin el guardia, cada reinicio de la shell te saludaria con un
-    // "Cargando" que no habias pedido.
+    // The `armed` is not redundant: sysstats.sh spits out the first line a few
+    // milliseconds after starting and that first value is NOT a change, it is
+    // the initial state. Without the guard, every shell restart would greet you
+    // with a "Cargando" (Charging) you had not asked for.
     onAcChanged: if (root.armed) root.flash("charge")
 
     readonly property string battIcon: ac ? "󰂄"
@@ -744,10 +1114,10 @@ Singleton {
         : batt >= 90 ? "󰁹" : batt >= 70 ? "󰂂" : batt >= 50 ? "󰁿"
         : batt >= 30 ? "󰁼" : batt >= 15 ? "󰁻" : "󰁺"
 
-    // UPower expone los datos eléctricos ya normalizados (Wh, W y segundos).
-    // sysstats sigue llevando el porcentaje rápido del notch; esta capa añade
-    // la información que merece una pantalla de Ajustes: desgaste, capacidad,
-    // ciclos y estimación temporal.
+    // UPower exposes the electrical data already normalised (Wh, W and seconds).
+    // sysstats still carries the notch's fast percentage; this layer adds the
+    // information that deserves a Settings screen: wear, capacity, cycles and
+    // time estimate.
     readonly property var batteryDevice: {
         const ds = UPower.devices ? UPower.devices.values : [];
         for (let i = 0; i < ds.length; i++)
@@ -783,8 +1153,8 @@ Singleton {
         if (root.ac && root.batt >= 99 && root.battEstimateSeconds < 0) return I18n.tr("completa");
         const time = root.fmtBatteryTime(root.battEstimateSeconds);
         if (time.length === 0) return I18n.tr("calculando…");
-        // Frase entera y no `time + sufijo`: en inglés el orden no tiene por qué
-        // ser el mismo, y cada rama necesita su propia traducción.
+        // A whole sentence and not `time + suffix`: in English the order need not
+        // be the same, and each branch needs its own translation.
         return root.ac ? I18n.tr("{0} para completar", time) : I18n.tr("{0} restantes", time);
     }
 
@@ -813,20 +1183,20 @@ Singleton {
         onTriggered: root.refreshBatteryCycles()
     }
 
-    // ═══════════════════════ captura de pantalla ═══════════════════════
-    // Hyprland lo cuenta por su socket de sucesos: "screencast>>estado,dueño".
+    // ═════════════════════════ screen capture ══════════════════════════
+    // Hyprland reports it on its event socket: "screencast>>state,owner".
     //
-    // MEDIDO en este portátil, y es justo lo que hace que esto no sea trivial:
-    //   grim (pantallazo)      -> 1,monitor  …  0,monitor
-    //   una grabación de zona  -> 1,region
-    //   TU PROPIO overview     -> 1,window, UNA POR VENTANA
-    // O sea que contar todos los sucesos encendería el aviso de "te están
-    // grabando" cada vez que pulsas Super+Tab. Solo cuentan monitor y region.
+    // MEASURED on this laptop, and it is exactly what makes this non-trivial:
+    //   grim (screenshot)      -> 1,monitor  …  0,monitor
+    //   a region recording     -> 1,region
+    //   YOUR OWN overview      -> 1,window, ONE PER WINDOW
+    // So counting every event would light up the "you are being recorded"
+    // notice every time you press Super+Tab. Only monitor and region count.
     //
-    // Y el retardo tampoco es por gusto: un pantallazo con grim abre y cierra
-    // la captura en menos de medio segundo. Sin esperar, la barra daría un
-    // fogonazo rojo cada vez que haces una captura, que es exactamente cuando
-    // menos quieres un elemento nuevo apareciendo en la pantalla.
+    // And the delay is not for the sake of it either: a grim screenshot opens
+    // and closes the capture in under half a second. Without waiting, the bar
+    // would flash red every time you take a screenshot, which is exactly when
+    // you least want a new element appearing on the screen.
     property int castCount: 0
     property bool casting: false
     Timer { id: castArm; interval: 1500; onTriggered: root.casting = root.castCount > 0 }
@@ -848,23 +1218,22 @@ Singleton {
         }
     }
 
-    // ═══════════════════════ la burbuja satélite ═══════════════════════
-    // Un cuerpo pequeño que asoma por DETRÁS del borde derecho del notch cuando
-    // hay algo corriendo de fondo.
+    // ══════════════════════ the satellite bubble ═══════════════════════
+    // A small body that peeks out from BEHIND the notch's right edge when
+    // something is running in the background.
     //
-    // Por qué un satélite y no una cara más: el notch en reposo mide exactamente
-    // la banda reservada y no puede crecer solo — esa es la regla que hace que
-    // no tape ninguna ventana nunca. Una cuenta atrás dura minutos, así que no
-    // cabe ahí sin romperla. Un cuerpo aparte sí: nace detrás del borde, se
-    // queda DENTRO de la banda, y el notch sigue siendo del mismo tamaño.
+    // Why a satellite and not one more face: the resting notch measures exactly
+    // the reserved band and cannot grow by itself — that is the rule that keeps
+    // it from ever covering a window. A countdown lasts minutes, so it does not
+    // fit there without breaking the rule. A separate body does: it is born
+    // behind the edge, stays INSIDE the band, and the notch stays the same size.
     //
-    // Esto es un HUECO, no un temporizador. Hoy lo llenan dos cosas y meter una
-    // tercera (una descarga, una compilación) es una línea más en bubbleKind.
-    // El temporizador manda sobre el trabajo de fondo porque el temporizador lo
-    // has pedido tú y el otro ocurre solo.
+    // This is a SLOT, not a timer. Today two things fill it, and adding a third
+    // (a download, a build) is one more line in bubbleKind. The timer wins over
+    // background work because you asked for the timer and the other just happens.
     readonly property string bubbleKind: timerTotal > 0 ? "timer" : (busy ? "busy" : "")
     readonly property bool bubbleOn: bubbleKind !== ""
-    // -1 = indeterminado: sabemos que sigue, no cuánto le queda.
+    // -1 = indeterminate: we know it is still going, not how much is left.
     readonly property real bubbleProgress: (bubbleKind === "timer" && timerTotal > 0)
         ? Math.max(0, Math.min(1, timerLeft / timerTotal)) : -1
     readonly property string bubbleIcon: bubbleKind === "timer"
@@ -875,17 +1244,17 @@ Singleton {
         : I18n.tr("Sincronizando")
     readonly property bool bubbleAlert: timerDone
 
-    // "Estoy haciendo algo y tarda." Solo la sincronización que pides tú con el
-    // clic derecho sobre las actualizaciones, no la comprobación automática de
-    // cada cinco minutos: esa ocurre sola y encender un cuerpo nuevo en la
-    // pantalla cada cinco minutos es ruido, no información.
+    // "I am doing something and it is taking a while." Only the sync you ask
+    // for with a right-click on the updates, not the automatic check every five
+    // minutes: that one happens by itself, and lighting up a new body on the
+    // screen every five minutes is noise, not information.
     readonly property bool busy: pacmanProc.running && pacmanProc.forceSync
 
-    // ── el temporizador ──
-    property int timerTotal: 0        // segundos pedidos; 0 = no hay temporizador
+    // ── the timer ──
+    property int timerTotal: 0        // seconds requested; 0 = no timer
     property int timerLeft: 0
     property bool timerRunning: false
-    property bool timerDone: false    // ya sonó y aún no lo has descartado
+    property bool timerDone: false    // already went off and you have not dismissed it yet
 
     Timer {
         interval: 1000
@@ -896,10 +1265,10 @@ Singleton {
             if (root.timerLeft > 0) return;
             root.timerRunning = false;
             root.timerDone = true;
-            // Nosotros SOMOS el servidor de notificaciones (ver más abajo), así
-            // que este notify-send da la vuelta y vuelve a nuestro propio notch.
-            // No hace falta inventar un aviso: se usa el que ya existe, y de
-            // paso queda en el historial del centro de control.
+            // We ARE the notification server (see further down), so this
+            // notify-send comes round and back to our own notch. There is no
+            // need to invent a notice: the existing one is used, and along the
+            // way it stays in the control centre's history.
             Quickshell.execDetached(["notify-send", "-u", "critical",
                                      "-a", I18n.tr("Temporizador"),
                                      I18n.tr("Temporizador"),
@@ -914,7 +1283,7 @@ Singleton {
         root.timerDone = false;
         root.timerRunning = true;
     }
-    // Un clic en la burbuja: si ya sonó, la descarta; si no, pausa y reanuda.
+    // A click on the bubble: if it already went off, it dismisses it; if not, pause and resume.
     function timerToggle() {
         if (root.timerDone) { root.timerClear(); return; }
         if (root.timerTotal <= 0) return;
@@ -927,15 +1296,14 @@ Singleton {
         root.timerDone = false;
     }
 
-    // mm:ss, y hh:mm:ss solo si de verdad hay horas. Un "00:09:59" para diez
-    // minutos son dos dígitos que no dicen nada ocupando sitio en un cuerpo de
-    // 28 px.
+    // mm:ss, and hh:mm:ss only if there really are hours. A "00:09:59" for ten
+    // minutes is two digits that say nothing taking up room in a 28 px body.
     function timerClock(sec) {
         const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), x = sec % 60;
         const two = n => (n < 10 ? "0" + n : String(n));
         return h > 0 ? (h + ":" + two(m) + ":" + two(x)) : (m + ":" + two(x));
     }
-    // Cómo se dice en voz alta, para el aviso: "25 min", "1 h 30 min".
+    // How it is said out loud, for the notice: "25 min", "1 h 30 min".
     function timerSpoken(sec) {
         const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), x = sec % 60;
         const parts = [];
@@ -945,27 +1313,29 @@ Singleton {
         return parts.join(" ");
     }
 
-    // ── de lo que escribes a segundos ──
-    // Reconoce "10m", "25 min", "1h", "90s", "1h30", "1h 5 min".
+    // ── from what you type to seconds ──
+    // Recognises "10m", "25 min", "1h", "90s", "1h30", "1h 5 min".
     //
-    // EXIGE UNIDAD a propósito. Un "5" suelto es una búsqueda, y si el lanzador
-    // propusiera una cuenta atrás cada vez que tecleas un número se metería en
-    // medio de todas las búsquedas que empiezan por cifra. Es la misma regla que
-    // ya usa la calculadora para no dispararse con "7zip".
+    // It DEMANDS A UNIT on purpose. A bare "5" is a search, and if the launcher
+    // offered a countdown every time you typed a number it would get in the way
+    // of every search that starts with a digit. It is the same rule the
+    // calculator already uses so as not to fire on "7zip".
     function parseDuration(text) {
         const t = String(text || "").trim().toLowerCase().replace(/\s+/g, "");
         if (t.length === 0) return -1;
-        // "1h30" = una hora y media. Es como lo escribe todo el mundo y no
-        // encaja en la forma con unidades, así que va aparte.
+        // "1h30" = an hour and a half. It is how everybody writes it and it
+        // does not fit the form with units, so it goes separately.
         const hm = t.match(/^(\d+)h(\d{1,2})$/);
         if (hm) return parseInt(hm[1]) * 3600 + parseInt(hm[2]) * 60;
-        const m = t.match(/^(?:(\d+)(?:horas?|h))?(?:(\d+)(?:minutos?|mins?|m))?(?:(\d+)(?:segundos?|segs?|s))?$/);
+        // Units in both languages, because the timer follows the shell's: in
+        // English "5 minutes" used to be rejected and only "5 min" got through.
+        const m = t.match(/^(?:(\d+)(?:horas?|hours?|hrs?|h))?(?:(\d+)(?:minutos?|minutes?|mins?|m))?(?:(\d+)(?:segundos?|seconds?|segs?|secs?|s))?$/);
         if (!m || (!m[1] && !m[2] && !m[3])) return -1;
         const sec = parseInt(m[1] || 0) * 3600 + parseInt(m[2] || 0) * 60 + parseInt(m[3] || 0);
         return (sec > 0 && sec <= 86400) ? sec : -1;
     }
 
-    // ═══════════════════════ red ═══════════════════════
+    // ═════════════════════ network ═════════════════════
     readonly property var wifiDev: {
         const ds = Networking.devices ? Networking.devices.values : [];
         for (let i = 0; i < ds.length; i++) if (ds[i].type === DeviceType.Wifi) return ds[i];
@@ -984,44 +1354,43 @@ Singleton {
     }
     readonly property bool online: wiredDev !== null || wifiNet !== null
 
-    // Si el equipo TIENE radio wifi. Una torre conectada por cable no tiene
-    // ninguna, y sin esto el shell no sabía distinguir "no hay adaptador" de
-    // "el adaptador está apagado": enseñaba un interruptor de wifi que no
-    // encendía nada y una lista vacía con el rótulo "Wi-Fi apagado", como si
-    // bastara con pulsarlo. Se mira el dispositivo, no wifiEnabled, porque
-    // NetworkManager reporta la radio como deshabilitada también cuando
-    // sencillamente no hay ninguna.
+    // Whether the machine HAS a wifi radio. A tower on a cable has none, and
+    // without this the shell could not tell "there is no adapter" from "the
+    // adapter is off": it showed a wifi switch that switched nothing on and an
+    // empty list captioned "Wi-Fi apagado" (Wi-Fi off), as if pressing it were
+    // enough. The device is checked, not wifiEnabled, because NetworkManager
+    // reports the radio as disabled also when there simply is none.
     readonly property bool hasWifi: wifiDev !== null
 
-    // ---- lista de wifis para el panel de red ----
-    // Espejo de SOLO LECTURA del estado real de NetworkManager.
+    // ---- wifi list for the network panel ----
+    // READ-ONLY mirror of NetworkManager's real state.
     //
-    // Antes era una property normal ligada a Networking.wifiEnabled MAS un
-    // onWifiOnChanged que la reescribia. Dos consecuencias, las dos observadas
-    // en vivo el 2026-08-05:
-    //   1. al arrancar la shell, wifiEnabled se lee false antes de que lleguen
-    //      los datos de NetworkManager; el handler devolvia ese false y LA
-    //      SHELL TE APAGABA EL WIFI SOLA. Queda en el audit de NM:
-    //      op="radio-control" arg="wireless-enabled:off" pid=<el de qs>, con
-    //      el vaiven off/on/off de un lazo. Y como systemd-rfkill persiste el
-    //      bloqueo, el portatil arrancaba SIN WIFI los dias siguientes.
-    //   2. asignar a una property ligada DESTRUYE el binding, asi que al primer
-    //      clic el interruptor dejaba de reflejar la realidad para siempre.
-    // Por eso ahora es readonly y todo cambio pasa por setWifi/toggleWifi, que
-    // solo se llaman desde un gesto explicito del usuario.
+    // It used to be a normal property bound to Networking.wifiEnabled PLUS an
+    // onWifiOnChanged that rewrote it. Two consequences, both observed live on
+    // 2026-08-05:
+    //   1. on shell start-up, wifiEnabled reads false before NetworkManager's
+    //      data arrives; the handler wrote that false back and THE SHELL
+    //      SWITCHED YOUR WIFI OFF BY ITSELF. It is in NM's audit log:
+    //      op="radio-control" arg="wireless-enabled:off" pid=<qs's>, with
+    //      the off/on/off seesaw of a loop. And since systemd-rfkill persists
+    //      the block, the laptop booted WITHOUT WIFI on the following days.
+    //   2. assigning to a bound property DESTROYS the binding, so on the first
+    //      click the switch stopped reflecting reality for ever.
+    // That is why it is now readonly and every change goes through
+    // setWifi/toggleWifi, which are only called from an explicit user gesture.
     readonly property bool wifiOn: Networking.wifiEnabled
     function setWifi(on) { Networking.wifiEnabled = on; }
     function toggleWifi() { root.setWifi(!root.wifiOn); }
 
-    // El escáner solo se enciende mientras el panel de red está abierto: si no,
-    // NetworkManager está barriendo el aire todo el rato para nada.
-    // Escanear/descubrir solo mientras el panel correspondiente está abierto:
-    // si no, NetworkManager y Bluez barren el aire todo el rato para nada.
+    // The scanner is only on while the network panel is open: otherwise
+    // NetworkManager is sweeping the airwaves all the time for nothing.
+    // Scan/discover only while the corresponding panel is open: otherwise
+    // NetworkManager and Bluez sweep the airwaves all the time for nothing.
     //
-    // Binding declarativo y NO un onPanelChanged: el manejador imperativo solo
-    // se disparaba al cambiar de panel, así que si encendías el bluetooth desde
-    // dentro de su propio panel el descubrimiento no arrancaba nunca. Así se
-    // reevalúa también cuando cambia el estado del adaptador.
+    // A declarative Binding and NOT an onPanelChanged: the imperative handler
+    // only fired on a panel change, so if you turned bluetooth on from inside
+    // its own panel discovery never started. This way it is also re-evaluated
+    // when the adapter's state changes.
     Binding {
         target: root.wifiDev
         property: "scannerEnabled"
@@ -1029,11 +1398,11 @@ Singleton {
         when: root.wifiDev !== null
         restoreMode: Binding.RestoreNone
     }
-    // La sección Bluetooth de Ajustes también quiere descubrir mientras está
-    // abierta. Lo pide por aquí en vez de escribir `discovering` a mano: dos
-    // sitios escribiendo la misma propiedad (uno con Binding y otro
-    // imperativamente) es una carrera, y quien perdía era Ajustes en cuanto
-    // cambiaba el panel del notch.
+    // The Bluetooth section of Settings also wants to discover while it is
+    // open. It asks through here instead of writing `discovering` by hand: two
+    // places writing the same property (one with a Binding and the other
+    // imperatively) is a race, and the loser was Settings as soon as the notch
+    // panel changed.
     property bool btScanWanted: false
     Binding {
         target: root.btAdapter
@@ -1043,8 +1412,8 @@ Singleton {
         restoreMode: Binding.RestoreNone
     }
 
-    // Un mismo SSID puede aparecer varias veces (varios puntos de acceso): se
-    // deja el de mejor señal. Orden: conectada, luego guardadas, luego señal.
+    // The same SSID can appear several times (several access points): the one
+    // with the best signal is kept. Order: connected, then saved, then signal.
     readonly property var wifiNetworks: {
         if (!wifiDev || !wifiDev.networks) return [];
         const ns = wifiDev.networks.values;
@@ -1066,8 +1435,9 @@ Singleton {
         return out;
     }
 
-    // Umbrales apretados a propósito: en la práctica las señales caen entre 30 y
-    // 60, y con el reparto "clásico" (75/50/25) salían todas con el mismo icono.
+    // Thresholds squeezed on purpose: in practice signals fall between 30 and
+    // 60, and with the "classic" split (75/50/25) they all came out with the
+    // same icon.
     function wifiIconFor(s) {
         return s >= 72 ? "󰤨" : s >= 48 ? "󰤥" : s >= 24 ? "󰤢" : "󰤟";
     }
@@ -1118,11 +1488,11 @@ Singleton {
     }
     readonly property string btIcon: btBlocked ? "󰂲" : !btOn ? "󰂲" : (btConnected > 0 ? "󰂱" : "󰂯")
 
-    // Bloqueado por rfkill: el interruptor no puede hacer nada y hay que decirlo,
-    // en vez de que pulsarlo se quede en nada sin explicación.
+    // Blocked by rfkill: the switch can do nothing and that has to be said,
+    // instead of pressing it coming to nothing with no explanation.
     readonly property bool btBlocked: btAdapter !== null && btAdapter.state === BluetoothAdapterState.Blocked
 
-    // conectados primero, luego el resto de emparejados
+    // connected ones first, then the rest of the paired ones
     readonly property var btPaired: {
         const vs = Bluetooth.devices ? Bluetooth.devices.values : [];
         const out = [];
@@ -1140,36 +1510,86 @@ Singleton {
         if (!d) return "";
         return d.deviceName || d.name || d.address || "";
     }
-    function toggleBt() { if (btAdapter) btAdapter.enabled = !btAdapter.enabled; }
+    // Pending intent: `rfkill unblock` is asynchronous, so the adapter is not
+    // ready at the same instant. We store that the user wanted it on and switch
+    // it on as soon as it stops being blocked.
+    property bool btPendingOn: false
 
-    // ═══════════════════════ actualizaciones ═══════════════════════
-    // La cadencia la lleva el Timer de abajo, NO un bucle en bash. Antes esto
-    // era un `bash -c "while true; do ...; sleep 300; done"` con running: true,
-    // y ese bucle SOBREVIVÍA a quickshell: si qs se muere sin poder limpiar
-    // (segfault, o un kill -9 mientras trasteas la config) el bash se queda
-    // huérfano, lo adopta systemd --user y sigue lanzando checkupdates cada 5
-    // min PARA SIEMPRE. Así se acumularon 7 el 5-ago-2026.
+    // 2026-09-14: this used to be a single line that only did
+    //     btAdapter.enabled = !btAdapter.enabled
+    // and with an rfkill soft-block Bluez IGNORES that `enabled`, so the notch
+    // switch did absolutely nothing. And that is the NORMAL state at boot: TLP
+    // blocks the radio on every boot
+    // (DEVICES_TO_DISABLE_ON_STARTUP="bluetooth" in /etc/tlp.d/01-diego.conf).
+    // So switching off was automatic and switching on, impossible from where
+    // you would expect. That breaks the house rule —the same as for wifi—:
+    // switching on has to be as easy as switching off. TLP's own comment
+    // promised that "the notch switch turns it back on with one click".
+    // No sudo is needed: diego has a write ACL on /dev/rfkill.
+    // SettingsBluetooth.qml already had this same unblock on a separate button;
+    // here it is unified into the switch, which is where you look for it.
+    function toggleBt() {
+        if (!btAdapter) return;
+        if (btBlocked) {
+            btPendingOn = true;
+            Quickshell.execDetached(["rfkill", "unblock", "bluetooth"]);
+            return;
+        }
+        btAdapter.enabled = !btAdapter.enabled;
+    }
+
+    // One-shot: as soon as the radio is unblocked, the intent is carried out.
+    onBtBlockedChanged: {
+        if (!btBlocked && btPendingOn) {
+            btPendingOn = false;
+            if (btAdapter) btAdapter.enabled = true;
+        }
+    }
+
+    // ═══════════════════════════ updates ═══════════════════════════
+    // The cadence is kept by the Timer below, NOT by a loop in bash. This used
+    // to be a `bash -c "while true; do ...; sleep 300; done"` with running: true,
+    // and that loop OUTLIVED quickshell: if qs dies without being able to clean
+    // up (a segfault, or a kill -9 while you tinker with the config) the bash is
+    // left orphaned, systemd --user adopts it and it keeps launching
+    // checkupdates every 5 min FOR EVER. That is how 7 piled up on 5 Aug 2026.
     //
-    // Y ojo al detalle de por qué SOLO se colgaba éste y no sysstats.sh, que es
-    // el mismo patrón: sysstats escribe en stdout cada 1,5 s, así que en cuanto
-    // se cierra la tubería recibe SIGPIPE y se muere solo. Aquí el que escribía
-    // era el script de dentro; el bucle de fuera no escribía nunca —solo
-    // dormía—, así que el SIGPIPE que lo habría matado no le llegaba jamás.
+    // And note the detail of why ONLY this one hung around and not sysstats.sh,
+    // which is the same pattern: sysstats writes to stdout every 1.5 s, so as
+    // soon as the pipe closes it gets SIGPIPE and dies by itself. Here the one
+    // writing was the inner script; the outer loop never wrote —it only slept—,
+    // so the SIGPIPE that would have killed it never reached it.
     //
-    // Ahora el proceso es de UN SOLO disparo: dura lo que dura la consulta y se
-    // acaba. Aunque qs muera de la peor manera posible, lo más que puede quedar
-    // suelto es un checkupdates que se cierra solo (el script ya lo lanza con
-    // timeout 60), no un bucle inmortal.
+    // Now the process is ONE-SHOT: it lasts as long as the query and ends. Even
+    // if qs dies in the worst possible way, the most that can be left loose is
+    // a checkupdates that closes by itself (the script already launches it with
+    // timeout 60), not an immortal loop.
     property string pacman: ""
+    // The script already computes these two and until now they were thrown
+    // away: the tooltip carries the long count and the time of the last sync
+    // ("3 actualizaciones disponibles · repos sincronizados a las 18:40", i.e.
+    // "3 updates available · repos synced at 18:40"), and class says what kind
+    // of number it is -- "updates", "none" or "error" -- without having to guess
+    // it from the text. Both arrive already translated by lang.sh, so they do
+    // not go through I18n.tr.
+    property string pacmanTip: ""
+    property string pacmanClass: ""
     Process {
         id: pacmanProc
-        // true = clic derecho: invalida la marca de tiempo y fuerza sincronización.
+        // true = right-click: invalidates the timestamp and forces a sync.
         property bool forceSync: false
         command: forceSync
             ? [root.home + "/.config/hypr/scripts/pacman-updates.sh", "--refresh"]
             : [root.home + "/.config/hypr/scripts/pacman-updates.sh"]
         stdout: SplitParser {
-            onRead: function (line) { try { root.pacman = String(JSON.parse(line).text || ""); } catch (e) {} }
+            onRead: function (line) {
+                try {
+                    const j = JSON.parse(line);
+                    root.pacman = String(j.text || "");
+                    root.pacmanTip = String(j.tooltip || "");
+                    root.pacmanClass = String(j.class || "");
+                } catch (e) {}
+            }
         }
         onExited: forceSync = false
     }
@@ -1177,7 +1597,7 @@ Singleton {
         interval: 300000
         running: true
         repeat: true
-        triggeredOnStart: true   // como el bucle viejo: consulta ya al arrancar
+        triggeredOnStart: true   // like the old loop: query right away at start-up
         onTriggered: if (!pacmanProc.running) pacmanProc.running = true
     }
     function pacmanRefresh() {
@@ -1186,10 +1606,10 @@ Singleton {
         pacmanProc.running = true;
     }
 
-    // ═══════════════════════ notificaciones (servidor propio) ═══════════════════════
-    // Sustituye a swaync: su "centro de control" es una ventana GTK suya, no se
-    // puede meter dentro del notch. Aquí somos el servidor D-Bus y pintamos
-    // nosotros tanto el aviso emergente como el historial.
+    // ══════════════════════════ notifications (own server) ══════════════════════════
+    // Replaces swaync: its "control centre" is a GTK window of its own, it cannot
+    // be put inside the notch. Here we are the D-Bus server and we paint both the
+    // pop-up notice and the history ourselves.
     property bool dnd: false
     property var lastNotif: null
 
@@ -1203,18 +1623,118 @@ Singleton {
         actionIconsSupported: true
 
         onNotification: function (n) {
-            n.tracked = true;               // se queda en el historial
+            n.tracked = true;               // stays in the history
             root.lastNotif = n;
-            if (!root.dnd) root.flash("notif");
+            // ...but the history has a ceiling. With Qt.callLater and not
+            // directly: here the server's list does not include `n` yet (the
+            // long why, with the measurement, is in trimNotifs), so calling it
+            // on the spot would leave the history at 51 instead of 50. As a
+            // bonus, Qt.callLater collapses a burst of sixty into a single
+            // pass, and trimNotifs already knows how to remove several at once.
+            Qt.callLater(root.trimNotifs);
+            if (!root.dnd) root.flash("notif", root.notifFlashMs(n));
         }
     }
 
-    // más recientes primero
+    // `lastNotif` holds an object that is NOT ours: the server destroys it when
+    // the notification closes (the user closes it, the application withdraws
+    // it, or clearNotifs sweeps it away). Without this the notch kept showing
+    // an already dead notification, and pressing its actions did nothing,
+    // without saying why. Same pattern as the Connections in NetworkPanel.
+    Connections {
+        target: root.lastNotif
+        ignoreUnknownSignals: true
+        function onClosed(reason) {
+            root.lastNotif = null;
+            // AND THE NOTICE GOES WITH IT.
+            //
+            // This Connections was left half done: it removed the dead
+            // notification but not the notice showing it. Since `activityTimer`
+            // is the only thing that clears `activity`, and `mode` comes from
+            // `activity === "notif"` without looking at `lastNotif`, the pill
+            // stayed open and EMPTY -no icon, no title, no application, 430 px
+            // wide- until the clock ran out. With a `notify-send -u critical`
+            // (no -t, expireTimeout -1, notifFlashMs 11000) that is eleven
+            // seconds of blank pill in front of you. It is enough for the
+            // application to close its own notification; no panel is needed.
+            if (root.activity === "notif") {
+                root.activity = "";
+                activityTimer.stop();
+            }
+        }
+    }
+
+    // most recent first
     readonly property var notifications: {
         const vs = notifServer.trackedNotifications ? notifServer.trackedNotifications.values : [];
         return vs.slice().reverse();
     }
     readonly property int notifCount: notifications.length
+
+    // History ceiling: 50. It does NOT expire on a clock, and on purpose: what
+    // `trackedNotifications` holds are the server's LIVE objects -the panel
+    // invokes THEIR actions-, so a notification that deleted itself would be a
+    // button vanishing while you look at it. The oldest is only thrown out when
+    // a new one comes in and there is no room left. And it is closed with
+    // expire(), not dismiss(): the program that sent it has to be told that it
+    // expired, not that you closed it.
+    readonly property int notifMax: 50
+
+    // MIND WHEN THIS IS CALLED. `trackedNotifications.values` does NOT yet
+    // contain the incoming notification while onNotification runs, not even
+    // after setting `n.tracked = true`. Measured with a test NotificationServer
+    // on an isolated bus (dbus-run-session, quickshell 0.3.1, without touching
+    // the live shell): when the first notification arrives the list gives 0,
+    // and in the following Qt.callLater it gives 1. That is why onNotification
+    // does not call this on the spot: with notifMax = 5 and twelve
+    // notifications in a row the history stayed at 6, i.e. notifMax + 1. With
+    // Qt.callLater it stays at exactly 5.
+    function trimNotifs() {
+        if (!notifServer.trackedNotifications) return;
+        const vs = notifServer.trackedNotifications.values;
+        const sobran = vs.length - root.notifMax;
+        if (sobran <= 0) return;
+        // slice() before closing anything: expire() modifies the live list -also
+        // checked-, and we have to iterate over a copy. values[0] is the oldest:
+        // the `notifications` property up here does reverse() because the panel
+        // paints the recent ones first.
+        const viejas = vs.slice(0, sobran);
+        for (let i = 0; i < viejas.length; i++)
+            if (viejas[i] !== root.lastNotif) viejas[i].expire();
+    }
+
+    // How long the pop-up notice lasts. The application asks for its time in
+    // `expireTimeout` (-1 = "you decide", 0 = "never expire") and it is obeyed,
+    // but with a ceiling. The ceiling is not stinginess: the notch's activity
+    // slot is ONE and music, volume, workspace and pokémon share it, so an
+    // eternal notice would not be a notice, it would be a hijacked notch. That
+    // is why 0 is translated to the maximum, also for a critical one: the
+    // notification remains whole in the history, which is where it waits for
+    // as long as needed.
+    //
+    // UNITS: MILLISECONDS, and nothing is converted here. The
+    // org.freedesktop.Notifications specification defines expire_timeout as
+    // "the timeout time in milliseconds", and Quickshell passes it through as
+    // is: it exposes it as a double, but does not divide it. Measured on this
+    // machine, with a test NotificationServer on an isolated bus:
+    //     notify-send -t 9000   ->  expireTimeout = 9000
+    //     notify-send -t 60000  ->  expireTimeout = 60000
+    //     notify-send -t 0      ->  expireTimeout = 0      (never expire)
+    //     notify-send  (no -t)  ->  expireTimeout = -1     (you decide)
+    // The property being a double and not an int does NOT mean seconds arrive.
+    function notifFlashMs(n) {
+        const crit = !!n && n.urgency === NotificationUrgency.Critical;
+        // A critical one -battery at 5 %, disk full- asks to be looked at twice:
+        // it does not go below 10 s or above 12. The rest, from 1.5 s to 15 s.
+        const suelo = crit ? 10000 : 1500;
+        const techo = crit ? 12000 : 15000;
+        const porDefecto = crit ? 11000 : 4200;
+        if (!n) return porDefecto;
+        const t = Number(n.expireTimeout);
+        if (!isFinite(t) || t < 0) return porDefecto;   // -1: you decide
+        if (t === 0) return techo;                      // 0: never expire
+        return Math.max(suelo, Math.min(techo, Math.round(t)));
+    }
 
     function dismissNotif(n) { if (n) n.dismiss(); }
     function clearNotifs() {
@@ -1225,17 +1745,54 @@ Singleton {
     readonly property string notifIcon: dnd ? (notifCount > 0 ? "󰂠" : "󰪓")
         : (notifCount > 0 ? "󱅫" : "󰂜")
 
-    // ═══════════════════════ luz nocturna ═══════════════════════
+    // ═══════════════════════ night light ════════════════════════
+    // THE STATE IS OBSERVED, NOT GUESSED.
+    //
+    // `nightLight` was a bare bool -not readonly, not derived, not polled, and
+    // outside Config, so it did not survive a reload either- that was flipped
+    // blindly. And there were THREE paths onto the same filter that did not
+    // talk to each other: Super+Shift+N launched hyprsunset-toggle.sh without
+    // telling the shell, the ">" mode called the same script without touching
+    // the bool, and the control centre flipped the bool and launched
+    // `pgrep ... || hyprsunset &`. That `||` was the finishing touch: if
+    // hyprsunset WAS already running it executed nothing and the tile was left
+    // lying. You switched it on with the key, opened the control centre and the
+    // tile said off; you pressed it and nothing changed.
+    //
+    // Now the three paths come in through the same door -the script- and the
+    // state comes from `pgrep`, like the reading mode down here. It is what
+    // impasto's SunsetService.qml does with `readonly property bool on:
+    // filter.running`, adapted to the fact that here the shell does not own the
+    // process.
+    readonly property string sunsetTool: root.home + "/.config/hypr/scripts/hyprsunset-toggle.sh"
     property bool nightLight: false
+
+    Process {
+        id: sunsetProbe
+        command: ["pgrep", "-x", "hyprsunset"]
+        onExited: function (exitCode) { root.nightLight = (exitCode === 0); }
+    }
+    // Every 3 s, the same pace as the reading-mode poll: it is a pgrep, and
+    // the filter is switched on by hand, not a hundred times a minute.
+    Timer {
+        interval: 3000
+        repeat: true
+        running: true
+        triggeredOnStart: true
+        onTriggered: if (!sunsetProbe.running) sunsetProbe.running = true
+    }
+    // And an immediate pass after each toggle, so that the tile does not
+    // take three seconds to reflect what you have just pressed.
+    Timer { id: sunsetTrasToggle; interval: 350; onTriggered: sunsetProbe.running = true }
+
     function toggleNightLight() {
-        root.nightLight = !root.nightLight;
-        Quickshell.execDetached(["bash", "-lc",
-            root.nightLight ? "pgrep -x hyprsunset >/dev/null || hyprsunset -t 4000 &" : "pkill -x hyprsunset"]);
+        Quickshell.execDetached([root.sunsetTool]);
+        sunsetTrasToggle.restart();
     }
 
-    // ═══════════════════════ modo lectura ═══════════════════════
-    // El script guarda/restaura el estado REAL de Hyprland. Aquí solo se refleja
-    // su salida para que Ajustes y el centro de comandos nunca inventen estado.
+    // ═══════════════════════ reading mode ═══════════════════════
+    // The script saves/restores Hyprland's REAL state. Here its output is only
+    // mirrored so that Settings and the command centre never invent state.
     readonly property string readingTool: root.home + "/.config/hypr/scripts/reading-mode.sh"
     property bool readingMode: false
     property int readingPending: -1
@@ -1277,10 +1834,40 @@ Singleton {
             readingProc.running = true;
         }
     }
+    // THE RELOAD USED TO TAKE READING MODE DOWN WITH IT.
+    //
+    // Everything the script does is applied through `hyprctl eval`, i.e. only
+    // at runtime, and set-wallpaper.sh reloads on EVERY wallpaper change:
+    // you pressed Super+Shift+W and the filter vanished by itself, and the
+    // Settings switch took three seconds to find out through the poll. It was
+    // the only live state with no safety net; hyprland.lua:796-811
+    // (efectos.lua) and Displays.qml:377 already covered the other two with
+    // this same mechanism.
+    //
+    // It does not look at `readingMode` -which the poll may already have set to
+    // false- but at the snapshot on disk, which is the truth and has no races.
+    // The `reapply` subcommand takes care of that, and it is idempotent too.
+    Connections {
+        target: Hyprland
+        function onRawEvent(ev) {
+            if (String(ev.name) === "configreloaded")
+                readingReapply.restart();
+        }
+    }
+    Timer {
+        id: readingReapply
+        interval: 400          // let the reload finish settling
+        onTriggered: {
+            if (readingProc.running) { readingReapply.restart(); return; }
+            readingProc.command = [root.readingTool, "reapply"];
+            readingProc.running = true;
+        }
+    }
+
     function setReadingMode(on) {
         if (readingProc.running) {
-            // Si el clic coincide con el sondeo de 3 s, no se pierde: se lanza
-            // en cuanto ese proceso de pocos milisegundos termine.
+            // If the click coincides with the 3 s poll, it is not lost: it is
+            // launched as soon as that few-millisecond process finishes.
             root.readingPending = on ? 1 : 0;
             return;
         }
@@ -1290,20 +1877,21 @@ Singleton {
     }
     function toggleReadingMode() { root.setReadingMode(!root.readingMode); }
 
-    // ═══════════════════════ acceso remoto (RustDesk) ═══════════════════════
-    // remote-mode impide que hypridle apague la pantalla o suspenda el equipo.
-    // Sin el, el portatil se dormia a los 20 min y quedaba inaccesible desde
-    // fuera de casa (con la pantalla apagada la captura se va a negro, y a un
-    // equipo suspendido no se conecta nadie). Activalo antes de salir.
+    // ═══════════════════════ remote access (RustDesk) ═══════════════════════
+    // remote-mode stops hypridle from switching the screen off or suspending the
+    // machine. Without it, the laptop went to sleep after 20 min and became
+    // unreachable from outside the house (with the screen off the capture goes
+    // black, and nobody connects to a suspended machine). Turn it on before you
+    // leave.
     property bool remoteMode: false
     function toggleRemoteMode() {
         root.remoteMode = !root.remoteMode;
         Quickshell.execDetached([root.home + "/.local/bin/remote-mode",
             root.remoteMode ? "on" : "off"]);
     }
-    // Estado real al arrancar. Lo deduce el propio script de que config tiene
-    // puesta hypridle, no de un fichero de marca aparte (eso se desincronizaba
-    // si un paso fallaba a medias).
+    // Real state at start-up. The script itself works it out from which config
+    // hypridle has loaded, not from a separate marker file (that fell out of sync
+    // if a step failed halfway).
     Process {
         id: remoteModeProbe
         command: [root.home + "/.local/bin/remote-mode", "is-on"]
@@ -1313,18 +1901,18 @@ Singleton {
         }
     }
 
-    // ═══════════════════════ pokemon del tema ═══════════════════════
-    // El pokemon que sale al abrir la primera terminal se elige comparando la
-    // paleta del sprite con la de pywal (~/.local/bin/poke-theme). Apagado
-    // vuelve al azar de siempre, que es como estaba antes: el interruptor no
-    // quita el pokemon, solo deja de elegirlo por color.
+    // ════════════════════════ theme pokémon ═════════════════════════
+    // The pokémon that appears when the first terminal opens is chosen by
+    // comparing the sprite's palette with pywal's (~/.local/bin/poke-theme). Off
+    // goes back to the usual random pick, which is how it was before: the switch
+    // does not remove the pokémon, it just stops choosing it by colour.
     property bool pokeTheme: true
     function togglePokeTheme() {
         root.pokeTheme = !root.pokeTheme;
         Quickshell.execDetached([root.home + "/.local/bin/poke-theme",
             root.pokeTheme ? "on" : "off"]);
     }
-    // Estado real al arrancar (lo dice el propio script, no lo adivinamos aqui).
+    // Real state at start-up (the script itself says so, we do not guess it here).
     Process {
         id: pokeThemeProbe
         command: [root.home + "/.local/bin/poke-theme", "is-on"]
@@ -1334,24 +1922,388 @@ Singleton {
         }
     }
 
-    // ═══════════════════════ el tiempo ═══════════════════════
-    // Heredado del Sidebar al retirarlo. Refresca cada media hora.
+    // ══════════════════ python environment in the prompt ══════════════════
+    // The (name) that opens the prompt when you have a venv or a conda active.
+    // The preference is stored by ~/.local/bin/prompt-env and read by
+    // ~/.config/p10k/diego-theme.zsh WHEN THE TERMINAL OPENS: the ones you
+    // already have open stay as they were, which is why the setting warns you.
+    property bool promptEnv: true
+    function togglePromptEnv() {
+        root.promptEnv = !root.promptEnv;
+        Quickshell.execDetached([root.home + "/.local/bin/prompt-env",
+            root.promptEnv ? "on" : "off"]);
+    }
+    Process {
+        id: promptEnvProbe
+        command: [root.home + "/.local/bin/prompt-env", "is-on"]
+        running: true
+        stdout: SplitParser {
+            onRead: function (line) { root.promptEnv = line.trim() === "on"; }
+        }
+    }
+
+    // ═══════════════════════ the pokémon team ════════════════════════
+    // Six pokémon that level up with GitHub commits. The idea comes from
+    // Impasto's pets (https://github.com/andreumassanet/impasto, GPL-3.0), but
+    // here the experience does not come from looking after them: it comes from
+    // working.
     //
-    // Timer + proceso de un disparo, por el mismo motivo que las
-    // actualizaciones de arriba: un `while true` en bash sobrevive a quickshell
-    // si éste se muere de golpe. Éste no llegaba a ser inmortal —al escribir en
-    // stdout cada media hora acababa comiéndose un SIGPIPE y muriendo—, pero
-    // hasta que le tocaba escribir se quedaba hasta 30 min suelto haciendo una
-    // petición de red por nadie. Era el último sitio con este patrón.
-    property string weather: "…"
+    // All the logic -sharing out experience, levelling up, evolving- lives in
+    // ~/.local/bin/poke-team. NOTHING is decided here: its JSON is read and it
+    // is sent orders. It is the house rule (same as monitors.py or
+    // github-stats.py) and it also leaves the engine testable from the terminal.
+    property var pokeTeam: ({ equipo: [], github: {}, tamano: 6 })
+    property bool pokeTeamLoading: false
+    readonly property var pokeLider: root.pokeTeam.equipo && root.pokeTeam.equipo.length > 0
+                                     ? root.pokeTeam.equipo[0] : null
+
+    // The names the team JSON brings for display are Spanish (especie_es, each
+    // type's `es`), because the engine was written for a Spanish desktop. In
+    // English nothing needs translating: the PokéAPI ids that come next to them
+    // ARE the English names, once capitalised ("mr-mime" -> "Mr-Mime"). The
+    // nature, badge and rank are fixed Spanish sets and go through I18n.tr like
+    // any other string. Nicknames belong to the user and are never touched.
+    function pokeTitulo(slug) {
+        return String(slug || "").split("-")
+            .map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join("-");
+    }
+    function pokeEspecie(slug, es) {
+        return I18n.english || !es ? root.pokeTitulo(slug) : es;
+    }
+    function pokeTipo(id, es) {
+        return I18n.english || !es ? root.pokeTitulo(id) : es;
+    }
+
+    Process {
+        id: pokeTeamProc
+        command: [root.home + "/.local/bin/poke-team", "estado"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    root.pokeTeam = JSON.parse(text);
+                } catch (e) {
+                    // If rubbish arrives, better to keep what was there than to
+                    // empty the panel. Same rule as with github.
+                }
+                root.pokeTeamLoading = false;
+                // The leader goes for a walk: reconcile the desktop creature with
+                // what was just read. The script exits in 30 ms if there is nothing
+                // to do, so calling it here is free.
+                Quickshell.execDetached([root.home + "/.local/bin/poke-leader-shimeji"]);
+            }
+        }
+        onExited: root.pokeTeamLoading = false
+    }
+
+    function pokeTeamRefresh(): void {
+        if (pokeTeamProc.running)
+            return;
+        root.pokeTeamLoading = true;
+        pokeTeamProc.running = true;
+    }
+
+    // Checks GitHub and shares out the winnings. When it finishes it re-reads,
+    // which is how the panel finds out about the new levels.
+    Process {
+        id: pokeSyncProc
+        command: [root.home + "/.local/bin/poke-team", "sync"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const r = JSON.parse(text);
+                    const evos = (r.sucesos || []).filter(s => s.tipo === "evolucion");
+                    const subieron = (r.sucesos || []).filter(s => s.tipo === "nivel");
+                    for (const e of evos)
+                        root.pokeEvoPush(e);
+                    // Level-ups go in ONE toast: a return after days away
+                    // can bring five, and the toast has a single slot. Whoever
+                    // also evolves gets no toast: their news is the ceremony,
+                    // not the small print.
+                    const evolucionaron = new Set(evos.map(e => e.puesto));
+                    const avisos = subieron.filter(s => !evolucionaron.has(s.puesto));
+                    let texto = "";
+                    if (avisos.length === 1) {
+                        texto = avisos[0].quien + " — " + I18n.tr("nivel") + " " + avisos[0].nivel;
+                    } else if (avisos.length > 1) {
+                        const tope = {};
+                        for (const s of avisos)
+                            tope[s.quien] = Math.max(tope[s.quien] || 0, s.nivel);
+                        texto = Object.keys(tope).map(q => q + " ↑" + tope[q]).join(" · ");
+                    }
+                    if (texto) {
+                        // if a ceremony is under way, the toast waits its turn
+                        if (root.pokeEvo)
+                            root.pokeAvisoPendiente = texto;
+                        else
+                            root.toast(Icons.pokeball, texto);
+                    }
+                } catch (e) {}
+                root.pokeTeamRefresh();
+            }
+        }
+        onExited: root.pokeTeamRefresh()
+    }
+
+    function pokeTeamSync(): void {
+        if (!pokeSyncProc.running)
+            pokeSyncProc.running = true;
+    }
+
+    // The evolution ceremony: a notch face with the sprite alternating between
+    // the old form and the new one. QUEUED because a return after days without
+    // switching on can bring two evolutions, and they are shown one at a time.
+    property var pokeEvo: null
+    property var pokeEvoCola: []
+    // The "levelled up" toast and the evolution ceremony are the same notch
+    // surface, and the ceremony lasts 5.2 s. Without this, a return that brings
+    // both -the usual case, since you evolve by levelling up- paints the toast
+    // ON TOP and ruins the moment. The small news waits.
+    property string pokeAvisoPendiente: ""
+
+    function pokeEvoPush(s: var): void {
+        const cap = q => q && q.length ? q[0].toUpperCase() + q.slice(1) : q;
+        const dir = s.shiny ? "/.cache/pokeshiny/" : "/.cache/pokeanim/";
+        root.pokeEvoCola.push({
+            tipo: "evo",
+            de: cap(s.de), a: cap(s.a),
+            deGif: "file://" + root.home + dir + s.de_num + ".gif",
+            aGif: "file://" + root.home + dir + s.a_num + ".gif"
+        });
+        if (!root.pokeEvo)
+            root.pokeEvoSiguiente();
+    }
+
+    // The shiny that has just joined the team. It shares the queue with the
+    // evolutions ON PURPOSE: they are the same notch surface, and if they ever
+    // coincide -adding a creature just as the sync comes back- they have to be
+    // shown one at a time and not one on top of the other.
+    function pokeShinyPush(s: var): void {
+        const cap = q => q && q.length ? q[0].toUpperCase() + q.slice(1) : q;
+        root.pokeEvoCola.push({
+            tipo: "shiny",
+            quien: cap(s.quien),
+            unoDe: s.uno_de || 0,
+            // poke-team downloads the shiny gif when it makes the roll; if
+            // there was no network, AnimatedImage stays blank and the burst still
+            // tells what happened. Better that than swallowing the moment.
+            gif: "file://" + root.home + "/.cache/pokeshiny/" + s.num + ".gif"
+        });
+        if (!root.pokeEvo)
+            root.pokeEvoSiguiente();
+    }
+
+    function pokeEvoSiguiente(): void {
+        if (root.pokeEvoCola.length === 0) {
+            root.pokeEvo = null;
+            // no ceremony any more: now the small print fits
+            if (root.pokeAvisoPendiente) {
+                const texto = root.pokeAvisoPendiente;
+                root.pokeAvisoPendiente = "";
+                root.toast(Icons.pokeball, texto);
+            }
+            return;
+        }
+        // THE CEREMONY WAITS; IT IS NOT SPENT.
+        //
+        // The team panel does get closed: evolving is pressed from there and the
+        // ceremony IS its answer. With ANY OTHER panel open it used to go ahead
+        // anyway, and since `mode` puts `panel !== ""` first the "evo" face was
+        // not seen while the 5 s Timer in NotchContent.qml:925 ran behind it.
+        // By the time the panel closed the ceremony had already been used up,
+        // and with two evolutions in a row both were eaten in ten seconds. This
+        // happens weeks apart: missing it is missing it.
+        //
+        // The shift() comes AFTER the guard on purpose: if it came before,
+        // waiting would cost the evolution all the same. When the panel closes,
+        // onPanelChanged calls here again.
+        if (root.panel === "poke")
+            root.closePanel();
+        else if (root.panel !== "")
+            return;
+        root.pokeEvo = root.pokeEvoCola.shift();
+        root.flash(root.pokeEvo.tipo === "shiny" ? "shiny" : "evo");
+    }
+
+    // The orders that change the team. All of them re-read when done: the file is
+    // written by the script, so the only truth is there. 'evolucionar' and 'add'
+    // also answer with the event in JSON: the two ceremonies -evolution and
+    // shiny- also play when you trigger them by hand.
+    Process {
+        id: pokeOrdenProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    // The LAST line, not the whole text: 'add' first answers
+                    // in Spanish (which is used from the terminal) and only
+                    // puts the JSON underneath if the roll came out.
+                    const lineas = text.trim().split("\n");
+                    const s = JSON.parse(lineas[lineas.length - 1]);
+                    if (s.tipo === "evolucion")
+                        root.pokeEvoPush(s);
+                    else if (s.tipo === "variocolor")
+                        root.pokeShinyPush(s);
+                } catch (e) {}   // the other orders answer in text: no matter
+            }
+        }
+        onExited: root.pokeTeamRefresh()
+    }
+
+    function pokeOrden(args: var): void {
+        if (pokeOrdenProc.running)
+            return;
+        pokeOrdenProc.command = [root.home + "/.local/bin/poke-team"].concat(args);
+        pokeOrdenProc.running = true;
+    }
+
+    function pokeAdd(quien: string): void      { root.pokeOrden(["add", quien]); }
+    function pokeQuitar(puesto: int): void     { root.pokeOrden(["quitar", String(puesto)]); }
+    function pokeLiderA(puesto: int): void     { root.pokeOrden(["lider", String(puesto)]); }
+    function pokeMote(puesto: int, n: string): void { root.pokeOrden(["mote", String(puesto), n]); }
+    function pokeEvolucionar(puesto: int, a: string): void {
+        root.pokeOrden(a ? ["evolucionar", String(puesto), a] : ["evolucionar", String(puesto)]);
+    }
+
+    // One pass at login and another every half hour: commits do not arrive
+    // faster than that, and the script does not count twice even if it is
+    // called too often.
+    Timer {
+        interval: 30 * 60 * 1000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.pokeTeamSync()
+    }
+
+    // ═══════════════════ the pokémon you are wearing ════════════════════
+    // Written by 'poke-theme wear' to ~/.config/poke-theme/worn, and
+    // set-wallpaper.sh DELETES it as soon as the palette comes from a wallpaper
+    // again -- so the file never lies: if it is there, the theme belongs to
+    // that creature.
+    //
+    // It is read with FileView and not with a Process on purpose: the watcher
+    // wakes us only when it changes, so there is no fork to pay for and no
+    // asking every few seconds about something that changes once a day.
+    //
+    // Four tab-separated fields: number, name, wallpaper that was set and
+    // wallpaper that an '--off' goes back to. Only the first two are needed here.
+    property int pokeWornNum: 0
+    property string pokeWornName: ""
+    readonly property bool pokeWorn: root.pokeWornNum > 0
+
+    // The animated gen5 sprite. It already comes trimmed to the creature and
+    // with a transparent background, so it needs no cropping to go on the island.
+    readonly property string pokeWornSprite: root.pokeWornNum > 0
+        ? "file://" + root.home + "/.cache/pokeanim/" + root.pokeWornNum + ".gif"
+        : ""
+
+    function pokeWear(quien) {
+        Quickshell.execDetached([root.home + "/.local/bin/poke-theme", "wear", quien]);
+    }
+    function pokeWearOff() {
+        Quickshell.execDetached([root.home + "/.local/bin/poke-theme", "wear", "--off"]);
+    }
+
+    FileView {
+        id: pokeWornFile
+        path: root.home + "/.config/poke-theme/worn"
+        watchChanges: true
+        // Not existing is normal, not a failure: without this the log fills with
+        // 'File does not exist' every time the shell starts with no pokémon.
+        printErrors: false
+        onFileChanged: reload()
+        // Not existing is the NORMAL case: it means you are not wearing any.
+        // It is not a failure worth warning about, so it goes back to zero and that is that.
+        onLoadFailed: { root.pokeWornNum = 0; root.pokeWornName = ""; }
+        onLoaded: {
+            const campos = pokeWornFile.text().trim().split("\t");
+            const n = parseInt(campos[0]);
+            if (campos.length >= 2 && !isNaN(n) && n > 0) {
+                root.pokeWornNum = n;
+                root.pokeWornName = campos[1];
+            } else {
+                root.pokeWornNum = 0;
+                root.pokeWornName = "";
+            }
+        }
+    }
+
+    // ══════════════════════ the weather ══════════════════════
+    // Inherited from the Sidebar when it was retired. Refreshes every half hour.
+    //
+    // Timer + one-shot process, for the same reason as the updates above: a
+    // `while true` in bash outlives quickshell if it dies suddenly. This one
+    // never got to be immortal —writing to stdout every half hour it ended up
+    // eating a SIGPIPE and dying—, but until its turn to write came it stayed
+    // loose for up to 30 min making a network request for nobody. It was the
+    // last place with this pattern.
+    // THE WEATHER. It used to ask for plain "%t·%C" and paint the raw text,
+    // with two faults that had been there from the start: the condition ALWAYS
+    // arrived in English ("Clear") in a shell that is otherwise entirely in
+    // whatever language is set, and the icon next to it was the BRIGHTNESS
+    // slider's, whatever the weather.
+    //
+    // Now the language goes in the URL and wttr.in translates, which it does
+    // better than we would here: there are 48 descriptions with nuances
+    // ("Patchy light drizzle") and translating them by hand would be a huge
+    // table that ends up lame. And "%x" is requested too, a symbol of one to
+    // three letters that does NOT depend on the language, which is what picks
+    // the icon.
+    property string weatherTemp: ""
+    property string weatherCond: ""
+    property string weatherSym: ""
+    readonly property string weather: root.weatherTemp.length
+        ? root.weatherTemp + "  ·  " + root.weatherCond : "…"
+
+    // wttr.in's symbol (inherited from wego) to Material Design Icons. It is
+    // checked from the MOST specific to the least, and the order matters: "!/"
+    // is a thunderstorm with rain, so checking rain first would show an umbrella
+    // in the middle of a storm. Checked against the service: o=clear,
+    // m/mm/mmm=clouds, .=showers, !=thunderstorm, x=freezing rain, ?=haze.
+    readonly property string weatherIcon: {
+        const x = root.weatherSym;
+        if (!x.length) return "󰖐";
+        if (x.indexOf("!") >= 0) return "󰖓";
+        if (x.indexOf("*") >= 0) return "󰖘";
+        if (x.indexOf("x") >= 0) return "󰙿";
+        if (x.indexOf("=") >= 0) return "󰖑";
+        // Haze has no icon of its own in wego and arrives as "?". Fog is the
+        // closest there is: both are "you cannot see".
+        if (x.indexOf("?") >= 0) return "󰖑";
+        if (".,'/\\".split("").some(c => x.indexOf(c) >= 0)) return "󰖗";
+        if (x === "m") return "󰖕";
+        if (x === "o") return "󰖙";
+        return "󰖐";
+    }
+
     Process {
         id: weatherProc
-        // El `echo` del final NO sobra: wttr.in con ?format= responde SIN salto
-        // de línea, y SplitParser corta justo por saltos de línea. Sin él la
-        // lectura se queda en el buffer y el tiempo no se actualiza nunca.
-        command: ["bash", "-c", "curl -s --max-time 8 'wttr.in/?format=%t·%C' 2>/dev/null; echo"]
+        // The trailing `echo` is NOT redundant: wttr.in with ?format= answers
+        // WITHOUT a newline, and SplitParser splits precisely on newlines. Without
+        // it the reading stays in the buffer and the weather never updates.
+        command: ["bash", "-c", "curl -s --max-time 8 'wttr.in/?lang=" + I18n.lang
+                  + "&format=%t·%C·%x' 2>/dev/null; echo"]
         stdout: SplitParser {
-            onRead: function (line) { if (line.trim().length) root.weather = line.trim(); }
+            onRead: function (line) {
+                const t = line.trim();
+                if (!t.length)
+                    return;
+                const trozos = t.split("·");
+                root.weatherTemp = (trozos[0] || "").trim();
+                root.weatherCond = (trozos[1] || "").trim();
+                root.weatherSym = (trozos[2] || "").trim();
+            }
+        }
+    }
+
+    // Changing language has to request it again: the condition is translated by
+    // the server, so the one already on screen would stay in the previous
+    // language until the next turn of the clock -- half an hour of a half-done
+    // shell, which is exactly what the language layer exists to prevent.
+    Connections {
+        target: I18n
+        function onLangChanged(): void {
+            if (!weatherProc.running)
+                weatherProc.running = true;
         }
     }
     Timer {
@@ -1362,12 +2314,85 @@ Singleton {
         onTriggered: if (!weatherProc.running) weatherProc.running = true
     }
 
-    // ═══════════════════════ cafeína ═══════════════════════
-    // Activa en cada arranque/recarga. El usuario puede apagarla manualmente
-    // desde el notch cuando sí quiera que hypridle vuelva a actuar.
-    property bool caffeine: true
+    // ═══════════════════════ GitHub ═══════════════════════
+    // What GithubPanel.qml paints: the contribution grid for the last year, the
+    // streak and the latest commits. The script makes ONE single API call and
+    // saves the response in ~/.cache/quickshell/github.json, so when there is no
+    // network the panel shows last time's data with `stale: true` instead of
+    // staying blank.
+    //
+    // StdioCollector and not SplitParser: the output is a single-piece JSON and
+    // it is needed whole to parse it, not line by line.
+    property var github: ({ weeks: [], commits: [], total: 0, streak: 0,
+                            today: 0, login: "", stale: false })
+    property bool githubLoading: false
+    Process {
+        id: githubProc
+        command: [Quickshell.env("HOME") + "/.config/quickshell/scripts/github-stats.py"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    root.github = JSON.parse(text);
+                } catch (e) {
+                    // The script promises JSON always, even when it fails. If
+                    // rubbish arrives even so, better to keep what was there
+                    // than to empty the panel.
+                }
+                root.githubLoading = false;
+            }
+        }
+        // Safety net, same as in the clipboard: if the script is missing or
+        // blows up before writing, the panel does not get stuck on «Cargando…»
+        // (Loading…).
+        onExited: root.githubLoading = false
+    }
+    function githubRefresh() {
+        if (githubProc.running)
+            return;
+        root.githubLoading = true;
+        githubProc.running = true;
+    }
+    Timer {
+        // 15 min. Commits do not arrive faster than that, and the panel also
+        // refreshes by itself when opened, which is when it really matters.
+        interval: 900000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.githubRefresh()
+    }
 
-    // ═══════════════════════ aplicaciones (lanzador) ═══════════════════════
+    // ══════════════════════ caffeine ═══════════════════════
+    // Keeps the usual preference on the charger. On battery idling is allowed
+    // by default; the notch button still lets you override it.
+    property bool caffeine: true
+    property bool caffeineBeforeBattery: true
+    property bool batteryIdleApplied: false
+    function updateBatteryIdle() {
+        if (!Config.loaded) return;
+        if (Energy.onBattery && Config.batteryAllowIdle) {
+            if (!root.batteryIdleApplied) {
+                root.caffeineBeforeBattery = root.caffeine;
+                root.batteryIdleApplied = true;
+                root.caffeine = false;
+            }
+        } else if (root.batteryIdleApplied) {
+            root.batteryIdleApplied = false;
+            root.caffeine = root.caffeineBeforeBattery;
+        }
+    }
+    Connections {
+        target: Energy
+        function onOnBatteryChanged() { root.updateBatteryIdle(); }
+    }
+    Connections {
+        target: Config
+        function onLoadedChanged() { root.updateBatteryIdle(); }
+        function onBatteryAllowIdleChanged() { root.updateBatteryIdle(); }
+    }
+    Timer { interval: 1800; running: true; onTriggered: root.updateBatteryIdle() }
+
+    // ═══════════════════════ applications (launcher) ═══════════════════════
     readonly property var allApps: {
         const out = [];
         const vs = DesktopEntries.applications ? DesktopEntries.applications.values : [];
@@ -1376,8 +2401,8 @@ Singleton {
         return out;
     }
 
-    // Puntuación: cuanto más "al principio del nombre" encaje, más alto. El
-    // último recurso es subsecuencia (escribir "gimp" encuentra "GNU Image...").
+    // Score: the closer to "the start of the name" it matches, the higher. The
+    // last resort is a subsequence (typing "gimp" finds "GNU Image...").
     function scoreApp(app, q) {
         const name = (app.name || "").toLowerCase();
         if (name === q) return 1000;
@@ -1392,7 +2417,7 @@ Singleton {
         let kw = "";
         try { kw = (app.keywords || []).join(" ").toLowerCase(); } catch (e) {}
         if (kw.indexOf(q) >= 0) return 300;
-        // subsecuencia
+        // subsequence
         let ti = 0;
         for (let i = 0; i < q.length; i++) {
             ti = name.indexOf(q[i], ti);
@@ -1404,40 +2429,49 @@ Singleton {
 
     function searchApps(query) {
         const q = (query || "").trim().toLowerCase();
-        if (q.length === 0) return root.allApps;
+        if (q.length === 0) {
+            const apps = root.allApps.slice();
+            if (Config.learnLauncher) apps.sort((a, b) => LauncherUsage.scoreOf(b.id)
+                - LauncherUsage.scoreOf(a.id) || (a.name || "").localeCompare(b.name || ""));
+            return apps;
+        }
         const hits = [];
         for (let i = 0; i < root.allApps.length; i++) {
             const s = root.scoreApp(root.allApps[i], q);
             if (s > 0) hits.push({ app: root.allApps[i], score: s });
         }
-        hits.sort((a, b) => b.score - a.score);
+        // Usage only orders equally strong matches: an exact name always wins.
+        hits.sort((a, b) => Math.floor(b.score / 100) - Math.floor(a.score / 100)
+            || (Config.learnLauncher ? LauncherUsage.scoreOf(b.app.id) - LauncherUsage.scoreOf(a.app.id) : 0)
+            || b.score - a.score || (a.app.name || "").localeCompare(b.app.name || ""));
         return hits.map(h => h.app);
     }
 
-    // ═══════════════ el lanzador como centro de comandos ═══════════════
+    // ════════════════ the launcher as a command centre ═════════════════
     //
-    // El lanzador deja de ser "la lista de aplicaciones" y pasa a ser la única
-    // caja donde se escribe. Un carácter al principio decide QUÉ se busca:
+    // The launcher stops being "the list of applications" and becomes the only
+    // box where you type. A character at the start decides WHAT is searched:
     //
-    //   (nada)  aplicaciones, y de propina la calculadora y el temporizador
-    //   #       historial del portapapeles (texto e imágenes)
-    //   >       acciones del sistema
-    //   @       ventanas abiertas
+    //   (none)  applications, plus the calculator and the timer thrown in
+    //   #       clipboard history (text and images)
+    //   >       system actions
+    //   @       open windows
     //
-    // POR QUÉ PREFIJOS Y NO CUATRO ATAJOS. Los atajos hay que recordarlos con
-    // los dedos y cada uno abre una ventana distinta que hay que aprender por
-    // separado. Un prefijo se descubre solo (están escritos en el propio panel
-    // cuando está vacío), se corrige con un borrado, y sobre todo: la costumbre
-    // es una sola —Super+R y escribir—, que es exactamente la que ya había.
+    // WHY PREFIXES AND NOT FOUR SHORTCUTS. Shortcuts have to be remembered with
+    // your fingers and each opens a different window that has to be learnt
+    // separately. A prefix discovers itself (they are written in the panel
+    // itself when it is empty), is corrected with one backspace, and above all:
+    // the habit is a single one —Super+R and type—, which is exactly the one
+    // there already was.
     //
-    // ES LA MISMA PUERTA QUE ABRIÓ LA CALCULADORA. Escribir "2+2" en el lanzador
-    // ya era escribir algo que no es un nombre de aplicación; esto solo termina
-    // la idea. Por eso la calculadora y el temporizador siguen sin prefijo: no
-    // son un modo, son lo que pasa cuando lo que escribes resulta ser una cuenta
-    // o una duración.
+    // IT IS THE SAME DOOR THE CALCULATOR OPENED. Typing "2+2" in the launcher
+    // was already typing something that is not an application name; this just
+    // finishes the idea. That is why the calculator and the timer still have no
+    // prefix: they are not a mode, they are what happens when what you type
+    // turns out to be a sum or a duration.
     //
-    // Con esto se retiran los dos últimos menús de rofi del rice (el historial
-    // del portapapeles y el menú de comandos); ver README.
+    // With this the last two rofi menus of the rice are retired (the clipboard
+    // history and the command menu); see README.
     property string launcherMode: "apps"     // "apps" | "clip" | "cmd" | "win"
 
     readonly property var launcherModes: [
@@ -1452,7 +2486,7 @@ Singleton {
     readonly property var launcherAppsMode: ({ key: "apps", prefix: "", icon: "󰍉",
         name: I18n.tr("Aplicaciones"), hint: I18n.tr("Buscar aplicaciones…") })
 
-    // "#" -> "clip". Devuelve "" si ese carácter no abre ningún modo.
+    // "#" -> "clip". Returns "" if that character opens no mode.
     function launcherModeOf(ch) {
         for (let i = 0; i < root.launcherModes.length; i++)
             if (root.launcherModes[i].prefix === ch) return root.launcherModes[i].key;
@@ -1465,9 +2499,9 @@ Singleton {
         return root.launcherAppsMode;
     }
 
-    // Abrir el lanzador YA en un modo. Pulsar el atajo del modo que ya está
-    // abierto lo cierra, igual que hace togglePanel con los demás paneles: un
-    // atajo que abre pero no cierra obliga a ir a por Escape.
+    // Open the launcher ALREADY in a mode. Pressing the shortcut of the mode that
+    // is already open closes it, just as togglePanel does with the other panels:
+    // a shortcut that opens but does not close forces you to reach for Escape.
     function openLauncher(m) {
         const mode = m || "apps";
         if (root.panel === "launcher" && root.launcherMode === mode) { root.closePanel(); return; }
@@ -1478,11 +2512,11 @@ Singleton {
         root.panel = "launcher";
     }
 
-    // El alto de arranque. Sin esto el panel nace con el alto de la BÚSQUEDA
-    // ANTERIOR y corrige en el fotograma siguiente: se ve un doble movimiento.
-    // En "clip" no se sabe cuántas filas habrá hasta que conteste el proceso, así
-    // que se pide el máximo y el panel encoge —hacia arriba, que es su gesto
-    // natural— durante la propia animación de apertura.
+    // The starting height. Without this the panel is born with the height of the
+    // PREVIOUS SEARCH and corrects on the next frame: you see a double movement.
+    // In "clip" there is no knowing how many rows there will be until the
+    // process answers, so the maximum is requested and the panel shrinks
+    // —upwards, which is its natural gesture— during the opening animation itself.
     function launcherPreload(mode) {
         root.launcherCalc = false;
         root.launcherFavs = mode === "apps" && root.favApps.length > 0;
@@ -1492,11 +2526,11 @@ Singleton {
             : root.clipItems.length > 0 ? root.clipItems.length : root.launcherMaxRows;
     }
 
-    // ─────────────── # portapapeles ───────────────
-    // Los datos los sirve scripts/cliphist-tool.sh, que sustituye al par de
-    // scripts de rofi. Aquí no se decodifica nada: una entrada de imagen es un
-    // binario, y meter binarios en una cadena de QML es pedir que algo se rompa
-    // en silencio. El script entrega id, tipo, ruta de miniatura y etiqueta.
+    // ──────────────── # clipboard ─────────────────
+    // The data is served by scripts/cliphist-tool.sh, which replaces the pair of
+    // rofi scripts. Nothing is decoded here: an image entry is binary, and
+    // putting binaries into a QML string is asking for something to break
+    // silently. The script delivers id, type, thumbnail path and label.
     readonly property string clipTool: root.home + "/.config/quickshell/scripts/cliphist-tool.sh"
 
     property var clipItems: []
@@ -1519,9 +2553,9 @@ Singleton {
                         id: p[0],
                         image: p[1] === "image",
                         thumb: p[2] === "-" ? "" : p[2],
-                        // join por si la etiqueta trajera un tabulador que el
-                        // script no hubiera limpiado: partir por el primero y
-                        // volver a unir el resto no pierde texto.
+                        // join in case the label carried a tab the script had
+                        // not cleaned: splitting on the first and joining the rest
+                        // back loses no text.
                         label: p.slice(3).join("\t")
                     });
                 }
@@ -1529,9 +2563,10 @@ Singleton {
                 root.clipLoading = false;
             }
         }
-        // Red de seguridad: si el proceso muriera sin escribir nada (script
-        // borrado, cliphist desinstalado), sin esto el panel se quedaría para
-        // siempre en "Leyendo el portapapeles…" y con el alto máximo puesto.
+        // Safety net: if the process died without writing anything (script
+        // deleted, cliphist uninstalled), without this the panel would stay for
+        // ever on "Leyendo el portapapeles…" (Reading the clipboard…) with the
+        // maximum height set.
         onExited: root.clipLoading = false
     }
 
@@ -1550,8 +2585,8 @@ Singleton {
         return out;
     }
 
-    // El aviso no puede llevar los 200 caracteres de la vista previa: la cara
-    // "toast" mide 330 px fijos y el texto se saldría del notch por los lados.
+    // The notice cannot carry the preview's 200 characters: the "toast" face
+    // is a fixed 330 px and the text would spill out of the notch at the sides.
     function clipShort(t) {
         const s = String(t).replace(/\s+/g, " ").trim();
         return s.length > 32 ? s.slice(0, 32) + "…" : s;
@@ -1569,33 +2604,35 @@ Singleton {
     function clipDelete(item) {
         if (!item) return;
         Quickshell.execDetached([root.clipTool, "delete", String(item.id)]);
-        // Se quita de la lista AQUÍ en vez de releerla entera: releer son 150
-        // líneas y un proceso más para tachar una fila que el usuario acaba de
-        // ver desaparecer. El id de cliphist no se reutiliza, así que la copia
-        // local no puede quedar apuntando a otra cosa.
+        // It is removed from the list HERE instead of re-reading it whole:
+        // re-reading is 150 lines and one more process to strike out a row the
+        // user has just seen disappear. cliphist ids are not reused, so the local
+        // copy cannot end up pointing at something else.
         const out = [];
         for (let i = 0; i < root.clipItems.length; i++)
             if (root.clipItems[i].id !== item.id) out.push(root.clipItems[i]);
         root.clipItems = out;
     }
 
-    // ─────────────── > acciones del sistema ───────────────
-    // La lista que había en ~/.config/hypr/scripts/menu.sh, más lo que ese menú
-    // no podía ofrecer porque vivía fuera del shell (ajustes, mapa de
-    // escritorios, no molestar, cafeína).
+    // ────────────────── > system actions ──────────────────
+    // The list that was in ~/.config/hypr/scripts/menu.sh, plus what that menu
+    // could not offer because it lived outside the shell (settings, workspace
+    // map, do not disturb, caffeine).
     //
-    // Las que tienen equivalente NATIVO en el notch ya no llaman a un programa
-    // externo: "Wifi" abría `kitty -e impala` y ahora abre NetworkPanel; "Apagar"
-    // abría wlogout y ahora abre PowerPanel. Lanzar una terminal para tocar el
-    // wifi teniendo el panel al lado era el resto de una época anterior.
+    // The ones with a NATIVE equivalent in the notch no longer call an external
+    // program: "Wifi" opened `kitty -e impala` and now opens NetworkPanel;
+    // "Apagar" (Shut down) opened wlogout and now opens PowerPanel. Launching a
+    // terminal to touch the wifi with the panel right there was a leftover from
+    // an earlier era.
     //
-    // Solo `name` y `desc` son visibles: `id` es lo que despacha runAction() y
-    // `keys` son las palabras que TECLEAS para encontrar la acción, que no se ven.
-    // Por eso `keys` no pasa por tr(): las claves no se traducen, se ACUMULAN. Con
-    // el shell en inglés, `name` y `desc` ya salen traducidos y la búsqueda casa
-    // con ellos, pero quien teclee "shutdown" o "screenshot" no encontraría nada
-    // si las claves siguieran solo en castellano. Con las dos listas juntas, la
-    // búsqueda funciona en los dos idiomas a la vez y sin duplicar la tabla.
+    // Only `name` and `desc` are visible: `id` is what runAction() dispatches and
+    // `keys` are the words you TYPE to find the action, which are not seen.
+    // That is why `keys` does not go through tr(): the keys are not translated,
+    // they ACCUMULATE. With the shell in English, `name` and `desc` already come
+    // out translated and the search matches them, but someone typing "shutdown"
+    // or "screenshot" would find nothing if the keys were still only in Spanish.
+    // With both lists together, the search works in both languages at once and
+    // without duplicating the table.
     readonly property var sysActions: [
         { kind: "cmd", id: "clip", icon: Icons.clipboard, name: I18n.tr("Portapapeles"),
           desc: I18n.tr("Historial de copiado"),
@@ -1634,7 +2671,10 @@ Singleton {
         { kind: "cmd", id: "overview", icon: Icons.grid, name: I18n.tr("Mapa de escritorios"),
           desc: I18n.tr("Ver y mover ventanas"),
           keys: "overview escritorios workspaces mapa workspace map windows grid" },
-        { kind: "cmd", id: "system", icon: Icons.cpu, name: I18n.tr("Tu equipo"),
+        { kind: "cmd", id: "stage", icon: Icons.grid, name: I18n.tr("Organizador visual"),
+          desc: I18n.tr("Stage Manager"),
+          keys: "stage manager organizador visual apple escritorios workspaces lateral sidebar" },
+        { kind: "cmd", id: "system", icon: Icons.cpu, name: I18n.tr("Tu máquina"),
           desc: I18n.tr("Actividad, temperatura y batería"),
           keys: "sistema monitor cpu ram memoria disco temperatura bateria rendimiento equipo system memory disk temperature battery performance machine" },
         { kind: "cmd", id: "settings", icon: Icons.cog, name: I18n.tr("Ajustes"),
@@ -1673,15 +2713,16 @@ Singleton {
         if (!a) return;
         const S = root.home + "/.config/hypr/scripts/";
 
-        // ── las que se quedan DENTRO del shell ──
-        // No cierran el panel: cambian de cara. Cerrar y volver a abrir en el
-        // mismo instante hace parpadear el notch entero.
+        // ── the ones that stay INSIDE the shell ──
+        // They do not close the panel: they change face. Closing and reopening at
+        // the same instant makes the whole notch flicker.
         switch (a.id) {
         case "clip":     root.openLauncher("clip"); return;
         case "wifi":     root.panel = "network"; return;
         case "bt":       root.panel = "bluetooth"; return;
         case "power":    root.panel = "power"; return;
         case "overview": Hyprland.refreshToplevels(); root.panel = "overview"; return;
+        case "stage":    root.closePanel(); root.toggleStage(); return;
         case "system":   root.panel = "system"; return;
         case "settings": root.closePanel(); root.settingsOpen = true; return;
         case "keys":     root.closePanel(); root.openSettingsAt("keys"); return;
@@ -1699,32 +2740,35 @@ Singleton {
             return;
         }
 
-        // ── las que salen fuera: cerrar primero ──
-        // Varias de estas congelan la pantalla o piden un recorte, y hacerlo con
-        // el panel todavía puesto lo dejaría dentro de la foto.
+        // ── the ones that go outside: close first ──
+        // Several of these freeze the screen or ask for a crop, and doing it with
+        // the panel still up would leave it inside the picture.
         root.closePanel();
         switch (a.id) {
         case "lock":  Quickshell.execDetached(["loginctl", "lock-session"]); break;
-        case "night": Quickshell.execDetached([S + "hyprsunset-toggle.sh"]); break;
+        // Through the same door as the control centre tile and
+        // Super+Shift+N: that way the poll finds out at once in all three cases.
+        case "night": root.toggleNightLight(); break;
         case "shot":  Quickshell.execDetached([S + "screenshot-annotate.sh"]); break;
         case "pick":  Quickshell.execDetached([S + "colorpicker.sh"]); break;
         case "ocr":   Quickshell.execDetached([S + "ocr.sh"]); break;
         case "rec":   Quickshell.execDetached([S + "screenrecord.sh"]); break;
         case "saver": Quickshell.execDetached([S + "screensaver.sh"]); break;
-        // El selector de fondos NATIVO (WallpaperPicker.qml) es una ventana
-        // aparte, no un panel del notch, y solo se abre por su atajo global. Es
-        // la misma llamada que usa el botón de Ajustes › Apariencia.
+        // The NATIVE wallpaper picker (WallpaperPicker.qml) is a separate
+        // window, not a notch panel, and it only opens through its global
+        // shortcut. It is the same call the Settings › Appearance button uses.
         case "wall":  Hyprland.dispatch('hl.dsp.global("quickshell:wallpaper")'); break;
         }
     }
 
-    // ─────────────── @ ventanas abiertas ───────────────
-    // Se lee de Hyprland y no del ToplevelManager de Wayland porque hace falta
-    // el ESCRITORIO de cada ventana, y eso solo lo sabe el compositor.
+    // ───────────────── @ open windows ──────────────────
+    // It is read from Hyprland and not from Wayland's ToplevelManager because we
+    // need each window's WORKSPACE, and only the compositor knows that.
     //
-    // winTick existe porque `Hyprland.toplevels.values` avisa cuando una ventana
-    // nace o muere, pero NO cuando cambia de título: sin él, buscar "github" no
-    // encontraría la pestaña que acabas de abrir en un Chrome que ya estaba.
+    // winTick exists because `Hyprland.toplevels.values` notifies when a window
+    // is born or dies, but NOT when its title changes: without it, searching
+    // "github" would not find the tab you have just opened in a Chrome that was
+    // already running.
     property int winTick: 0
     Timer {
         id: winPoll
@@ -1734,8 +2778,8 @@ Singleton {
     function winRefresh() { Hyprland.refreshToplevels(); root.winTick++; }
     Connections {
         target: Hyprland
-        // Solo con el modo abierto: cada refreshToplevels() es una consulta al
-        // socket de Hyprland, y el 99 % del tiempo esta lista no se está mirando.
+        // Only with the mode open: every refreshToplevels() is a query to
+        // Hyprland's socket, and 99 % of the time this list is not being looked at.
         enabled: root.panel === "launcher" && root.launcherMode === "win"
         function onRawEvent(ev) {
             const n = String(ev.name);
@@ -1745,19 +2789,19 @@ Singleton {
     }
 
     readonly property var winItems: {
-        root.winTick;   // dependencia a propósito: ver la nota de arriba
+        root.winTick;   // dependency on purpose: see the note above
         const out = [];
         const ts = Hyprland.toplevels ? [...Hyprland.toplevels.values] : [];
         for (let i = 0; i < ts.length; i++) {
             const t = ts[i];
-            if (!t || !t.workspace || t.workspace.id < 1) continue;   // fuera los especiales
+            if (!t || !t.workspace || t.workspace.id < 1) continue;   // leave out the special ones
             const c = t.lastIpcObject;
             const cls = c ? String(c["class"] || "") : "";
             out.push({
                 kind: "win",
-                // OJO: `address` viene SIN el "0x" y los despachadores de
-                // Hyprland lo exigen. Sin el prefijo, focus contesta "no window"
-                // y no pasa nada, en silencio. Misma trampa que en OverviewPanel.
+                // CAREFUL: `address` comes WITHOUT the "0x" and Hyprland's
+                // dispatchers require it. Without the prefix, focus answers "no window"
+                // and nothing happens, silently. Same trap as in OverviewPanel.
                 addr: (function () {
                     const s = String(t.address || "");
                     return s.startsWith("0x") ? s : "0x" + s;
@@ -1773,10 +2817,10 @@ Singleton {
         return out;
     }
 
-    // El .desktop no se llama como la clase de la ventana casi nunca
-    // ("org.gnome.Nautilus" vs "nautilus"), así que la búsqueda heurística de
-    // Quickshell hace el trabajo; si no encuentra nada, la clase en minúsculas
-    // suele ser un nombre de icono válido en el tema.
+    // The .desktop is almost never named like the window class
+    // ("org.gnome.Nautilus" vs "nautilus"), so Quickshell's heuristic lookup
+    // does the work; if it finds nothing, the lower-case class is usually a
+    // valid icon name in the theme.
     function iconForClass(cls) {
         if (!cls) return "";
         try {
@@ -1797,12 +2841,13 @@ Singleton {
         return out;
     }
 
-    // Cerrar PRIMERO y pedir el foco DESPUÉS, con 60 ms de por medio. Al cerrar
-    // el panel se suelta el HyprlandFocusGrab y Hyprland devuelve el foco a la
-    // ventana que lo tenía antes; si nuestra petición va en el mismo instante no
-    // está garantizado quién llega el último, y si llega la devolución te quedas
-    // donde estabas — justo lo que acabas de pedir que no pase. Es el mismo
-    // remedio (y la misma cifra) que usa OverviewPanel al saltar a una ventana.
+    // Close FIRST and ask for focus AFTERWARDS, with 60 ms in between. Closing
+    // the panel releases the HyprlandFocusGrab and Hyprland gives focus back to
+    // the window that had it before; if our request goes at the same instant it
+    // is not guaranteed who arrives last, and if the give-back wins you stay
+    // where you were — exactly what you have just asked not to happen. It is the
+    // same remedy (and the same figure) that OverviewPanel uses when jumping to
+    // a window.
     property string winPending: ""
     Timer {
         id: winFocusDefer
@@ -1820,28 +2865,28 @@ Singleton {
         winFocusDefer.restart();
     }
 
-    // ═══════════════════════ calculadora del lanzador ═══════════════════════
-    // Nombres permitidos. Cualquier otra palabra en la expresión la descarta:
-    // así "7zip" o "firefox 2" no disparan la calculadora.
+    // ═════════════════════════ launcher calculator ══════════════════════════
+    // Allowed names. Any other word in the expression rules it out:
+    // that way "7zip" or "firefox 2" do not trigger the calculator.
     readonly property var calcWords: ["sqrt", "abs", "sin", "cos", "tan", "asin", "acos", "atan",
         "log", "log2", "log10", "exp", "round", "floor", "ceil", "min", "max", "pow", "pi", "e"]
 
     function calcEval(q) {
         let e = (q || "").trim();
-        if (e.startsWith("=")) e = e.slice(1);      // "=" fuerza modo calculadora
+        if (e.startsWith("=")) e = e.slice(1);      // "=" forces calculator mode
         if (e.length === 0) return null;
-        if (!/\d/.test(e)) return null;                    // sin números no hay cuenta
-        if (!/[+\-*\/^%()]/.test(e)) return null;           // sin operador tampoco: "5" no es una cuenta
+        if (!/\d/.test(e)) return null;                    // no numbers, no sum
+        if (!/[+\-*\/^%()]/.test(e)) return null;           // no operator either: "5" is not a sum
 
-        // solo caracteres de expresión, y las letras solo dentro de nombres conocidos
+        // expression characters only, and letters only inside known names
         if (!/^[0-9\s+\-*\/^%().,×÷a-zA-Z]+$/.test(e)) return null;
         const words = e.match(/[a-zA-Z]+/g) || [];
         for (let i = 0; i < words.length; i++)
             if (root.calcWords.indexOf(words[i].toLowerCase()) < 0) return null;
 
-        // sintaxis amable -> JavaScript
+        // friendly syntax -> JavaScript
         let x = e.replace(/×/g, "*").replace(/÷/g, "/").replace(/\^/g, "**");
-        x = x.replace(/(\d),(\d)/g, "$1.$2");               // coma decimal
+        x = x.replace(/(\d),(\d)/g, "$1.$2");               // decimal comma
         x = x.replace(/\bpi\b/gi, "Math.PI").replace(/\be\b/gi, "Math.E");
         x = x.replace(/\b(sqrt|abs|sin|cos|tan|asin|acos|atan|log2|log10|log|exp|round|floor|ceil|min|max|pow)\b/gi,
                       function (m) { return "Math." + m.toLowerCase(); });
@@ -1854,7 +2899,7 @@ Singleton {
         }
     }
 
-    // Sin ruido de coma flotante: 0.1+0.2 debe dar 0.3, no 0.30000000000000004
+    // No floating-point noise: 0.1+0.2 must give 0.3, not 0.30000000000000004
     function calcFormat(v) {
         if (v === null || v === undefined) return "";
         const r = Math.round(v * 1e10) / 1e10;
@@ -1867,8 +2912,8 @@ Singleton {
         root.toast("󰆏", I18n.tr("Copiado: {0}", t));
     }
 
-    // Aviso breve dentro del notch. Aquí SÍ hace falta: copiar al portapapeles
-    // no tiene ninguna otra señal de que haya ocurrido.
+    // Brief notice inside the notch. Here it IS needed: copying to the clipboard
+    // has no other sign that it happened.
     property string toastIcon: ""
     property string toastText: ""
     function toast(icon, text) {
@@ -1881,13 +2926,14 @@ Singleton {
         if (!app) return;
         root.closePanel();
         app.execute();
+        if (Config.learnLauncher) LauncherUsage.record(app.id);
     }
 
-    // ═══════════════════════ favoritos del lanzador ═══════════════════════
-    // Se guardan por `id` de la entrada .desktop, que es constante, y NO por
-    // nombre: renombrar la app o cambiar el idioma del escritorio no debe
-    // perderte el favorito. Un id que ya no exista (app desinstalada) se ignora
-    // al resolver, así que la lista se limpia sola sin avisar de nada.
+    // ════════════════════════ launcher favourites ═════════════════════════
+    // They are stored by the .desktop entry's `id`, which is constant, and NOT by
+    // name: renaming the app or changing the desktop language must not lose you
+    // the favourite. An id that no longer exists (app uninstalled) is ignored
+    // when resolving, so the list cleans itself up without any notice.
     readonly property var favApps: {
         const out = [];
         const ids = Config.favApps;
@@ -1908,8 +2954,8 @@ Singleton {
 
     function toggleFav(app) {
         if (!app) return;
-        // slice() y no mutación en sitio: cambiar la lista por dentro no dispara
-        // el cambio de propiedad, así que ni se repinta ni se guarda el fichero.
+        // slice() and not in-place mutation: changing the list from inside does not
+        // fire the property change, so it neither repaints nor saves the file.
         const ids = Config.favApps.slice();
         const i = ids.indexOf(app.id);
         if (i >= 0) ids.splice(i, 1); else ids.push(app.id);
@@ -1917,21 +2963,21 @@ Singleton {
         Config.save();
     }
 
-    // ═══════════════════════ emparejamiento bluetooth ═══════════════════════
-    // Quickshell sabe emparejar (Bluetooth.pair()) pero NO sabe contestar a lo
-    // que BlueZ pregunta a mitad del emparejamiento: "¿coincide este código?",
-    // "teclea estos seis dígitos". Esas preguntas llegan a un objeto D-Bus que
-    // hay que EXPORTAR, y QML no puede exportar objetos D-Bus. Por eso hay un
-    // proceso aparte (scripts/bt-agent.py) que sí lo hace y que habla con el
-    // notch por IPC. Aquí solo vive lo que hay que enseñar y la respuesta.
+    // ══════════════════════════ bluetooth pairing ═══════════════════════════
+    // Quickshell knows how to pair (Bluetooth.pair()) but NOT how to answer what
+    // BlueZ asks halfway through pairing: "does this code match?", "type these
+    // six digits". Those questions arrive at a D-Bus object that has to be
+    // EXPORTED, and QML cannot export D-Bus objects. That is why there is a
+    // separate process (scripts/bt-agent.py) that does, and that talks to the
+    // notch over IPC. Only what has to be shown and the answer live here.
     //
-    // Sin esto los auriculares emparejan igual (no preguntan nada) pero un
-    // teclado o un mando falla EN SILENCIO, que es justo lo peor: no hay error,
-    // simplemente no se empareja nunca.
+    // Without this headphones pair just the same (they ask nothing) but a
+    // keyboard or a controller fails SILENTLY, which is the worst of all: there
+    // is no error, it simply never pairs.
     property string btKind: ""     // "" | "confirm" | "display" | "authorize"
-    property string btName: ""     // nombre del aparato
-    property string btCode: ""     // los seis dígitos, "" si no hay
-    property int btEntered: -1     // dígitos ya tecleados (solo en "display")
+    property string btName: ""     // name of the device
+    property string btCode: ""     // the six digits, "" if there are none
+    property int btEntered: -1     // digits already typed (only in "display")
     readonly property bool btAsking: root.btKind !== ""
 
     function btAsk(kind, name, code, entered) {
@@ -1946,9 +2992,9 @@ Singleton {
     }
 
     function btReply(accept) {
-        // Se limpia SIEMPRE, conteste el agente lo que conteste: si el proceso
-        // se hubiera muerto, la cara se quedaría clavada en el notch tapando
-        // todo lo demás (btpair va por delante hasta de los paneles).
+        // ALWAYS cleared, whatever the agent answers: if the process had died,
+        // the face would stay stuck in the notch covering everything else
+        // (btpair goes ahead even of the panels).
         btReplyProc.command = ["busctl", "--user", "call",
             "org.quickshell.BtAgent", "/org/quickshell/btagent",
             "org.quickshell.BtAgent1", "Reply", "b", accept ? "true" : "false"];
@@ -1958,9 +3004,9 @@ Singleton {
 
     Process { id: btReplyProc }
 
-    // Reordenar arrastrando: `to` es la RANURA de inserción (0..n), no el índice
-    // de un elemento, por eso hay que descontar uno cuando se mueve hacia la
-    // derecha (al sacar el elemento, todo lo de detrás se corre una posición).
+    // Reorder by dragging: `to` is the insertion SLOT (0..n), not an element's
+    // index, which is why one has to be subtracted when moving to the right
+    // (taking the element out shifts everything behind it one position).
     function moveFav(from, to) {
         const ids = Config.favApps.slice();
         if (from < 0 || from >= ids.length) return;

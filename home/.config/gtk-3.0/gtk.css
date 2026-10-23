@@ -1,2 +1,14 @@
-/* acento pywal encima de adw-gtk3-dark */
-@import url("file:///home/diego/.cache/wal/colors-gtk.css");
+/* EMPTY ON PURPOSE. Do not put colours or rules here.
+ *
+ * The user CSS is loaded with USER priority, that is ABOVE the theme, and GTK3
+ * does not read it again while the application is alive. With the pywal
+ * colours here, the result was that an open window kept the previous
+ * wallpaper's colours forever: the new theme came in, but these trampled it.
+ * Measured with Thunar in front -- the view stayed at #191612 with the palette
+ * already at #0B1018.
+ *
+ * Everything -colours and rules- now lives in the `pywal-gtk-<hash>` theme
+ * that ~/.config/hypr/scripts/gtk-pywal.sh generates on every wallpaper
+ * change. The rules, which are the only thing edited by hand, are in
+ * gtk-3.0/rice-gtk3.css.
+ */

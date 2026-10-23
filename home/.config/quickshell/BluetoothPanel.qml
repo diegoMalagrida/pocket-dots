@@ -1,8 +1,8 @@
-// BluetoothPanel.qml — dispositivos bluetooth, desplegado DESDE el notch.
-// Hermano de NetworkPanel: mismo esqueleto (cabecera + interruptor + lista) y
-// mismo trato desde el centro de control. Habla con Bluez vía
-// Quickshell.Bluetooth, sin scripts. El descubrimiento solo corre mientras este
-// panel está abierto (ver ShellState.onPanelChanged).
+// BluetoothPanel.qml — bluetooth devices, unfolded FROM the notch.
+// Sibling of NetworkPanel: same skeleton (header + switch + list) and the same
+// treatment from the Control Centre. It talks to Bluez through
+// Quickshell.Bluetooth, with no scripts. Discovery only runs while this panel
+// is open (see ShellState.onPanelChanged).
 import Quickshell
 import Quickshell.Bluetooth
 import QtQuick
@@ -19,7 +19,7 @@ Item {
 
     MouseArea { anchors.fill: parent }
 
-    // Todo panel debe atender Escape (ver la nota en TopShell).
+    // Every panel must handle Escape (see the note in TopShell).
     Item {
         id: keys
         anchors.fill: parent
@@ -31,22 +31,22 @@ Item {
         anchors { fill: parent; leftMargin: 22; rightMargin: 20; topMargin: 20; bottomMargin: 18 }
         spacing: 12
 
-        // ─────────────── cabecera ───────────────
+        // ─────────────── header ───────────────
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
 
             Text {
                 text: ShellState.btIcon
-                color: ShellState.btConnected > 0 ? Colors.accent : (ShellState.btOn ? "#cfcfcf" : "#7d7d7d")
+                color: ShellState.btConnected > 0 ? Colors.accentInk : (ShellState.btOn ? Colors.label : Colors.label3)
                 font.family: Appearance.font; font.pixelSize: 18
             }
             ColumnLayout {
                 spacing: 0
                 Text {
                     text: I18n.tr("Bluetooth")
-                    color: "#ffffff"
-                    font.family: Appearance.fontUI; font.pixelSize: 13; font.weight: Font.DemiBold
+                    color: Colors.label
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsM; font.weight: Font.DemiBold
                 }
                 Text {
                     text: !root.adapter ? I18n.tr("Sin adaptador")
@@ -55,8 +55,8 @@ Item {
                         : ShellState.btConnected > 0
                             ? ShellState.btLabel(ShellState.btPaired[0])
                             : I18n.tr("Sin conexión")
-                    color: "#8a8a8a"; elide: Text.ElideRight
-                    font.family: Appearance.fontUI; font.pixelSize: 11
+                    color: Colors.label2; elide: Text.ElideRight
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXS
                 }
             }
             Item { Layout.fillWidth: true }
@@ -65,7 +65,7 @@ Item {
                 implicitWidth: 42; implicitHeight: 23
                 radius: 12
                 opacity: ShellState.btBlocked ? 0.4 : 1
-                color: ShellState.btOn ? Colors.accent : Qt.rgba(1, 1, 1, 0.14)
+                color: ShellState.btOn ? Colors.accent : Colors.fill1
                 Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
                 Rectangle {
                     width: 17; height: 17; radius: 9
@@ -83,9 +83,9 @@ Item {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: "#1e1e1e" }
+        Rectangle { Layout.fillWidth: true; height: 1; color: Colors.hairline }
 
-        // ─────────────── listas ───────────────
+        // ─────────────── lists ───────────────
         Flickable {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -103,23 +103,41 @@ Item {
                     Layout.fillWidth: true
                     Layout.topMargin: 4
                     visible: ShellState.btPaired.length > 0
-                    text: I18n.tr("MIS DISPOSITIVOS")
-                    color: Colors.accent
-                    font.family: Appearance.fontUI; font.pixelSize: 10
-                    font.weight: Font.DemiBold; font.letterSpacing: 0.6
+                    text: I18n.tr("Mis dispositivos")
+                    color: Colors.accentInk
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
+                    font.weight: Font.DemiBold
                 }
-                Repeater { model: ShellState.btPaired; BtRow {} }
+                // ScriptModel: while this panel is open Bluez discovers
+                // non-stop and these two lists are rebuilt from scratch. With an
+                // array that recreated ALL the rows on every sweep (flicker, and
+                // the bin's hover staying lit over a row that is now a different
+                // one). The devices are the same Bluez objects between sweeps,
+                // so by identity.
+                Repeater {
+                    model: ScriptModel {
+                        values: ShellState.btPaired
+                        comparisonMode: ObjectComparison.Identity
+                    }
+                    BtRow {}
+                }
 
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
                     visible: ShellState.btOn && ShellState.btNearby.length > 0
-                    text: I18n.tr("DISPONIBLES")
-                    color: Colors.accent
-                    font.family: Appearance.fontUI; font.pixelSize: 10
-                    font.weight: Font.DemiBold; font.letterSpacing: 0.6
+                    text: I18n.tr("Disponibles")
+                    color: Colors.accentInk
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
+                    font.weight: Font.DemiBold
                 }
-                Repeater { model: ShellState.btOn ? ShellState.btNearby : []; BtRow {} }
+                Repeater {
+                    model: ScriptModel {
+                        values: ShellState.btOn ? ShellState.btNearby : []
+                        comparisonMode: ObjectComparison.Identity
+                    }
+                    BtRow {}
+                }
             }
         }
 
@@ -133,15 +151,15 @@ Item {
                         + "\n" + I18n.tr("Desbloquéalo con:  rfkill unblock bluetooth")
                 : !ShellState.btOn ? I18n.tr("Bluetooth apagado")
                 : I18n.tr("Buscando dispositivos…")
-            color: "#5e5e5e"
+            color: Colors.label3
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             lineHeight: 1.5
-            font.family: Appearance.fontUI; font.pixelSize: 12
+            font.family: Appearance.fontUI; font.pixelSize: Appearance.fsS
         }
     }
 
-    // ─────────── fila de dispositivo ───────────
+    // ─────────── device row ───────────
     component BtRow: Rectangle {
         id: dev
         required property var modelData
@@ -150,7 +168,7 @@ Item {
         Layout.preferredHeight: 46
         radius: 12
         color: dev.modelData.connected ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.18)
-             : dMa.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.04)
+             : dMa.containsMouse ? Colors.fill2 : Colors.fill3
         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
         RowLayout {
@@ -159,7 +177,7 @@ Item {
 
             Text {
                 text: dev.modelData.connected ? "󰂱" : "󰂯"
-                color: dev.modelData.connected ? Colors.accent : "#cfcfcf"
+                color: dev.modelData.connected ? Colors.accentInk : Colors.label
                 font.family: Appearance.font; font.pixelSize: 15
             }
 
@@ -169,8 +187,8 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: ShellState.btLabel(dev.modelData)
-                    color: "#ffffff"; elide: Text.ElideRight
-                    font.family: Appearance.fontUI; font.pixelSize: 12
+                    color: Colors.label; elide: Text.ElideRight
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsS
                     font.weight: dev.modelData.connected ? Font.DemiBold : Font.Normal
                 }
                 Text {
@@ -182,17 +200,18 @@ Item {
                                 ? I18n.tr("Conectado · {0} %", Math.round(dev.modelData.battery * 100))
                                 : I18n.tr("Conectado"))
                         : (dev.modelData.paired || dev.modelData.bonded) ? I18n.tr("Emparejado") : ""
-                    color: dev.modelData.connected ? Colors.accent : "#7d7d7d"
+                    color: dev.modelData.connected ? Colors.accentInk : Colors.label2
                     elide: Text.ElideRight
-                    font.family: Appearance.fontUI; font.pixelSize: 10
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
+                    font.features: ({ "tnum": 1 })   // the battery % refreshes by itself: keep it from jiggling
                 }
             }
 
             Text {
                 visible: dMa.containsMouse && (dev.modelData.paired || dev.modelData.bonded)
                 text: "󰩹"
-                color: fMa.containsMouse ? Colors.crit : "#7d7d7d"
-                font.family: Appearance.font; font.pixelSize: 13
+                color: fMa.containsMouse ? Colors.crit : Colors.label3
+                font.family: Appearance.font; font.pixelSize: Appearance.fsM
                 MouseArea {
                     id: fMa
                     anchors.fill: parent; anchors.margins: -6

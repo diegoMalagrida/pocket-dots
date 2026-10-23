@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Genera en cache un config de cava con degradado pywal y recarga cava si corre.
+# Generates a cava config with a pywal gradient in the cache and reloads cava if it is running.
 BASE="$HOME/.config/cava/config"
 OUT="$HOME/.cache/wal/cava.conf"
 J="$HOME/.cache/wal/colors.json"

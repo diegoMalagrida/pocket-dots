@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# Emite cada ~1.5 s:
+# Emits every ~1.5 s:
 # cpu mem bat ac bright vol muted nightlight disk mem_used_kib mem_total_kib
 # disk_used_bytes disk_total_bytes cpu_temp_mC load1 uptime_s cpu_threads
 #
-# Los nueve primeros campos son el contrato histórico del shell. Los demás
-# alimentan el panel de rendimiento sin abrir otro bucle de sondeo paralelo.
+# The first nine fields are the shell's historical contract. The rest feed the
+# performance panel without opening another parallel polling loop.
 pt=0; pi=0
 threads=$(getconf _NPROCESSORS_ONLN 2>/dev/null); [ -z "$threads" ] && threads=1
 
-# Sensor de temperatura de RESPALDO, resuelto una sola vez (el bucle de abajo
-# corre cada 1,5 s y esto no cambia en toda la sesion).
+# FALLBACK temperature sensor, resolved only once (the loop below runs every
+# 1.5 s and this does not change for the whole session).
 #
-# La busqueda de thermal_zone que hay dentro del bucle solo conoce x86_pkg_temp
-# y TCPU, que son de este Intel. Un AMD no publica ninguno de los dos: su sensor
-# se llama k10temp (o zenpower en placas con el modulo aparte) y vive en hwmon,
-# no en thermal_zone. Sin este respaldo, en cualquier equipo que no fuera este
-# portatil la tarjeta de temperatura del panel de rendimiento decia "Sin
-# lectura" para siempre y la grafica no dibujaba nada.
+# The thermal_zone search inside the loop only knows x86_pkg_temp and TCPU,
+# which belong to this Intel. An AMD publishes neither: its sensor is called
+# k10temp (or zenpower on boards with the separate module) and lives in hwmon,
+# not in thermal_zone. Without this fallback, on any machine other than this
+# laptop the temperature card in the performance panel said "Sin lectura"
+# (no reading) forever and the graph drew nothing.
 hwtemp=""
 for hw in /sys/class/hwmon/hwmon*; do
   [ -r "$hw/name" ] || continue
@@ -25,18 +25,19 @@ for hw in /sys/class/hwmon/hwmon*; do
       [ -r "$hw/temp1_input" ] && hwtemp="$hw/temp1_input" && break ;;
   esac
 done
-# Brillo (%): UNA sola lectura, fuera del bucle. ShellState solo consume este
-# valor la primera vez (si bright < 0); despues el brillo lo mantiene el propio
-# shell en cada pulsacion de teclas, asi que sondearlo cada 1,5 s era un fork
-# de brightnessctl tirado a la basura.
+# Brightness (%): ONE single read, outside the loop. ShellState only consumes
+# this value the first time (if bright < 0); after that the shell itself keeps
+# the brightness up to date on every key press, so polling it every 1.5 s was a
+# brightnessctl fork thrown away.
 #
-# El `-c backlight` NO es adorno. Sin clase, brightnessctl recorre las clases
-# en orden -- backlight primero, leds despues -- y se queda con la primera que
-# tenga algun dispositivo. En un equipo sin panel interno (una torre) no hay
-# ningun backlight, asi que CAE A LOS LEDS y publica como "brillo de pantalla"
-# el estado del led de bloq-mayus o del wifi: un 0 o un 100 que ademas
-# resucitaba el slider del centro de control con un valor falso. Con la clase
-# fijada, sin panel no hay lectura, `br` se queda en -1 y el slider desaparece.
+# The `-c backlight` is NOT decoration. Without a class, brightnessctl walks
+# the classes in order -- backlight first, leds after -- and keeps the first
+# one that has any device. On a machine with no internal panel (a tower) there
+# is no backlight at all, so it FALLS BACK TO THE LEDS and publishes the state
+# of the caps-lock or wifi led as "screen brightness": a 0 or a 100 that on top
+# of that brought the Control Centre slider back to life with a false value.
+# With the class pinned, no panel means no reading, `br` stays at -1 and the
+# slider disappears.
 br=$(brightnessctl -c backlight -m 2>/dev/null | awk -F, 'NR==1{gsub("%","",$4); print $4}'); [ -z "$br" ] && br=-1
 while true; do
   # CPU
@@ -56,26 +57,26 @@ while true; do
   else
     mt=0; mu=0; mem=0
   fi
-  # Batería / AC
+  # Battery / AC
   bat=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1); [ -z "$bat" ] && bat=-1
   ac=$(cat /sys/class/power_supply/A[CD]*/online 2>/dev/null | head -1); [ -z "$ac" ] && ac=0
-  # Sin bateria no hay AC*/ADP* que leer, y el respaldo `ac=0` significa
-  # literalmente "funcionando con bateria": una torre enchufada a la pared
-  # quedaba descrita como un portatil desenchufado. Hoy no se ve porque todo lo
-  # que pinta el estado electrico exige `bat >= 0`, pero es un dato FALSO
-  # esperando a que alguien lo lea. Si no hay bateria, la corriente es un hecho.
+  # Without a battery there is no AC*/ADP* to read, and the `ac=0` fallback
+  # literally means "running on battery": a tower plugged into the wall was
+  # described as an unplugged laptop. It does not show today because everything
+  # that paints the power state requires `bat >= 0`, but it is a FALSE value
+  # waiting for someone to read it. With no battery, mains power is a fact.
   [ "$bat" -lt 0 ] && ac=1
-  # Volumen/mute y luz nocturna: placeholders fijos. Nadie los lee de aqui —
-  # el volumen y el mute salen del binding nativo de Pipewire en ShellState y
-  # la luz nocturna de su propio toggle. Se conservan las columnas para no
-  # descolocar p[8..16]. (Antes eran un wpctl + un pgrep por tick, tirados.)
+  # Volume/mute and night light: fixed placeholders. Nobody reads them from here —
+  # volume and mute come from the native Pipewire binding in ShellState and the
+  # night light from its own toggle. The columns are kept so as not to shift
+  # p[8..16]. (They used to be a wpctl + a pgrep per tick, thrown away.)
   vol=-1; mut=0
   nl=0
   read -r du ds dsk < <(df -B1 --output=used,size,pcent / 2>/dev/null | tail -1)
   dsk=${dsk%%%}; [ -z "$du" ] && du=0; [ -z "$ds" ] && ds=0; [ -z "$dsk" ] && dsk=0
 
-  # Temperatura del paquete sin invocar `sensors` cada segundo. En este Intel
-  # x86_pkg_temp es la lectura buena; TCPU queda como respaldo para otros ACPI.
+  # Package temperature without invoking `sensors` every second. On this Intel
+  # x86_pkg_temp is the good reading; TCPU stays as a fallback for other ACPI.
   temp=-1; tcpu=-1
   for zone in /sys/class/thermal/thermal_zone*; do
     [ -r "$zone/type" ] && [ -r "$zone/temp" ] || continue

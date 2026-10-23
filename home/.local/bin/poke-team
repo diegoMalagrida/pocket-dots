@@ -1,0 +1,905 @@
+#!/usr/bin/env python3
+"""poke-team — a team of six pokémon that levels up with your commits.
+
+The idea comes from Impasto's pets (github.com/andreumassanet/impasto,
+GPL-3.0): creatures that live in the bar and level up while you look after
+them. Here experience does not come from feeding them, it comes from WORKING:
+every contribution GitHub logs for you hands out experience across the team.
+
+    poke-team estado            the whole team in JSON (read by the notch)
+    poke-team ver               the same, human-readable
+    poke-team sync              checks GitHub and hands out whatever was earned
+    poke-team add <pokemon>     puts it in the team (up to six)
+    poke-team quitar <puesto>   takes it out
+    poke-team mote <puesto> <x> renames it
+    poke-team lider <puesto>    puts it first
+    poke-team mover <de> <a>    moves it to another slot (reorder)
+    poke-team evolucionar <p> [a <pokemon>]   forces the pending evolution
+    poke-team guardar <puesto>  sends it to the box (losing nothing)
+    poke-team sacar <indice>    brings it back to the team
+    poke-team repartir on|off   experience in equal shares, like the item
+    poke-team pasear on|off     the leader walks about the desktop
+
+HOW EXPERIENCE IS COUNTED, which is the only delicate part: GitHub does not
+say "you made a new commit", it says how many contributions you have each day.
+So it stores how many had already been counted (`contadas`) and on every sync
+it adds up the grid again from the day you started; the difference is what
+gets handed out. Adding up the WHOLE grid and not just today's is what makes
+sure nothing is lost if you go days without opening the desktop, and that
+nothing counts twice if you sync five times in a row.
+
+On install it does NOT give away the whole year's experience: the starting
+line is the day you set up the team. What came before you already worked
+without pokémon.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import random
+import subprocess
+import sys
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+HOME = Path.home()
+ESTADO = HOME / ".config" / "poke-equipo" / "equipo.json"
+CERROJO = HOME / ".config" / "poke-equipo" / ".equipo.lock"
+# What poke-leader-shimeji leaves written when it fails to take the leader out
+# for a walk. The panel launches it with execDetached, which collects neither
+# output nor exit code, so this is the only path by which the news reaches the
+# screen.
+PASEA_FALLO = HOME / ".config" / "poke-equipo" / "pasea-fallo"
+EVOLUCIONES = HOME / ".cache" / "pokepalette" / "evoluciones.json"
+NOMBRES = HOME / ".cache" / "pokepalette" / "nombres.tsv"
+NOMBRES_ES = HOME / ".cache" / "pokepalette" / "nombres-es.tsv"
+DIR_GIF = HOME / ".cache" / "pokeanim"
+DIR_PNG = HOME / ".cache" / "pokeart"
+GITHUB = HOME / ".config" / "quickshell" / "scripts" / "github-stats.py"
+
+TAMANO = 6              # a pokémon team is six, not one more
+XP_POR_APORTE = 12      # what each GitHub contribution is worth
+PARTE_LIDER = 0.6       # the first one takes this; the rest share what is left
+NIVEL_MAX = 100         # like the games: at 100 the counter stops
+SHINY_UNO_DE = 64       # odds of a shiny on joining the team
+RACHA_TOPE = 10         # streak days that end up DOUBLING the experience
+DIR_SHINY = HOME / ".cache" / "pokeshiny"
+TIPOS = HOME / ".cache" / "pokepalette" / "tipos.json"
+
+# The games' 25 natures. There are no battle stats here, so each one is
+# translated into the only thing that exists in this system: how quickly that
+# individual learns. It follows the stat it RAISES, with the obvious logic --
+# Speed ones learn faster, Defence ones take their time. That way two Pikachu
+# are not the same Pikachu, which is what having a nature is about.
+NATURALEZAS = {
+    # name: (what it raises, experience multiplier)
+    # The games' 25, with their Spanish names. Five are neutral and the other
+    # twenty raise one stat and lower another; here the raised one is
+    # translated into the only thing that exists in this system.
+    "Fuerte": ("nada", 1.00), "Dócil": ("nada", 1.00), "Seria": ("nada", 1.00),
+    "Tímida": ("nada", 1.00), "Rara": ("nada", 1.00),
+
+    "Miedosa": ("Velocidad", 1.10), "Alegre": ("Velocidad", 1.10),
+    "Ingenua": ("Velocidad", 1.10), "Alocada": ("Velocidad", 1.10),
+
+    "Huraña": ("Ataque", 1.05), "Audaz": ("Ataque", 1.05),
+    "Pícara": ("Ataque", 1.05), "Agitada": ("Ataque", 1.05),
+
+    "Modesta": ("At. especial", 1.05), "Afable": ("At. especial", 1.05),
+    "Mansa": ("At. especial", 1.05), "Pirata": ("At. especial", 1.05),
+
+    "Osada": ("Defensa", 0.95), "Firme": ("Defensa", 0.95),
+    "Activa": ("Defensa", 0.95), "Floja": ("Defensa", 0.95),
+
+    "Calmada": ("Def. especial", 0.95), "Amable": ("Def. especial", 0.95),
+    "Grosera": ("Def. especial", 0.95), "Cauta": ("Def. especial", 0.95),
+}
+
+# The eight Kanto badges, by contributions accumulated since you set up the
+# team. At a pace of ~16 a day, the last one falls around the fourth month: far
+# off, but reachable. They are the only goal in this system that does not
+# depend on the team.
+MEDALLAS = [
+    (25, "Roca"), (75, "Cascada"), (150, "Trueno"), (300, "Arcoíris"),
+    (500, "Alma"), (800, "Pantano"), (1200, "Volcán"), (2000, "Tierra"),
+]
+
+# Trainer rank by the team's TOTAL level. It gives an at-a-glance reading ("I am
+# at As" (Ace)) that six loose numbers do not.
+RANGOS = [(0, "Novato"), (20, "Entrenador"), (60, "As"), (150, "Élite"),
+          (300, "Alto Mando"), (500, "Campeón")]
+URL_SHINY = ("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/"
+             "pokemon/versions/generation-v/black-white/animated/shiny")
+
+
+# --- levels ------------------------------------------------------------------
+# Same curve as Impasto's pets: linear and shallow, so progress shows early.
+# Going from 1 to 2 costs 60 -> five contributions.
+def umbral(nivel: int) -> int:
+    return 40 + 20 * nivel
+
+
+# --- auxiliary data ----------------------------------------------------------
+def nombres() -> dict[int, str]:
+    fuera: dict[int, str] = {}
+    if NOMBRES.exists():
+        for linea in NOMBRES.read_text().splitlines():
+            num, _, nom = linea.partition("\t")
+            if num.isdigit() and nom:
+                fuera[int(num)] = nom
+    return fuera
+
+
+def nombres_es() -> dict[int, str]:
+    """Each one's Spanish name, which is the one shown. poke-names downloads
+    it; if it is missing, it carries on with the English and that is that.
+    Mind, it does NOT replace nombres.tsv: that is still the one you type to
+    search and the one the subcommands match, because it is what every other
+    piece uses."""
+    fuera: dict[int, str] = {}
+    if NOMBRES_ES.exists():
+        for linea in NOMBRES_ES.read_text().splitlines():
+            num, _, nom = linea.partition("\t")
+            if num.isdigit() and nom:
+                fuera[int(num)] = nom
+    return fuera
+
+
+def tipos_de() -> dict:
+    """{'colores':…, 'es':…, 'pokemon':{num:[tipos]}}. If the file is missing
+    it returns empty and the panel simply draws no pills: it is not an error."""
+    try:
+        return json.loads(TIPOS.read_text())
+    except (OSError, ValueError):
+        return {"colores": {}, "es": {}, "pokemon": {}}
+
+
+def rango_de(total: int) -> str:
+    fuera = RANGOS[0][1]
+    for minimo, nombre in RANGOS:
+        if total >= minimo:
+            fuera = nombre
+    return fuera
+
+
+def evoluciones() -> dict[int, list]:
+    if not EVOLUCIONES.exists():
+        return {}
+    crudo = json.loads(EVOLUCIONES.read_text())
+    return {int(k): v for k, v in crudo.items()}
+
+
+def asegurar_shiny(num: int) -> bool:
+    """Downloads the shiny gif if it is missing. Without network it does NOT
+    blow up: adornar() falls back to the normal sprite until someone manages to
+    download it. Only the team's are fetched, never the whole pokédex: it is
+    ~600 KB per creature."""
+    destino = DIR_SHINY / f"{num}.gif"
+    if destino.exists():
+        return True
+    try:
+        import urllib.request
+        DIR_SHINY.mkdir(parents=True, exist_ok=True)
+        pet = urllib.request.Request(f"{URL_SHINY}/{num}.gif",
+                                     headers={"User-Agent": "poke-team/1.0"})
+        with urllib.request.urlopen(pet, timeout=20) as r:
+            datos = r.read()
+        tmp = destino.with_suffix(".gif.tmp")
+        tmp.write_bytes(datos)
+        tmp.replace(destino)
+        return True
+    except Exception:
+        return False
+
+
+def resolver(texto: str) -> tuple[int, str]:
+    """'25' / 'pikachu' / 'pika' -> (25, 'pikachu')."""
+    mapa = nombres()
+    texto = texto.strip().lower()
+    if texto.isdigit():
+        n = int(texto)
+        return n, mapa.get(n, str(n))
+    porn = {v: k for k, v in mapa.items()}
+    if texto in porn:
+        return porn[texto], texto
+    cand = sorted(n for n in porn if n.startswith(texto))
+    if len(cand) == 1:
+        return porn[cand[0]], cand[0]
+    if cand:
+        raise SystemExit(tr(f"'{texto}' es ambiguo: {', '.join(cand[:10])}",
+                            f"'{texto}' is ambiguous: {', '.join(cand[:10])}"))
+    raise SystemExit(tr(f"no conozco a '{texto}'", f"Unknown Pokémon '{texto}'"))
+
+
+# --- state -------------------------------------------------------------------
+def vacio() -> dict:
+    return {"equipo": [], "caja": [],
+            "github": {"login": "", "contadas": 0, "desde": "", "racha": 0},
+            "xp_por_aporte": XP_POR_APORTE,
+            # 'repartir' = the games' item (Exp. Share): experience in equal shares.
+            # 'pasear' = the leader walks about the desktop (poke-leader-shimeji).
+            "repartir": False, "pasear": True}
+
+
+def rescatar() -> dict:
+    """The save does not parse. It is months of play, so it does NOT start from
+    scratch: the broken file is moved aside and the copies in backups/ are
+    tried from newest to oldest. If none is good it exits with a warning,
+    because being without data for a while is much better than having the
+    first click write a blank save over whatever was left."""
+    import time
+    roto = ESTADO.with_name(f"equipo.json.corrupto-{int(time.time())}")
+    try:
+        ESTADO.replace(roto)
+    except OSError:
+        pass
+    for copia in sorted((ESTADO.parent / "backups").glob("equipo-*.json"), reverse=True):
+        try:
+            texto = copia.read_text()
+            d = json.loads(texto)
+        except (OSError, ValueError):
+            continue
+        try:
+            ESTADO.write_text(texto)
+        except OSError:
+            pass
+        print(tr(f"la partida estaba corrupta; restaurada la copia {copia.name} "
+                 f"(la rota se guardo como {roto.name})",
+                 f"The save was corrupt; restored backup {copia.name} (the broken save was kept as {roto.name})"), file=sys.stderr)
+        return d
+    raise SystemExit(tr(f"la partida no se puede leer y no hay ninguna copia buena. "
+                        f"El fichero roto esta en {roto}",
+                        f"The save cannot be read and there is no valid backup. The broken file is at {roto}"))
+
+
+def leer() -> dict:
+    try:
+        d = json.loads(ESTADO.read_text())
+    except FileNotFoundError:
+        return vacio()          # first time: that is normal, not a problem
+    except (OSError, ValueError):
+        d = rescatar()
+    d.setdefault("equipo", [])
+    d.setdefault("caja", [])
+    d.setdefault("github", {"login": "", "contadas": 0, "desde": ""})
+    # A nature for those coming from a save older than natures. It is drawn
+    # ONCE and saved, so it does not change on every read.
+    tocado = False
+    for m in d["equipo"] + d["caja"]:
+        if not m.get("naturaleza"):
+            m["naturaleza"] = random.choice(list(NATURALEZAS))
+            tocado = True
+        m.setdefault("shiny", False)
+    if tocado:
+        guardar(d)
+    d["github"].setdefault("racha", 0)
+    d.setdefault("xp_por_aporte", XP_POR_APORTE)
+    d.setdefault("repartir", False)
+    d.setdefault("pasear", True)
+    return d
+
+
+def guardar(d: dict) -> None:
+    ESTADO.parent.mkdir(parents=True, exist_ok=True)
+    # DAILY copy of the save before overwriting it. This is a save file of
+    # months: a silly bug must not take it away. The last 7 are kept.
+    if ESTADO.exists():
+        bdir = ESTADO.parent / "backups"
+        hoy = bdir / f"equipo-{date.today().isoformat()}.json"
+        if not hoy.exists():
+            try:
+                datos = ESTADO.read_bytes()
+                # Make sure what gets archived IS a save: otherwise a half-done
+                # write would be stored as the "good copy" and clobber the day's,
+                # which is exactly the one you would need to rescue.
+                json.loads(datos)
+                bdir.mkdir(parents=True, exist_ok=True)
+                hoy.write_bytes(datos)
+                for viejo in sorted(bdir.glob("equipo-*.json"))[:-7]:
+                    viejo.unlink()
+            except (OSError, ValueError):
+                pass  # carry on without a copy: not saving the game would be worse
+    tmp = ESTADO.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1))
+    tmp.replace(ESTADO)
+
+
+@contextmanager
+def partida():
+    """Lock for the read-modify-save cycle. Without it, an order from the panel
+    and the every-30-minutes sync can overlap: both read the same save, each
+    changes its own bit and the last one to save wipes out the other's change
+    (you lose the pokémon you just added, or the experience just handed out).
+    Same pattern as poke-leader-shimeji's flock, but BLOCKING: here whoever
+    arrives second has to wait their turn, not give up."""
+    CERROJO.parent.mkdir(parents=True, exist_ok=True)
+    with open(CERROJO, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def adornar(miembro: dict, mapa: dict[int, str], evos: dict[int, list]) -> dict:
+    # tipos.json is read only once per process and kept attached to the function
+    # itself: adornar() is called once per member and rereading the file six
+    # times in a row makes no sense.
+    if adornar.tipos is None:
+        adornar.tipos = tipos_de()
+    if adornar.es is None:
+        adornar.es = nombres_es()
+    """Adds what the interface needs and is not stored here: sprite paths, the
+    level threshold and whether it has an evolution waiting."""
+    num = miembro["num"]
+    fuera = dict(miembro)
+    fuera["especie"] = mapa.get(num, str(num))
+    # 'especie' stays in English because it is the key the scripts use to talk
+    # to each other; 'especie_es' is what gets DRAWN.
+    if adornar.es is None:
+        adornar.es = nombres_es()
+    fuera["especie_es"] = adornar.es.get(num) or fuera["especie"].capitalize()
+    # The right sprite: shiny if it is one and it has been downloaded; and if
+    # there is no gif (the gen5 animated ones stop at 649), the static artwork
+    # rather than nothing.
+    shiny = bool(miembro.get("shiny"))
+    gif = DIR_SHINY / f"{num}.gif" if shiny else DIR_GIF / f"{num}.gif"
+    if shiny and not gif.exists():
+        asegurar_shiny(num)                    # cheap retry; otherwise, normal
+        if not gif.exists():
+            gif = DIR_GIF / f"{num}.gif"
+    if not gif.exists():
+        gif = DIR_PNG / f"{num}.png"
+    fuera["shiny"] = shiny
+    # 'shiny' says the INDIVIDUAL is shiny -- that is not up for debate, it is 1
+    # in 64 and it is its own. 'shiny_listo' says something else: whether it can
+    # also be SEEN as shiny. Without the gif in ~/.cache/pokeshiny,
+    # poke-leader-shimeji walks it in its normal colours ON PURPOSE (building a
+    # prototype called "...Shiny" with the usual sprite inside would be lying
+    # twice), and the panel, which only looked at the flag, drew the star anyway:
+    # sparkles in the notch and an ordinary-coloured creature on the desktop.
+    # Now both sides know the same thing and each decides how to show it.
+    fuera["shiny_listo"] = shiny and (DIR_SHINY / f"{num}.gif").exists()
+    fuera["gif"] = str(gif)
+    fuera["art"] = str(DIR_PNG / f"{num}.png")
+    if miembro["nivel"] >= NIVEL_MAX:
+        fuera["umbral"] = 0
+        fuera["progreso"] = 1.0
+    else:
+        fuera["umbral"] = umbral(miembro["nivel"])
+        fuera["progreso"] = round(min(1.0, miembro["xp"] / max(1, umbral(miembro["nivel"]))), 3)
+    # type(s) with their colour, for the panel's pill
+    td = adornar.tipos or {}
+    lista = (td.get("pokemon") or {}).get(str(num), [])
+    fuera["tipos"] = [{"id": x,
+                       "es": (td.get("es") or {}).get(x, x),
+                       "color": (td.get("colores") or {}).get(x, "#888888")}
+                      for x in lista]
+    # nature: what it raises and how much it speeds up learning
+    nat = miembro.get("naturaleza") or ""
+    sube, mult = NATURALEZAS.get(nat, ("nada", 1.00))
+    fuera["naturaleza"] = nat
+    fuera["naturaleza_sube"] = sube
+    fuera["naturaleza_mult"] = mult
+
+    ramas = evos.get(num, [])
+    listas = [r for r in ramas if miembro["nivel"] >= r["nivel"]]
+    fuera["puede_evolucionar"] = bool(listas)
+    fuera["evoluciones"] = [
+        {"a": r["a"], "especie": mapa.get(r["a"], str(r["a"])),
+         "especie_es": adornar.es.get(r["a"]) or mapa.get(r["a"], str(r["a"])).capitalize(),
+         "nivel": r["nivel"], "como": r["como"],
+         "listo": miembro["nivel"] >= r["nivel"]}
+        for r in ramas
+    ]
+    return fuera
+
+
+adornar.tipos = None
+adornar.es = None
+
+
+# --- github ------------------------------------------------------------------
+def datos_github() -> dict | None:
+    if not GITHUB.exists():
+        return None
+    try:
+        r = subprocess.run([sys.executable, str(GITHUB)], capture_output=True,
+                           text=True, timeout=60)
+        return json.loads(r.stdout)
+    except Exception:
+        return None
+
+
+def aportes_desde(datos: dict, desde: str) -> int:
+    """Adds up the contribution grid from a date (inclusive).
+
+    It walks the whole grid and not just today: that way it does not matter how
+    many days you have gone without opening the desktop, and syncing ten times
+    in a row counts nothing twice, because it always compares one total against
+    another total.
+    """
+    counts = datos.get("counts") or []
+    inicio = datos.get("start") or ""
+    if not counts or not inicio:
+        return 0
+    try:
+        primer_dia = date.fromisoformat(inicio)
+        corte = date.fromisoformat(desde) if desde else primer_dia
+    except ValueError:
+        return 0
+    total = 0
+    for s, semana in enumerate(counts):
+        for d, valor in enumerate(semana):
+            n = int(valor or 0)
+            # -1 is NOT a negative contribution: it is the padding github-stats.py
+            # puts in (fila += [-1] * (7 - len(fila))) for the days of the current
+            # week that have not happened yet. Adding it subtracted, and since the
+            # week is padded again every night, each midnight a -1 became 0 and
+            # the total went up by itself: six phantom contributions a week. On
+            # Sundays, on top of that, it sank the counter by six in one go and
+            # ate the day's real work.
+            if n <= 0:
+                continue
+            if primer_dia + timedelta(days=s * 7 + d) >= corte:
+                total += n
+    return total
+
+
+def repartir(equipo: list, xp: int, equitativo: bool) -> list:
+    """Hands out the experience earned. With 'Repartir experiencia' (Exp. Share)
+    on it goes in equal shares, like the games' item; off, the leader takes
+    PARTE_LIDER and the rest split what is left. Not called without a team."""
+    if not equipo or xp <= 0:
+        return []
+    sucesos = []
+    if equitativo or len(equipo) == 1:
+        partes = [xp // len(equipo)] * len(equipo)
+    else:
+        lider = int(round(xp * PARTE_LIDER))
+        porcada = (xp - lider) // (len(equipo) - 1)
+        partes = [lider] + [porcada] * (len(equipo) - 1)
+    evos = evoluciones()
+    mapa = nombres()
+    for i, m in enumerate(equipo):
+        # the nature belongs to the individual: it speeds up or slows down ITS
+        # learning, not the team's, so it is applied here and not to the total.
+        _, mult_nat = NATURALEZAS.get(m.get("naturaleza") or "", ("nada", 1.00))
+        gana = int(round(partes[i] * mult_nat))
+        if gana <= 0 or m["nivel"] >= NIVEL_MAX:
+            continue                     # at the cap nothing accumulates any more
+        m["xp"] += gana
+        while m["nivel"] < NIVEL_MAX and m["xp"] >= umbral(m["nivel"]):
+            m["xp"] -= umbral(m["nivel"])
+            m["nivel"] += 1
+            sucesos.append({"tipo": "nivel", "puesto": i,
+                            "quien": m.get("mote") or mapa.get(m["num"], ""),
+                            "nivel": m["nivel"]})
+            # automatic evolution ONLY if there is no choice to make: with
+            # branches (Eevee) it waits for the user to decide.
+            listas = [r for r in evos.get(m["num"], []) if m["nivel"] >= r["nivel"]]
+            if len(listas) == 1:
+                antes, antes_num = mapa.get(m["num"], ""), m["num"]
+                m["num"] = listas[0]["a"]
+                if m.get("shiny"):
+                    asegurar_shiny(m["num"])   # the new form, shiny as well
+                # de_num/a_num and shiny go in the event because the notch's
+                # evolution ANIMATION needs the paths of both sprites.
+                sucesos.append({"tipo": "evolucion", "puesto": i,
+                                "de": antes, "a": mapa.get(m["num"], ""),
+                                "de_num": antes_num, "a_num": m["num"],
+                                "shiny": bool(m.get("shiny")), "nivel": m["nivel"]})
+        if m["nivel"] >= NIVEL_MAX:
+            m["xp"] = 0                  # level 100: counter stopped, like the games
+    return sucesos
+
+
+# --- orders ------------------------------------------------------------------
+def cmd_estado(args) -> int:
+    d = leer()
+    mapa, evos = nombres(), evoluciones()
+    d["equipo"] = [adornar(m, mapa, evos) for m in d["equipo"]]
+    d["caja"] = [adornar(m, mapa, evos) for m in d["caja"]]
+    d["tamano"] = TAMANO
+
+    # The TRAINER's progress, which is what does not depend on any single creature.
+    aportes = int((d.get("github") or {}).get("contadas", 0))
+    total = sum(m["nivel"] for m in d["equipo"])
+    d["medallas"] = [{"nombre": n, "aportes": a, "ganada": aportes >= a}
+                     for a, n in MEDALLAS]
+    siguiente = next((a for a, _ in MEDALLAS if aportes < a), None)
+    d["proxima_medalla"] = ({"nombre": next(n for a, n in MEDALLAS if a == siguiente),
+                             "faltan": siguiente - aportes} if siguiente else None)
+    d["nivel_total"] = total
+    d["rango"] = rango_de(total)
+    # The last thing that went wrong with the walk, if there is anything. It is
+    # read from the file and not stored in the save: it is a note about the
+    # machine (a prototype that could not be built), not about the trainer, and
+    # whoever writes it deletes it by itself as soon as the leader gets out.
+    try:
+        d["pasea_fallo"] = json.loads(PASEA_FALLO.read_text())
+    except (OSError, ValueError):
+        d["pasea_fallo"] = None
+    print(json.dumps(d, ensure_ascii=False))
+    return 0
+
+
+def cmd_ver(args) -> int:
+    d = leer()
+    mapa, evos = nombres(), evoluciones()
+    if not d["equipo"]:
+        print(tr("equipo vacio. Metelos con:  poke-team add <pokemon>",
+                 "Empty team. Add Pokémon with:  poke-team add <pokemon>"))
+        return 0
+    print(tr(f"equipo de {d['github'].get('login') or 'nadie'}"
+             f"  ({d['github'].get('contadas', 0)} aportes contados"
+             f" desde {d['github'].get('desde') or '?'})",
+             f"Team of {d['github'].get('login') or 'nobody'}"
+             f"  ({d['github'].get('contadas', 0)} contributions counted"
+             f" since {d['github'].get('desde') or '?'})"))
+    total = sum(m["nivel"] for m in d["equipo"])
+    aportes = int(d["github"].get("contadas", 0))
+    ganadas = [n for a, n in MEDALLAS if aportes >= a]
+    print(tr(f"  rango: {rango_de(total)}  (nivel total {total})"
+             f"   medallas: {len(ganadas)}/8",
+             f"  Rank: {rango_de(total)}  (total level {total})   Badges: {len(ganadas)}/8")
+          + (f"  [{', '.join(ganadas)}]" if ganadas else ""))
+    for i, m in enumerate(d["equipo"]):
+        a = adornar(m, mapa, evos)
+        barra = int(a["progreso"] * 20)
+        marca = "*" if i == 0 else " "
+        pend = tr("  <- puede evolucionar", "  <- can evolve") if a["puede_evolucionar"] else ""
+        estrella = "*" if m.get("shiny") else " "
+        tipos = "/".join(x["es"] for x in a["tipos"]) or "?"
+        print(tr(f" {marca}{i}.{estrella}{(m.get('mote') or a['especie_es']):14} niv {m['nivel']:>3}  "
+                 f"[{'#'*barra}{'.'*(20-barra)}] {m['xp']}/{a['umbral']}"
+                 f"  {tipos:<18} {a['naturaleza']}{pend}",
+                 f" {marca}{i}.{estrella}{(m.get('mote') or a['especie_es']):14} lv {m['nivel']:>3}  "
+                 f"[{'#'*barra}{'.'*(20-barra)}] {m['xp']}/{a['umbral']}"
+                 f"  {tipos:<18} {a['naturaleza']}{pend}"))
+    if d["caja"]:
+        print(tr(f" caja ({len(d['caja'])}):", f" Box ({len(d['caja'])}):"))
+        for i, m in enumerate(d["caja"]):
+            a = adornar(m, mapa, evos)
+            print(tr(f"   {i}. {(m.get('mote') or a['especie']):14} niv {m['nivel']:>3}",
+                     f"   {i}. {(m.get('mote') or a['especie']):14} lv {m['nivel']:>3}"))
+    return 0
+
+
+def cmd_add(args) -> int:
+    d = leer()
+    if len(d["equipo"]) >= TAMANO:
+        raise SystemExit(tr(f"el equipo ya tiene {TAMANO}; saca a alguno con 'quitar'",
+                            f"The team already has {TAMANO}; remove one with 'quitar'"))
+    num, especie = resolver(args.pokemon)
+    if not (DIR_GIF / f"{num}.gif").exists() and not (DIR_PNG / f"{num}.png").exists():
+        raise SystemExit(tr(f"no tengo sprite de #{num}; ejecuta 'poke-sprites'",
+                            f"No sprite for #{num}; run 'poke-sprites'"))
+    # The shiny roll, on joining and for ever: it survives evolutions because it
+    # belongs to the INDIVIDUAL (the shiny field is not touched when num
+    # changes). Rerolling by taking it out and back in is costly: it loses its
+    # levels.
+    shiny = random.randrange(SHINY_UNO_DE) == 0
+    if shiny:
+        asegurar_shiny(num)
+    d["equipo"].append({"num": num, "mote": args.mote or "", "nivel": args.nivel,
+                        "xp": 0, "shiny": shiny,
+                        "naturaleza": random.choice(list(NATURALEZAS)),
+                        "desde": date.today().isoformat()})
+    # The starting line is set when the FIRST one is added: contributions count
+    # from there on. Not what came before, which you already worked without a team.
+    if not d["github"].get("desde"):
+        d["github"]["desde"] = date.today().isoformat()
+        datos = datos_github()
+        if datos:
+            d["github"]["login"] = datos.get("login", "")
+            d["github"]["contadas"] = aportes_desde(datos, d["github"]["desde"])
+    guardar(d)
+    puesto = len(d["equipo"]) - 1
+    extra = tr(f"  ¡¡VARIOCOLOR!! (1 entre {SHINY_UNO_DE})", f"  SHINY!! (1 in {SHINY_UNO_DE})") if shiny else ""
+    print(tr(f"{args.mote or especie} entra al equipo (puesto {puesto}){extra}",
+             f"{args.mote or especie} joins the team (slot {puesto}){extra}"))
+    # A shiny is 1 in 64 and deserves the notch's ceremony, so it also comes out
+    # as a JSON EVENT -- just like 'evolucionar' does, which is the other moment
+    # worth celebrating. It goes on a SECOND line instead of replacing the one
+    # above because 'add' is also used by hand from the terminal, and there the
+    # news has to be readable. The shell keeps the last line.
+    if shiny:
+        print(json.dumps({"tipo": "variocolor", "puesto": puesto,
+                          "quien": args.mote or especie, "num": num,
+                          "nivel": args.nivel, "uno_de": SHINY_UNO_DE},
+                         ensure_ascii=False))
+    return 0
+
+
+def cmd_quitar(args) -> int:
+    d = leer()
+    if not (0 <= args.puesto < len(d["equipo"])):
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+    fuera = d["equipo"].pop(args.puesto)
+    guardar(d)
+    print(tr(f"fuera {fuera.get('mote') or nombres().get(fuera['num'], fuera['num'])}",
+             f"Removed {fuera.get('mote') or nombres().get(fuera['num'], fuera['num'])}"))
+    return 0
+
+
+def cmd_mote(args) -> int:
+    d = leer()
+    if not (0 <= args.puesto < len(d["equipo"])):
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+    d["equipo"][args.puesto]["mote"] = args.nombre
+    guardar(d)
+    print(tr(f"ahora se llama {args.nombre}", f"Now called {args.nombre}"))
+    return 0
+
+
+def cmd_lider(args) -> int:
+    d = leer()
+    if not (0 <= args.puesto < len(d["equipo"])):
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+    d["equipo"].insert(0, d["equipo"].pop(args.puesto))
+    guardar(d)
+    print(tr(f"{d['equipo'][0].get('mote') or nombres().get(d['equipo'][0]['num'])} va delante",
+             f"{d['equipo'][0].get('mote') or nombres().get(d['equipo'][0]['num'])} is the leader"))
+    return 0
+
+
+def cmd_mover(args) -> int:
+    """Moves one to another slot, shifting the ones in between.
+
+    Needed for drag-to-reorder in the notch. With 'lider' you can only send one
+    to the front, and chaining that does not reach an arbitrary order without
+    juggling: to put the third one in second place you would have to raise the
+    third and then raise the one that was second again.
+    """
+    d = leer()
+    n = len(d["equipo"])
+    if not (0 <= args.de < n):
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+    # The destination is clamped to the range instead of failing: dropping below
+    # the last row means "the last one", not that you made a mistake.
+    destino = max(0, min(args.a, n - 1))
+    if destino == args.de:
+        return 0
+    d["equipo"].insert(destino, d["equipo"].pop(args.de))
+    guardar(d)
+    m = d["equipo"][destino]
+    print(tr(f"{m.get('mote') or nombres().get(m['num'])} al puesto {destino}",
+             f"{m.get('mote') or nombres().get(m['num'])} to slot {destino}"))
+    return 0
+
+
+def cmd_evolucionar(args) -> int:
+    d = leer()
+    if not (0 <= args.puesto < len(d["equipo"])):
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+    m = d["equipo"][args.puesto]
+    mapa, evos = nombres(), evoluciones()
+    listas = [r for r in evos.get(m["num"], []) if m["nivel"] >= r["nivel"]]
+    if not listas:
+        raise SystemExit(tr(f"{mapa.get(m['num'], m['num'])} no puede evolucionar todavia",
+                            f"{mapa.get(m['num'], m['num'])} cannot evolve yet"))
+    elegida = listas[0]
+    if args.a:
+        destino, _ = resolver(args.a)
+        coincide = [r for r in listas if r["a"] == destino]
+        if not coincide:
+            opciones = ", ".join(mapa.get(r["a"], str(r["a"])) for r in listas)
+            raise SystemExit(tr(f"no evoluciona en eso. Puede: {opciones}",
+                                f"It cannot evolve into that. Options: {opciones}"))
+        elegida = coincide[0]
+    elif len(listas) > 1:
+        opciones = ", ".join(mapa.get(r["a"], str(r["a"])) for r in listas)
+        raise SystemExit(tr(f"hay que elegir: {opciones}  (usa 'evolucionar {args.puesto} a <cual>')",
+                            f"Choose one: {opciones}  (use 'evolucionar {args.puesto} a <which>')"))
+    antes, antes_num = mapa.get(m["num"], ""), m["num"]
+    m["num"] = elegida["a"]
+    if m.get("shiny"):
+        asegurar_shiny(m["num"])
+    guardar(d)
+    # JSON and not text: the panel launches this and needs the numbers of both
+    # forms to put together the evolution animation.
+    print(json.dumps({"tipo": "evolucion", "puesto": args.puesto, "de": antes,
+                      "a": mapa.get(m["num"], ""), "de_num": antes_num,
+                      "a_num": m["num"], "shiny": bool(m.get("shiny")),
+                      "nivel": m["nivel"]}, ensure_ascii=False))
+    return 0
+
+
+def cmd_sync(args) -> int:
+    # The network FIRST and without the lock: asking GitHub can take a minute,
+    # and keeping the save locked all that time would leave the panel hanging.
+    # It is read afterwards, under the lock, so nobody sneaks in between the
+    # read and the write.
+    datos = datos_github()
+    if not datos or datos.get("error"):
+        print(json.dumps({"nuevos": 0, "sucesos": [], "motivo": "sin datos de github"}))
+        return 1
+
+    with partida():
+        return _sync_con_datos(datos)
+
+
+def _sync_con_datos(datos: dict) -> int:
+    d = leer()
+    if not d["equipo"]:
+        print(json.dumps({"nuevos": 0, "sucesos": [], "motivo": "equipo vacio"}))
+        return 0
+    g = d["github"]
+    if not g.get("desde"):
+        g["desde"] = date.today().isoformat()
+
+    # ACCOUNT CHANGE: nothing is counted. A 'gh auth switch' to another account
+    # dropped the counter to zero -taking the badges down with it- and, on
+    # switching back, paid out the other account's whole year in one go: almost
+    # 800 contributions, dozens of levels and chained evolutions for work that
+    # had already been paid for.
+    quien = datos.get("login", "")
+    if quien and g.get("login") and quien != g["login"]:
+        print(json.dumps({"nuevos": 0, "xp": 0, "sucesos": [],
+                          "motivo": f"otra cuenta de github ({quien}): no cuento nada"},
+                         ensure_ascii=False))
+        return 0
+    g["login"] = quien or g.get("login", "")
+    # Streak bonus: committing daily is worth more than a one-off binge.
+    # +10% per consecutive day, capped at DOUBLE at 10. github-stats.py already
+    # computes the streak; here it is only applied and stored so the panel can
+    # show it without another call.
+    racha = int(datos.get("streak") or 0)
+    g["racha"] = racha
+    mult = 1.0 + min(racha, RACHA_TOPE) / RACHA_TOPE
+    # GitHub's grid is a twelve-month SLIDING WINDOW, so its total drops by
+    # itself over time as days fall off the edge. That is why there are two
+    # numbers and not one: 'ventana' is the snapshot of the grid and can go down;
+    # 'contadas' is the trainer's running total and NEVER goes down, because the
+    # badges hang off it. They used to be the same field, and the day a busy day
+    # fell off the edge the badges went backwards.
+    total = aportes_desde(datos, g["desde"])
+    previo = int(g.get("ventana", g.get("contadas", 0)))
+    nuevos = max(0, total - previo)
+    ganancia = int(round(nuevos * int(d.get("xp_por_aporte", XP_POR_APORTE)) * mult))
+    sucesos = []
+    if nuevos:
+        sucesos = repartir(d["equipo"], ganancia, bool(d.get("repartir")))
+    g["ventana"] = total
+    g["contadas"] = int(g.get("contadas", 0)) + nuevos
+    guardar(d)
+    print(json.dumps({"nuevos": nuevos, "xp": ganancia, "racha": racha,
+                      "mult": round(mult, 2), "sucesos": sucesos},
+                     ensure_ascii=False))
+    return 0
+
+
+def cmd_guardar(args) -> int:
+    """From the team to the box. NOTHING is lost: it keeps level, experience,
+    nickname, nature and whether it is shiny. It is a move, not a deletion --
+    which is why guardar asks for no confirmation and quitar does."""
+    d = leer()
+    if not (0 <= args.puesto < len(d["equipo"])):
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+    m = d["equipo"].pop(args.puesto)
+    d["caja"].append(m)
+    guardar(d)
+    print(tr(f"{m.get('mote') or nombres().get(m['num'], m['num'])} a la caja "
+             f"(quedan {len(d['equipo'])} en el equipo)",
+             f"{m.get('mote') or nombres().get(m['num'], m['num'])} moved to the box ({len(d['equipo'])} left in the team)"))
+    return 0
+
+
+def cmd_sacar(args) -> int:
+    """From the box to the team."""
+    d = leer()
+    if not (0 <= args.indice < len(d["caja"])):
+        raise SystemExit(tr("ese sitio de la caja esta vacio", "That box slot is empty"))
+    if len(d["equipo"]) >= TAMANO:
+        raise SystemExit(tr(f"el equipo ya tiene {TAMANO}: guarda a alguno primero",
+                            f"The team already has {TAMANO}: store one first"))
+    m = d["caja"].pop(args.indice)
+    d["equipo"].append(m)
+    guardar(d)
+    print(tr(f"{m.get('mote') or nombres().get(m['num'], m['num'])} vuelve al equipo",
+             f"{m.get('mote') or nombres().get(m['num'], m['num'])} returns to the team"))
+    return 0
+
+
+def cmd_flag(args) -> int:
+    """The team's two switches: 'repartir' (experience in equal shares) and
+    'pasear' (the leader walks about the desktop). Same on/off/toggle pattern
+    as poke-theme, which the notch and your fingers already know."""
+    d = leer()
+    clave = args.cmd
+    d[clave] = (not d.get(clave)) if args.accion == "toggle" else args.accion == "on"
+    guardar(d)
+    print("on" if d[clave] else "off")
+    return 0
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("estado", help=tr("el equipo en JSON (lo lee el notch)",
+                                     "the team as JSON (read by the notch)")).set_defaults(func=cmd_estado)
+    sub.add_parser("ver", help=tr("el equipo, legible", "the team in a readable format")).set_defaults(func=cmd_ver)
+    sub.add_parser("sync", help=tr("mira github y reparte experiencia",
+                                   "check GitHub and distribute experience")).set_defaults(func=cmd_sync)
+
+    pa = sub.add_parser("add", help=tr("mete un pokemon en el equipo", "add a Pokémon to the team"))
+    pa.add_argument("pokemon")
+    pa.add_argument("--mote", help=tr("como quieres llamarlo", "what to call it"))
+    pa.add_argument("--nivel", type=int, default=1)
+    pa.set_defaults(func=cmd_add)
+
+    pq = sub.add_parser("quitar", help=tr("saca a uno del equipo", "remove a Pokémon from the team"))
+    pq.add_argument("puesto", type=int)
+    pq.set_defaults(func=cmd_quitar)
+
+    pm = sub.add_parser("mote", help=tr("le cambia el nombre", "change its name"))
+    pm.add_argument("puesto", type=int)
+    pm.add_argument("nombre")
+    pm.set_defaults(func=cmd_mote)
+
+    pl = sub.add_parser("lider", help=tr("lo pone el primero", "make it the leader"))
+    pl.add_argument("puesto", type=int)
+    pl.set_defaults(func=cmd_lider)
+
+    pv = sub.add_parser("mover", help=tr("cambia a uno de puesto (reordenar)",
+                                         "move a Pokémon to another slot (reorder)"))
+    pv.add_argument("de", type=int)
+    pv.add_argument("a", type=int)
+    pv.set_defaults(func=cmd_mover)
+
+    pe = sub.add_parser("evolucionar", help=tr("fuerza una evolucion pendiente", "trigger a pending evolution"))
+    pe.add_argument("puesto", type=int)
+    pe.add_argument("a", nargs="?", help=tr("en cual, si hay varias", "which evolution, if there are several"))
+    pe.set_defaults(func=cmd_evolucionar)
+
+    pg = sub.add_parser("guardar", help=tr("del equipo a la caja", "move from the team to the box"))
+    pg.add_argument("puesto", type=int)
+    pg.set_defaults(func=cmd_guardar)
+
+    ps = sub.add_parser("sacar", help=tr("de la caja al equipo", "move from the box to the team"))
+    ps.add_argument("indice", type=int)
+    ps.set_defaults(func=cmd_sacar)
+
+    for nombre, ayuda in (("repartir", tr("experiencia a partes iguales, como el objeto",
+                                          "share experience equally, like the item")),
+                          ("pasear", tr("el lider pasea por el escritorio",
+                                        "the leader walks around the desktop"))):
+        pf = sub.add_parser(nombre, help=ayuda)
+        pf.add_argument("accion", choices=("on", "off", "toggle"))
+        pf.set_defaults(func=cmd_flag)
+
+    args = p.parse_args()
+    # The orders that TOUCH the save run under the lock. 'sync' is not on the
+    # list on purpose: it takes the lock itself after talking to the network, so
+    # the save is not locked during the request.
+    ESCRIBEN = {"add", "quitar", "mote", "lider", "mover", "evolucionar",
+                "guardar", "sacar", "repartir", "pasear"}
+    if args.cmd in ESCRIBEN:
+        with partida():
+            return args.func(args)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (BrokenPipeError, KeyboardInterrupt):
+        os._exit(1)

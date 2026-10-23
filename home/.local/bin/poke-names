@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""poke-names — the pokémon names in Spanish.
+
+The desktop is in Spanish and the team called them by their English names
+("charmander", "machop"). This leaves the Spanish name of each one in
+~/.cache/pokepalette/nombres-es.tsv, which is the one shown in the panel.
+
+    poke-names            downloads whatever is missing
+    poke-names --force    redoes it from scratch
+
+IT IS 1025 REQUESTS and there is no way to cut them down: unlike the types
+-where /type/fire returns every fire one in one go-, the translated names only
+live in /pokemon-species/{id}, one per critter. With twelve threads it takes a
+couple of minutes and it is done ONCE in a lifetime.
+
+It is a SEPARATE file and not one more column in nombres.tsv on purpose: that
+one is already read by poke-team, poke-shimeji-pixel, poke-leader-shimeji and
+the panel, all splitting on the first tab. Adding a third column would have
+broken them all at once.
+
+Format:  4<TAB>Charmander   (number, Spanish name)
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+CACHE = Path.home() / ".cache" / "pokepalette"
+DESTINO = CACHE / "nombres-es.tsv"
+API = "https://pokeapi.co/api/v2"
+HILOS = 12
+TOPE = 1025
+
+
+def pedir(url: str) -> dict:
+    pet = urllib.request.Request(url, headers={"User-Agent": "poke-names/1.0"})
+    with urllib.request.urlopen(pet, timeout=30) as r:
+        return json.load(r)
+
+
+def nombre_es(num: int) -> tuple[int, str]:
+    """The Spanish one if there is one; if not, the English; if not, nothing.
+    It never blows up: one stray network failure cannot bring down the other
+    thousand requests."""
+    try:
+        d = pedir(f"{API}/pokemon-species/{num}")
+    except Exception:
+        return num, ""
+    es = ing = ""
+    for n in d.get("names", []):
+        idioma = (n.get("language") or {}).get("name")
+        if idioma == "es":
+            es = n.get("name", "")
+        elif idioma == "en":
+            ing = n.get("name", "")
+    return num, es or ing
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--force", action="store_true")
+    p.add_argument("-q", "--quiet", action="store_true")
+    args = p.parse_args()
+
+    ya: dict[int, str] = {}
+    if DESTINO.exists() and not args.force:
+        for linea in DESTINO.read_text().splitlines():
+            num, _, nom = linea.partition("\t")
+            if num.isdigit() and nom:
+                ya[int(num)] = nom
+        if len(ya) >= TOPE:
+            print(tr(f"ya estaba: {len(ya)} nombres en {DESTINO}",
+                     f"Already present: {len(ya)} names in {DESTINO}"))
+            return 0
+
+    faltan = [n for n in range(1, TOPE + 1) if n not in ya]
+    if not args.quiet:
+        print(tr(f"faltan {len(faltan)} nombres", f"{len(faltan)} names missing"), file=sys.stderr)
+
+    hechos = 0
+    with ThreadPoolExecutor(max_workers=HILOS) as pool:
+        for num, nom in pool.map(nombre_es, faltan):
+            if nom:
+                ya[num] = nom
+            hechos += 1
+            if not args.quiet and hechos % 200 == 0:
+                print(f"  {hechos}/{len(faltan)}", file=sys.stderr)
+
+    CACHE.mkdir(parents=True, exist_ok=True)
+    tmp = DESTINO.with_suffix(".tsv.tmp")
+    tmp.write_text("".join(f"{n}\t{ya[n]}\n" for n in sorted(ya)))
+    tmp.replace(DESTINO)
+    print(tr(f"{len(ya)} nombres en castellano -> {DESTINO}", f"{len(ya)} Spanish names -> {DESTINO}"))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(1)

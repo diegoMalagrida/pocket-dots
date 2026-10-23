@@ -1,3 +1,10 @@
+# python-dbus and python-gobject are needed by quickshell/scripts/bt-agent.py,
+# which this repo installs AND enables as a service. They are listed here
+# explicitly because nothing else asks for them: they used to be dragged in as
+# a dependency of something else, and on 2026-09-10 an orphan cleanup took them
+# away. Bluetooth pairing stopped working without a word -- `import gi` still
+# got through, because at-spi2-core leaves a stray gi/overrides/ behind, and it
+# only failed when asking for `gi.repository`.
 acpi
 adwaita-fonts
 arch-wiki-docs
@@ -27,6 +34,7 @@ expac
 eza
 fastfetch
 fd
+ffmpegthumbnailer
 fzf
 gcc-ada
 git
@@ -40,6 +48,7 @@ grim
 grub
 gst-libav
 gst-plugin-pipewire
+gvfs-mtp
 hdparm
 hyperfine
 hypridle
@@ -62,6 +71,7 @@ lib32-glibc
 libaio
 libappindicator
 libgirepository
+libgsf
 libpulse
 linux
 linux-firmware
@@ -70,7 +80,6 @@ lshw
 meson
 mpv
 nano
-nautilus
 ncdu
 neovim
 networkmanager
@@ -91,9 +100,10 @@ pkgfile
 playerctl
 procs
 python-colorthief
+python-dbus
+python-gobject
 python-matplotlib
 python-pandas
-python-pywal
 python-typing_extensions
 qt5ct
 qt6-quicktimeline
@@ -112,6 +122,12 @@ sof-firmware
 tailscale
 tealdeer
 tesseract-data-spa
+thunar
+thunar-archive-plugin
+thunar-media-tags-plugin
+thunar-volman
+tlp
+tlp-pd
 tmux
 tree
 ttf-dejavu
@@ -119,6 +135,7 @@ ttf-fira-code
 ttf-jetbrains-mono
 ttf-liberation
 ttf-nerd-fonts-symbols
+tumbler
 unixodbc
 unzip
 usbutils
@@ -134,6 +151,7 @@ wget
 wireless-regdb
 wl-clipboard
 wpa_supplicant
+xarchiver
 xdg-desktop-portal-hyprland
 xorg-xwayland
 yazi

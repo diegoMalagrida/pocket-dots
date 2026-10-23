@@ -10,9 +10,9 @@
 .oh-my-zsh/custom/plugins/zsh-autosuggestions	https://github.com/zsh-users/zsh-autosuggestions.git	--depth1
 .oh-my-zsh/custom/plugins/zsh-syntax-highlighting	https://github.com/zsh-users/zsh-syntax-highlighting.git	--depth1
 
-# Shake to find: agitar el raton agranda el cursor, como en macOS. Es un
-# plugin de Hyprland, asi que hay que COMPILARLO contra la version exacta
-# del compositor; de eso se encarga ~/.config/hypr/scripts/dynamic-cursors.sh,
-# que lo lanza hyprland.lua al arrancar. Sin clonar, ese script sale sin
-# hacer nada y el resto del escritorio funciona igual.
+# Shake to find: shaking the mouse enlarges the cursor, as on macOS. It is a
+# Hyprland plugin, so it has to be COMPILED against the compositor's exact
+# version; ~/.config/hypr/scripts/dynamic-cursors.sh takes care of that, and
+# hyprland.lua launches it at start-up. If it is not cloned, that script exits
+# without doing anything and the rest of the desktop works just the same.
 .local/share/hypr-dynamic-cursors	https://github.com/VirtCode/hypr-dynamic-cursors.git	--depth1

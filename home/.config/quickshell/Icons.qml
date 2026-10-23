@@ -20,6 +20,7 @@ Singleton {
     readonly property string bluetooth: "󰂯"
     readonly property string image: "󰋩"
     readonly property string lock: "󰌾"
+    readonly property string github: ""   // fa-github U+F09B
     readonly property string play: "󰐊"
     readonly property string pause: "󰏤"
     readonly property string next: "󰒭"

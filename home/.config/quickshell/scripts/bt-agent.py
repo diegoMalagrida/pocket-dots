@@ -1,40 +1,42 @@
 #!/usr/bin/env python3
-"""bt-agent.py — agente de emparejamiento Bluetooth para el notch.
+"""bt-agent.py — Bluetooth pairing agent for the notch.
 
-POR QUÉ EXISTE
---------------
-Quickshell sabe emparejar (`Bluetooth.pair()`) y sabe decirte que está en ello,
-pero no sabe CONTESTAR a lo que BlueZ pregunta a mitad del emparejamiento:
+WHY IT EXISTS
+-------------
+Quickshell knows how to pair (`Bluetooth.pair()`) and how to tell you it is
+doing so, but it does not know how to ANSWER what BlueZ asks halfway through
+the pairing:
 
-    "¿coincide el código 418293 con el que ves en el aparato?"
-    "teclea 418293 en el teclado y pulsa Enter"
+    "does code 418293 match the one you see on the device?"
+    "type 418293 on the keyboard and press Enter"
 
-Esas preguntas no son señales: BlueZ las hace llamando a métodos de un objeto
-D-Bus que el escritorio tiene que EXPORTAR, y desde QML no se puede exportar un
-objeto D-Bus. La API de Bluetooth de Quickshell no tiene ningún callback de
-agente, así que sin este proceso los auriculares emparejan igual (no preguntan
-nada) pero un teclado o un mando falla EN SILENCIO: sin error, sin aviso,
-simplemente no se empareja nunca.
+Those questions are not signals: BlueZ asks them by calling methods on a D-Bus
+object the desktop has to EXPORT, and a D-Bus object cannot be exported from
+QML. Quickshell's Bluetooth API has no agent callback at all, so without this
+process headphones pair all the same (they ask nothing) but a keyboard or a
+gamepad fails SILENTLY: no error, no warning, it simply never pairs.
 
-Este proceso es ese objeto.
+This process is that object.
 
-CÓMO ENCAJA
+HOW IT FITS
 -----------
-    BlueZ  --(bus del sistema)-->  Agent1   ->  `qs ipc call notch btask ...`
+    BlueZ  --(system bus)-->       Agent1   ->  `qs ipc call notch btask ...`
                                       ^                                |
-                                      |                          el notch pregunta
+                                      |                          the notch asks
                                       |                                |
-    org.quickshell.BtAgent1.Reply(b) <+-- `busctl --user call` <--- clic del usuario
+    org.quickshell.BtAgent1.Reply(b) <+-- `busctl --user call` <--- user's click
 
-Dos buses a propósito: BlueZ vive en el del SISTEMA y llama de vuelta al objeto
-que registremos ahí; el notch vive en el de SESIÓN y no debe poder tocar nada
-del sistema. El único puente es este proceso.
+Two buses on purpose: BlueZ lives on the SYSTEM one and calls back the object
+we register there; the notch lives on the SESSION one and must not be able to
+touch anything on the system. The only bridge is this process.
 
-Si nadie contesta en AGENT_TIMEOUT segundos se rechaza solo. Sin eso, un aviso
-sin atender dejaría la cara del notch clavada por delante de todo (btpair tiene
-prioridad sobre los paneles) y BlueZ esperando indefinidamente.
+If nobody answers within AGENT_TIMEOUT seconds it is rejected automatically.
+Without that, an unattended prompt would leave the notch's face stuck in front
+of everything (btpair takes priority over the panels) and BlueZ waiting
+indefinitely.
 """
 
+import json
 import os
 import signal
 import subprocess
@@ -47,21 +49,21 @@ import gi
 from gi.repository import GLib
 
 gi.require_version("GLibUnix", "2.0")
-from gi.repository import GLibUnix  # noqa: E402  (require_version tiene que ir antes)
+from gi.repository import GLibUnix  # noqa: E402  (require_version has to come first)
 
 AGENT_PATH = "/org/quickshell/btagent"
 AGENT_IFACE = "org.bluez.Agent1"
 REPLY_NAME = "org.quickshell.BtAgent"
 REPLY_IFACE = "org.quickshell.BtAgent1"
 
-# KeyboardDisplay = "puedo enseñar un número y puedo teclear". Es la capacidad
-# más alta, y es la que hace que BlueZ elija la comparación numérica (segura)
-# en vez de caer al emparejamiento sin autenticar cuando el otro aparato sí sabe
-# enseñar el código.
+# KeyboardDisplay = "I can show a number and I can type". It is the highest
+# capability, and it is what makes BlueZ choose numeric comparison (secure)
+# instead of falling back to unauthenticated pairing when the other device CAN
+# show the code.
 CAPABILITY = "KeyboardDisplay"
 
-AGENT_TIMEOUT = 45     # segundos para contestar a una pregunta
-DISPLAY_TIMEOUT = 90   # los códigos que solo se leen viven más: hay que teclearlos
+AGENT_TIMEOUT = 45     # seconds to answer a question
+DISPLAY_TIMEOUT = 90   # read-only codes live longer: they have to be typed
 
 
 def log(*a):
@@ -69,13 +71,13 @@ def log(*a):
 
 
 def notch(*args):
-    """Avisa al notch. Nunca revienta el agente: si el shell no está corriendo,
-    el emparejamiento debe seguir funcionando aunque sea a ciegas."""
+    """Tells the notch. It never crashes the agent: if the shell is not running,
+    pairing must keep working, even if blind."""
     try:
         subprocess.run(["qs", "ipc", "call", "notch", *[str(a) for a in args]],
                        timeout=3, capture_output=True)
     except Exception as e:
-        log("aviso al notch fallido:", e)
+        log(tr("aviso al notch fallido:", "Could not notify the notch:"), e)
 
 
 class Rejected(dbus.DBusException):
@@ -87,8 +89,8 @@ class Canceled(dbus.DBusException):
 
 
 class Pending:
-    """La pregunta que está en el aire. Solo puede haber una: BlueZ empareja de
-    uno en uno, y dos caras del notch a la vez no tendrían sentido."""
+    """The question currently in the air. There can only be one: BlueZ pairs
+    one at a time, and two notch faces at once would make no sense."""
 
     def __init__(self):
         self.ok = None
@@ -105,13 +107,13 @@ class Pending:
         self.timer = GLib.timeout_add_seconds(timeout, self._expired)
 
     def _expired(self):
-        log("nadie contestó: se rechaza")
+        log(tr("nadie contestó: se rechaza", "No reply: rejecting"))
         err = self.err
         self.ok = self.err = self.timer = None
         notch("btclear")
         if err:
-            err(Rejected("sin respuesta"))
-        return False   # no repetir
+            err(Rejected(tr("sin respuesta", "no reply")))
+        return False   # do not repeat
 
     def answer(self, accept):
         if not self.live:
@@ -121,7 +123,7 @@ class Pending:
         if accept:
             ok()
         else:
-            err(Rejected("rechazado por el usuario"))
+            err(Rejected(tr("rechazado por el usuario", "rejected by the user")))
         return True
 
     def clear(self, notify=True):
@@ -135,13 +137,28 @@ class Pending:
 
 pending = Pending()
 system_bus = None
-objetos = []    # lo exportado en D-Bus, vivo mientras viva el proceso
+objetos = []    # what is exported on D-Bus, alive as long as the process is
+
+
+def english() -> bool:
+    """The rice language, read when it is needed and not at start: this agent
+    lives for the whole session, and the language can change under it."""
+    try:
+        with open(os.path.expanduser("~/.config/quickshell-rice.json"),
+                  encoding="utf-8") as f:
+            return json.load(f).get("language") == "en"
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def tr(es, en):
+    return en if english() else es
 
 
 def device_name(path):
-    """El nombre bonito del aparato. Si no lo hay, la dirección MAC; y si
-    tampoco, el último trozo de la ruta D-Bus. Nunca vacío: la cara del notch
-    tiene que decir CON QUÉ estás emparejando."""
+    """The device's friendly name. If there is none, the MAC address; and
+    failing that, the last piece of the D-Bus path. Never empty: the notch's
+    face has to say WHAT you are pairing with."""
     try:
         props = dbus.Interface(system_bus.get_object("org.bluez", path),
                                "org.freedesktop.DBus.Properties")
@@ -153,62 +170,63 @@ def device_name(path):
             except dbus.DBusException:
                 continue
     except Exception as e:
-        log("no se pudo leer el nombre de", path, e)
+        log(tr("no se pudo leer el nombre de", "Could not read the name of"), path, e)
     return str(path).rsplit("/", 1)[-1]
 
 
 class Agent(dbus.service.Object):
-    """El objeto que BlueZ llama. Va en el bus del SISTEMA."""
+    """The object BlueZ calls. It lives on the SYSTEM bus."""
 
-    # ── preguntas que necesitan respuesta ────────────────────────────────
+    # ── questions that need an answer ────────────────────────────────────
 
     @dbus.service.method(AGENT_IFACE, in_signature="ou", out_signature="",
                          async_callbacks=("ok", "err"))
     def RequestConfirmation(self, device, passkey, ok, err):
         code = "%06u" % passkey
-        log("confirmar", device, code)
+        log(tr("confirmar", "confirm"), device, code)
         pending.arm(ok, err, AGENT_TIMEOUT)
         notch("btask", "confirm", device_name(device), code, -1)
 
     @dbus.service.method(AGENT_IFACE, in_signature="o", out_signature="",
                          async_callbacks=("ok", "err"))
     def RequestAuthorization(self, device, ok, err):
-        log("autorizar", device)
+        log(tr("autorizar", "authorise"), device)
         pending.arm(ok, err, AGENT_TIMEOUT)
         notch("btask", "authorize", device_name(device), "", -1)
 
     @dbus.service.method(AGENT_IFACE, in_signature="os", out_signature="",
                          async_callbacks=("ok", "err"))
     def AuthorizeService(self, device, uuid, ok, err):
-        # Un aparato ya emparejado que quiere usar un perfil (audio, mando…).
-        # Si ya lo marcaste como de confianza no se pregunta: preguntar cada vez
-        # que se encienden unos auriculares sería ruido puro.
+        # An already paired device that wants to use a profile (audio, gamepad…).
+        # If you already marked it as trusted, nothing is asked: asking every
+        # time a pair of headphones is switched on would be pure noise.
         try:
             props = dbus.Interface(system_bus.get_object("org.bluez", device),
                                    "org.freedesktop.DBus.Properties")
             if bool(props.Get("org.bluez.Device1", "Trusted")):
-                log("servicio autorizado solo (aparato de confianza)", device)
+                log(tr("servicio autorizado solo (aparato de confianza)",
+                       "Service authorised automatically (trusted device)"), device)
                 ok()
                 return
         except Exception as e:
-            log("no se pudo leer Trusted:", e)
-        log("autorizar servicio", device, uuid)
+            log(tr("no se pudo leer Trusted:", "Could not read Trusted:"), e)
+        log(tr("autorizar servicio", "authorise service"), device, uuid)
         pending.arm(ok, err, AGENT_TIMEOUT)
         notch("btask", "authorize", device_name(device), "", -1)
 
-    # ── códigos que solo se leen ─────────────────────────────────────────
+    # ── read-only codes ──────────────────────────────────────────────────
 
     @dbus.service.method(AGENT_IFACE, in_signature="ouq", out_signature="")
     def DisplayPasskey(self, device, passkey, entered):
-        # El caso del teclado: BlueZ inventa el código y lo tecleas TÚ allí.
-        # Se llama varias veces, una por tecla, con `entered` subiendo — de ahí
-        # la barrita de progreso del notch, que es la única señal de que el
-        # teclado está hablando de verdad con el equipo.
+        # The keyboard case: BlueZ makes up the code and YOU type it over there.
+        # It is called several times, once per key, with `entered` going up —
+        # hence the notch's little progress bar, which is the only sign that the
+        # keyboard is really talking to the computer.
         code = "%06u" % passkey
         notch("btask", "display", device_name(device), code, int(entered))
         if not pending.live:
-            # No hay nada que contestar, pero sí que limpiar: si el
-            # emparejamiento se queda a medias, la cara no puede quedarse fija.
+            # There is nothing to answer, but there is cleaning up to do: if the
+            # pairing is left halfway, the face cannot stay stuck.
             pending.timer = GLib.timeout_add_seconds(DISPLAY_TIMEOUT,
                                                      lambda: (notch("btclear"), False)[1])
 
@@ -216,45 +234,47 @@ class Agent(dbus.service.Object):
     def DisplayPinCode(self, device, pincode):
         notch("btask", "display", device_name(device), str(pincode), -1)
 
-    # ── lo que este agente NO puede hacer, dicho en voz alta ─────────────
+    # ── what this agent CANNOT do, said out loud ─────────────────────────
 
     @dbus.service.method(AGENT_IFACE, in_signature="o", out_signature="u")
     def RequestPasskey(self, device):
-        # Aquí BlueZ espera que el USUARIO teclee, en el ordenador, un número
-        # que enseña el aparato. Haría falta un campo de texto con foco, que es
-        # otra cosa. Se rechaza con un aviso visible en vez de fallar callando,
-        # que es justo el problema que este agente viene a resolver.
-        log("RequestPasskey no soportado", device)
-        notch("btask", "authorize", device_name(device) + " — pide un código a mano", "", -1)
+        # Here BlueZ expects the USER to type, on the computer, a number the
+        # device shows. That would need a focused text field, which is another
+        # matter. It is rejected with a visible warning instead of failing
+        # quietly, which is precisely the problem this agent exists to solve.
+        log(tr("RequestPasskey no soportado", "RequestPasskey is not supported"), device)
+        aviso = " — wants a code typed by hand" if english() else " — pide un código a mano"
+        notch("btask", "authorize", device_name(device) + aviso, "", -1)
         GLib.timeout_add_seconds(6, lambda: (notch("btclear"), False)[1])
-        raise Rejected("este agente no pide códigos a mano")
+        raise Rejected(tr("este agente no pide códigos a mano", "This agent does not request codes manually"))
 
     @dbus.service.method(AGENT_IFACE, in_signature="o", out_signature="s")
     def RequestPinCode(self, device):
-        log("RequestPinCode no soportado", device)
-        notch("btask", "authorize", device_name(device) + " — pide un PIN a mano", "", -1)
+        log(tr("RequestPinCode no soportado", "RequestPinCode is not supported"), device)
+        aviso = " — wants a PIN typed by hand" if english() else " — pide un PIN a mano"
+        notch("btask", "authorize", device_name(device) + aviso, "", -1)
         GLib.timeout_add_seconds(6, lambda: (notch("btclear"), False)[1])
-        raise Rejected("este agente no pide PIN a mano")
+        raise Rejected(tr("este agente no pide PIN a mano", "This agent does not request PINs manually"))
 
-    # ── ciclo de vida ────────────────────────────────────────────────────
+    # ── lifecycle ────────────────────────────────────────────────────────
 
     @dbus.service.method(AGENT_IFACE, in_signature="", out_signature="")
     def Cancel(self):
-        log("BlueZ canceló")
+        log(tr("BlueZ canceló", "BlueZ cancelled"))
         pending.clear()
 
     @dbus.service.method(AGENT_IFACE, in_signature="", out_signature="")
     def Release(self):
-        log("BlueZ soltó el agente")
+        log(tr("BlueZ soltó el agente", "BlueZ released the agent"))
         pending.clear()
 
 
 class Replier(dbus.service.Object):
-    """Por donde contesta el notch. Va en el bus de SESIÓN."""
+    """The way the notch answers back. It lives on the SESSION bus."""
 
     @dbus.service.method(REPLY_IFACE, in_signature="b", out_signature="b")
     def Reply(self, accept):
-        log("respuesta del usuario:", bool(accept))
+        log(tr("respuesta del usuario:", "User reply:"), bool(accept))
         return pending.answer(bool(accept))
 
     @dbus.service.method(REPLY_IFACE, in_signature="", out_signature="b")
@@ -269,10 +289,11 @@ def main():
     system_bus = dbus.SystemBus()
     session_bus = dbus.SessionBus()
 
-    # OJO: hay que GUARDAR las referencias. Un dbus.service.BusName suelto lo
-    # recolecta Python en cuanto sale de ámbito, y al recolectarlo SUELTA el
-    # nombre del bus: el agente seguiría vivo y registrado en BlueZ, pero el
-    # notch no encontraría a quién contestar ("The name is not activatable").
+    # CAREFUL: the references have to be KEPT. Python collects a stray
+    # dbus.service.BusName as soon as it goes out of scope, and collecting it
+    # RELEASES the bus name: the agent would stay alive and registered with
+    # BlueZ, but the notch would find nobody to answer ("The name is not
+    # activatable").
     objetos.append(Agent(system_bus, AGENT_PATH))
     objetos.append(dbus.service.BusName(REPLY_NAME, session_bus, do_not_queue=True))
     objetos.append(Replier(session_bus, AGENT_PATH))
@@ -281,15 +302,15 @@ def main():
                              "org.bluez.AgentManager1")
     manager.RegisterAgent(AGENT_PATH, CAPABILITY)
     try:
-        # Ser el agente POR DEFECTO es lo que hace que las preguntas lleguen
-        # aquí cuando el emparejamiento lo inicia el aparato y no nosotros.
-        # Si blueman-applet se pusiera en marcha, se lo llevaría él: por eso
-        # este servicio existe y blueman no se autoarranca.
+        # Being the DEFAULT agent is what makes the questions arrive here when
+        # the pairing is started by the device and not by us. If blueman-applet
+        # started up, it would take that role: that is why this service exists
+        # and blueman does not autostart.
         manager.RequestDefaultAgent(AGENT_PATH)
     except dbus.DBusException as e:
-        log("no se pudo ser el agente por defecto:", e)
+        log(tr("no se pudo ser el agente por defecto:", "Could not become the default agent:"), e)
 
-    log("agente registrado en", AGENT_PATH, "con capacidad", CAPABILITY)
+    log(tr("agente registrado en", "Agent registered at"), AGENT_PATH, tr("con capacidad", "with capability"), CAPABILITY)
 
     loop = GLib.MainLoop()
 

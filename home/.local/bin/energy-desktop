@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Reversible brightness cap for Power saver, without a background poller."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+def target_value(current, maximum, cap, state):
+    # Repeated activation/reloads must not undo a manual brightness change.
+    if state and state['cap'] == cap:
+        return current
+    base = state['before'] if state and current == state['applied'] else current
+    return min(base, max(1, maximum * cap // 100))
+
+
+def restore_value(current, state):
+    return state['before'] if current == state['applied'] else current
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in ('on', 'off'):
+        raise SystemExit('Usage: energy-desktop on|off 10..80')
+    mode, cap = sys.argv[1], int(sys.argv[2])
+    if not 10 <= cap <= 80:
+        raise SystemExit('Brightness cap must be between 10 and 80.')
+    directory = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'quickshell-energy'
+    directory.mkdir(mode=0o700, exist_ok=True)
+    with (directory / 'lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        snapshot = directory / 'brightness.json'
+        state = json.loads(snapshot.read_text()) if snapshot.exists() else None
+        devices = sorted(Path('/sys/class/backlight').glob('*'))
+        if not devices:
+            return
+        device = next((d for d in devices if state and d.name == state['device']), devices[0])
+        if state and state['device'] != device.name:
+            state = None
+        current = int((device / 'brightness').read_text())
+        maximum = int((device / 'max_brightness').read_text())
+        def set_value(value):
+            if value != current:
+                subprocess.run(['brightnessctl', '-c', 'backlight', '-d', device.name,
+                                '-q', 'set', str(value)], check=True)
+        if mode == 'on':
+            target = target_value(current, maximum, cap, state)
+            # Save BEFORE lowering brightness, including across shell reloads.
+            before = state['before'] if state and current == state['applied'] else current
+            new = {'device': device.name, 'before': before,
+                   'applied': target, 'cap': cap}
+            if not state or state['cap'] != cap:
+                temporary = directory / 'brightness.tmp'
+                temporary.write_text(json.dumps(new))
+                temporary.replace(snapshot)
+            set_value(target)
+        elif state:
+            set_value(restore_value(current, state))
+            snapshot.unlink()
+
+
+if __name__ == '__main__':
+    main()

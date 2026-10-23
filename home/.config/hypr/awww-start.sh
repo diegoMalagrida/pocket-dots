@@ -1,29 +1,29 @@
 #!/bin/sh
 #
-# awww-start.sh -- levanta el daemon del fondo y garantiza que SIEMPRE queda un
-# fondo puesto, tambien en el primer arranque de una maquina recien instalada.
+# awww-start.sh -- brings up the wallpaper daemon and guarantees there is ALWAYS
+# a wallpaper set, also on the first boot of a freshly installed machine.
 #
-# El fallo que motiva la segunda mitad de este script: Diego instalo el repo en
-# una torre con Arch limpio, entro a Hyprland y se encontro la pantalla NEGRA
-# con los colores del sistema correctos. La cadena era esta:
+# The bug behind the second half of this script: Diego installed the repo on a
+# tower with a clean Arch, logged into Hyprland and found a BLACK screen with
+# the correct system colours. The chain was this:
 #
-#   1. `install.sh` genera la paleta con `wal -i "$img" -n -q`. Ese `-n` le dice
-#      a pywal justamente "genera la paleta pero NO pongas el fondo".
-#   2. Aqui se llamaba solo a `awww restore`, que restaura *el ultimo fondo
-#      mostrado*. En una maquina nueva no hay ninguno: ~/.cache/awww esta vacia.
-#   3. Y `awww restore` devuelve 0 aunque no haya restaurado nada (comprobado:
-#      con un HOME vacio sale con codigo 0), asi que el bucle de reintentos se
-#      daba por satisfecho al primer intento y no habia ni un aviso.
+#   1. `install.sh` generates the palette with `wal -i "$img" -n -q`. That `-n`
+#      tells pywal precisely "generate the palette but do NOT set the wallpaper".
+#   2. Here only `awww restore` was called, which restores *the last wallpaper
+#      shown*. On a new machine there is none: ~/.cache/awww is empty.
+#   3. And `awww restore` returns 0 even when it restored nothing (checked: with
+#      an empty HOME it exits with code 0), so the retry loop was satisfied on
+#      the first attempt and there was not even a warning.
 #
-# En el portatil no se vio nunca porque ahi ya habia un fondo puesto de antes.
+# It was never seen on the laptop because a wallpaper was already set there.
 #
-# Ahora, despues del restore, se le PREGUNTA a awww que esta mostrando de
-# verdad (`awww query` imprime "currently displaying: image: ..." o
-# "... color: ..."), y solo si alguna salida se quedo sin imagen se pone un
-# fondo por defecto. Esa condicion solo se cumple el primer dia: en cualquier
-# arranque normal el restore funciona, la comprobacion sale bien y NO se
-# re-tematiza nada -- que seria lento e inutil, porque set-wallpaper.sh
-# regenera la paleta y recarga media docena de programas.
+# Now, after the restore, awww is ASKED what it is really showing (`awww query`
+# prints "currently displaying: image: ..." or "... color: ..."), and only if
+# some output was left without an image is a default wallpaper set. That
+# condition only holds on the first day: on any normal boot the restore works,
+# the check passes and NOTHING is re-themed -- which would be slow and
+# pointless, because set-wallpaper.sh regenerates the palette and reloads half
+# a dozen programs.
 
 uid="$(/usr/bin/id -u)"
 
@@ -31,12 +31,12 @@ if ! /usr/bin/pgrep -u "$uid" -x awww-daemon >/dev/null 2>&1; then
     /usr/bin/awww-daemon >/dev/null 2>&1 &
 fi
 
-# Todo esto va en segundo plano para que el arranque de Hyprland no se quede
-# esperando a que el socket del daemon exista.
+# All of this runs in the background so Hyprland's startup is not left waiting
+# for the daemon's socket to exist.
 (
-    # Esperar al daemon. La sonda es `awww query`, no `awww restore`: query
-    # falla de verdad mientras no hay socket ("Socket file ... not found") y no
-    # toca nada, asi que es la comprobacion honesta de "ya esta arriba".
+    # Wait for the daemon. The probe is `awww query`, not `awww restore`: query
+    # really fails while there is no socket ("Socket file ... not found") and
+    # touches nothing, so it is the honest check for "it is up now".
     listo=0
     intento=0
     while [ "$intento" -lt 50 ]; do
@@ -51,20 +51,20 @@ fi
 
     /usr/bin/awww restore >/dev/null 2>&1
 
-    # ¿Se quedo alguna salida sin imagen? Se cuenta por lineas (una por monitor)
-    # en vez de mirar solo la primera, para que un segundo monitor sin fondo
-    # tambien lo reciba.
+    # Was any output left without an image? It counts lines (one per monitor)
+    # instead of looking only at the first, so that a second monitor without a
+    # wallpaper gets one too.
     salidas="$(/usr/bin/awww query 2>/dev/null | /usr/bin/wc -l)"
     con_fondo="$(/usr/bin/awww query 2>/dev/null | /usr/bin/grep -c 'currently displaying: image:')"
     [ "${salidas:-0}" -gt 0 ] || exit 0
-    [ "${con_fondo:-0}" -lt "${salidas:-0}" ] || exit 0   # ya hay fondo: no tocar nada
+    [ "${con_fondo:-0}" -lt "${salidas:-0}" ] || exit 0   # wallpaper already set: touch nothing
 
-    # Que fondo poner. Primero el que uso pywal la ultima vez (~/.cache/wal/wal
-    # guarda su ruta): asi el fondo del primer arranque es EXACTAMENTE la imagen
-    # de la que salio la paleta que ya esta en pantalla, y no hay un salto de
-    # color raro. Si no existe o apunta a un fichero que ya no esta, se coge la
-    # primera imagen de ~/Pictures/wallpapers con el mismo criterio que usa
-    # install.sh (orden alfabetico), que es la misma que eligio el instalador.
+    # Which wallpaper to set. First the one pywal used last time (~/.cache/wal/wal
+    # holds its path): that way the first-boot wallpaper is EXACTLY the image the
+    # palette already on screen came from, and there is no odd jump in colour. If
+    # it does not exist or points to a file that is gone, it takes the first
+    # image in ~/Pictures/wallpapers with the same criterion install.sh uses
+    # (alphabetical order), which is the same one the installer picked.
     img=""
     if [ -r "$HOME/.cache/wal/wal" ]; then
         img="$(/usr/bin/head -n 1 "$HOME/.cache/wal/wal" 2>/dev/null)"
@@ -77,16 +77,16 @@ fi
     fi
     [ -n "$img" ] && [ -f "$img" ] || exit 0
 
-    # set-wallpaper.sh es el camino bueno: pone el fondo Y deja escritas las
-    # cosas que `wal -i` del instalador no escribe (el enlace ~/.cache/wal/lockbg
-    # que usa hyprlock, el bar-strip.txt que mira la barra, los temas derivados).
-    # Necesita ~/.local/bin en el PATH y Hyprland no siempre lo hereda.
+    # set-wallpaper.sh is the right path: it sets the wallpaper AND writes the
+    # things the installer's `wal -i` does not (the ~/.cache/wal/lockbg link that
+    # hyprlock uses, the bar-strip.txt the bar watches, the derived themes).
+    # It needs ~/.local/bin in PATH and Hyprland does not always inherit it.
     if [ -x "$HOME/.config/hypr/set-wallpaper.sh" ]; then
         PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:$PATH"
         export PATH
         "$HOME/.config/hypr/set-wallpaper.sh" "$img" >/dev/null 2>&1
     else
-        # Sin el script al menos que se vea algo.
+        # Without the script, at least let something show.
         /usr/bin/awww img "$img" >/dev/null 2>&1
     fi
 ) >/dev/null 2>&1 &

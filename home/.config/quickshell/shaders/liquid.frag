@@ -1,31 +1,32 @@
-// liquid.frag — el indicador de escritorio como un FLUIDO.
+// liquid.frag — the workspace indicator as a FLUID.
 //
-// No se dibujan figuras y se mueven unas por delante de otras: se resuelve UN
-// SOLO campo de distancia con todos los cuerpos dentro, unidos con smin(). Por
-// eso dos cuerpos que se acercan se funden con un CUELLO antes de tocarse y al
-// separarse el hilo se estira y se rompe. Eso es tension superficial, y es lo
-// que el ojo reconoce como liquido.
+// Shapes are not drawn and moved in front of one another: ONE SINGLE distance
+// field is solved with every body inside it, joined with smin(). That is why
+// two bodies coming together merge with a NECK before they touch, and as they
+// separate the thread stretches and snaps. That is surface tension, and it is
+// what the eye recognises as liquid.
 //
-// LAS DOS COSAS QUE HAY QUE HACER BIEN, Y QUE HICE MAL EN LA PRIMERA VERSION:
+// THE TWO THINGS THAT HAVE TO BE DONE RIGHT, AND THAT I GOT WRONG IN THE FIRST
+// VERSION:
 //
-// 1. El antialiasing va con la formula de cobertura, clamp(0.5 - d/fwidth(d)).
-//    Da UN pixel de transicion, que es lo que corresponde. Con un
-//    smoothstep(-fwidth, +fwidth, d) la transicion abarca DOS pixeles y a este
-//    tamano (cuerpos de 8 px) eso no es un borde suave: es un borron.
+// 1. Antialiasing uses the coverage formula, clamp(0.5 - d/fwidth(d)).
+//    It gives ONE pixel of transition, which is what it should be. With a
+//    smoothstep(-fwidth, +fwidth, d) the transition spans TWO pixels, and at
+//    this size (8 px bodies) that is not a soft edge: it is a smudge.
 //
-// 2. El color se resuelve con ESA MISMA anchura. Antes lo mezclaba segun la
-//    distancia a la pildora en una banda de 4 px, asi que al acercarse al borde
-//    el color tiraba hacia el del punto y la pildora salia con un CERCO BLANCO
-//    alrededor. Un halo claro pegado al borde es exactamente lo que hace que
-//    algo se vea sucio.
+// 2. Colour is resolved with THAT SAME width. I used to mix it according to
+//    the distance to the pill over a 4 px band, so near the edge the colour
+//    pulled towards the dot's and the pill came out with a WHITE RING around
+//    it. A light halo hugging the edge is exactly what makes something look
+//    dirty.
 #version 440
 
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 
-// El bloque TIENE que empezar por qt_Matrix + qt_Opacity (lo exige el vertex
-// shader por defecto de Qt), y despues solo floats: un vec2 aqui rompe la
-// alineacion std140 y el shader lee basura. Los vec4, al final.
+// The block HAS to start with qt_Matrix + qt_Opacity (Qt's default vertex
+// shader demands it), and then only floats: a vec2 here breaks the std140
+// alignment and the shader reads garbage. The vec4s go at the end.
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
@@ -53,16 +54,16 @@ float sdSegment(vec2 p, vec2 a, vec2 b, float r) {
     return length(pa - ba * t) - r;
 }
 
-// Union suave. El termino -kk*hh*(1-hh) es el que fabrica el cuello: donde dos
-// superficies casi se tocan, empuja el campo hacia dentro y las cose.
+// Smooth union. The -kk*hh*(1-hh) term is what builds the neck: where two
+// surfaces almost touch, it pushes the field inwards and stitches them.
 float smin(float a, float b, float kk) {
     float hh = clamp(0.5 + 0.5 * (b - a) / kk, 0.0, 1.0);
     return mix(b, a, hh) - kk * hh * (1.0 - hh);
 }
 
-// Cobertura del pixel a partir del campo: 1 dentro, 0 fuera, y exactamente un
-// pixel de transicion en el borde, sea cual sea el zoom o la deformacion que
-// smin le haya metido al campo.
+// Pixel coverage from the field: 1 inside, 0 outside, and exactly one pixel
+// of transition at the edge, whatever the zoom or the distortion smin has put
+// into the field.
 float coverage(float d) { return clamp(0.5 - d / max(fwidth(d), 1e-5), 0.0, 1.0); }
 
 void main() {
@@ -78,28 +79,28 @@ void main() {
         if (float(i) >= count) break;
         vec2 c = vec2(first + stepX * float(i), cy);
 
-        // El punto senalado se HINCHA en vez de cambiar de color: en un fluido
-        // el volumen es la unica respuesta que tiene sentido.
+        // The hovered dot SWELLS instead of changing colour: in a fluid,
+        // volume is the only response that makes sense.
         float r = (abs(float(i) - hoverIdx) < 0.5) ? dotR * 1.45 : dotR;
 
-        // TENSION SUPERFICIAL: el punto se INCLINA hacia la pildora que se
-        // acerca, como una gota que nota a otra antes de tocarla. Es lo que
-        // convierte el paso de la pildora en algo que le OCURRE a la fila, en
-        // vez de algo que ocurre por delante de la fila.
+        // SURFACE TENSION: the dot LEANS towards the approaching pill, like a
+        // drop that senses another before touching it. It is what turns the
+        // pill's passing into something that HAPPENS TO the row, instead of
+        // something that happens in front of the row.
         float near = hasPill > 0.5 ? sdSegment(c, pa, pb, pillR) : 1e6;
         float pull = 1.0 - smoothstep(0.0, k * 2.2, near);
         c.x += sign((pillA + pillB) * 0.5 - c.x) * pull * 2.2;
 
-        // LA PILDORA SE TRAGA EL PUNTO SOBRE EL QUE ESTA. Sin esto, el punto
-        // activo queda justo debajo de la pildora, con el mismo centro y el
-        // mismo radio: los dos campos EMPATAN, y con un empate no hay formula
-        // de color que valga -- salga la que salga, mete el color del punto en
-        // el borde de la pildora y aparece un cerco claro. La solucion no es
-        // compensarlo al mezclar, es que el empate no exista: un punto que esta
-        // dentro de la pildora se ha DISUELTO en ella. Y como se disuelve por
-        // profundidad y no por indice, no da un salto al cambiar de escritorio:
-        // se lo va tragando segun llega y lo va soltando segun se aleja, que es
-        // lo que hace un liquido.
+        // THE PILL SWALLOWS THE DOT IT IS SITTING ON. Without this, the active
+        // dot sits right under the pill, with the same centre and the same
+        // radius: the two fields TIE, and with a tie no colour formula will
+        // do -- whichever one you pick, it puts the dot's colour into the
+        // pill's edge and a light ring appears. The fix is not to compensate
+        // for it when mixing, it is for the tie not to exist: a dot that is
+        // inside the pill has DISSOLVED into it. And since it dissolves by
+        // depth and not by index, it does not jump when you change workspace:
+        // the pill swallows it as it arrives and lets it go as it moves away,
+        // which is what a liquid does.
         float swallow = hasPill > 0.5
             ? 1.0 - smoothstep(-dotR, 0.0, sdSegment(c, pa, pb, pillR))
             : 0.0;
@@ -110,13 +111,13 @@ void main() {
 
     float d = smin(dDots, dPill, k);
 
-    // El color se reparte por COBERTURA de cada cuerpo, no por distancia. Es la
-    // diferencia entre "cuanto de este pixel es pildora" (que en el borde libre
-    // de la pildora vale 0.5 de pildora y 0 de punto, o sea color de pildora
-    // limpio) y "como de cerca esta la pildora" (que en ese mismo borde tiraba
-    // hacia el color del punto y pintaba el cerco).
-    // Donde no hay ningun cuerpo -- el cuello -- se mezcla por distancia
-    // relativa, que ahi si es lo que toca: el cuello es de los dos.
+    // Colour is shared out by each body's COVERAGE, not by distance. It is the
+    // difference between "how much of this pixel is pill" (which at the pill's
+    // free edge is 0.5 pill and 0 dot, i.e. clean pill colour) and "how close
+    // is the pill" (which at that same edge pulled towards the dot's colour
+    // and painted the ring).
+    // Where there is no body at all -- the neck -- it mixes by relative
+    // distance, which there IS the right thing: the neck belongs to both.
     float cp = coverage(dPill);
     float cd = coverage(dDots);
     float wsum = cp + cd;
@@ -124,8 +125,9 @@ void main() {
         ? (pillColor * cp + dotColor * cd) / wsum
         : mix(dotColor, pillColor, clamp(0.5 + 0.5 * (dDots - dPill) / max(k, 0.001), 0.0, 1.0));
 
-    // Qt entrega los uniformes de color YA PREMULTIPLICADOS, asi que aqui solo
-    // falta escalar por la cobertura. (Volver a multiplicar por col.a los dejaba
-    // a un cuarto de intensidad: grises sucios en vez de blancos translucidos.)
+    // Qt hands over the colour uniforms ALREADY PREMULTIPLIED, so all that is
+    // left here is to scale by the coverage. (Multiplying by col.a again left
+    // them at a quarter of their intensity: dirty greys instead of translucent
+    // whites.)
     fragColor = col * (coverage(d) * qt_Opacity);
 }

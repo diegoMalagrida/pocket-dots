@@ -1,0 +1,11 @@
+# Carries the shell's language over to hyprlock and the Hyprland scripts.
+# Triggered by sync-language.path when ~/.config/quickshell-rice.json changes.
+# See the reason why in the header of scripts/sync-language.sh.
+[Unit]
+Description=Carries the rice language over to hyprlock and the scripts
+
+[Service]
+Type=oneshot
+ExecStart=%h/.config/hypr/scripts/sync-language.sh --quiet
+# --quiet silences the normal output but keeps the notification warning when
+# the login screen (which belongs to root) is left out of step.

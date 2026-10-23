@@ -1,42 +1,46 @@
-// PerformancePanel.qml — «Tu equipo», desplegado DESDE el notch.
+// PerformancePanel.qml — «Tu máquina» (Your computer), unfolded FROM the notch.
 //
-// Hermano de NetworkPanel y BluetoothPanel, y construido igual que ellos:
-// cabecera (icono · título · subtítulo · un control a la derecha), filete de
-// 1 px en #1e1e1e, y cuerpo. Nada más.
+// Sibling of NetworkPanel and BluetoothPanel, and built the same way as them:
+// header (icon · title · subtitle · one control on the right), a 1 px hairline
+// (Colors.hairline), and body. Nothing else.
 //
-// La cara anterior se salía de eso por todos lados y por eso cantaba tanto:
-// colaba el wallpaper de fondo con un degradado negro encima —era el único
-// sitio del shell con superficie propia—, se inventaba una escala de grises
-// entera (#f2f2f2, #efefef, #bcbcbc, #a8a8a8, #858585, #747474, #686868,
-// #555555) que no usa nadie más, titulaba en minúsculas («actividad
-// reciente», «ahora mismo») mientras el resto del notch dice «Red» o
-// «Notificaciones», y abría con una frase de ánimo. Abrirlo se sentía como
-// saltar a otra aplicación.
+// The previous face broke out of that everywhere, and that is why it stuck out
+// so much: it let the wallpaper through as a background with a black gradient
+// on top —it was the only place in the shell with a surface of its own—, it
+// invented a whole grey scale (#f2f2f2, #efefef, #bcbcbc, #a8a8a8, #858585,
+// #747474, #686868, #555555) that nobody else uses, it titled in lower case
+// («actividad reciente», «ahora mismo»: recent activity, just now) while the
+// rest of the notch says «Red» (Network) or «Notificaciones», and it opened
+// with a cheering phrase. Opening it felt like jumping into another
+// application.
 //
-// Aquí no hay superficie propia: el panel se pinta sobre la del notch como los
-// demás, y lo único que flota encima son las mismas tarjetas de radM con
-// relleno al 4,5 % y filete al 7,5 % que usa la ventana de Ajustes. La escala
-// de grises es la de la casa: #ffffff · #cfcfcf · #9a9a9a · #8a8a8a · #7d7d7d.
+// Here there is no surface of its own: the panel paints over the notch's like
+// the others, and the only things floating on top are the same radM cards with
+// the token surface and hairline (Colors.surface1 and Colors.hairline) that the
+// Settings window uses. And the ink is not a grey scale of its own either: it
+// is Colors' label levels (label · label2 · label3), which get re-themed by
+// pywal instead of staying neutral when the wallpaper changes.
 //
-// LAS CURVAS MANDAN. Es lo único que este panel enseña y no se puede ver en
-// ningún otro sitio del escritorio, así que se lleva la carta grande entera y
-// la temperatura tiene la suya. La batería, en cambio, YA ESTÁ SIEMPRE en el
-// notch en reposo: repetirla aquí con tarjeta, barra y estimación era gastar
-// un tercio del panel en un dato que se ve sin abrir nada. Ahora es media
-// línea en el subtítulo, y solo sube de tono cuando de verdad queda poca.
+// THE CURVES RULE. They are the only thing this panel shows that cannot be
+// seen anywhere else on the desktop, so they get the whole big card and the
+// temperature gets its own. The battery, on the other hand, IS ALWAYS in the
+// notch at rest ALREADY: repeating it here with card, bar and estimate meant
+// spending a third of the panel on a figure you can see without opening
+// anything. Now it is half a line in the subtitle, and it only changes tone
+// when there really is little left.
 //
-// Y las curvas se rigen por tres decisiones que están explicadas donde viven,
-// pero conviene saber que existen antes de tocar nada:
-//   · UNA BANDA POR SERIE, cada una con su techo (ver `ceilFor`). Compartir eje
-//     entre procesador y memoria condenaba a una de las dos a arrastrarse por
-//     el suelo, y de paso invitaba a comparar dos porcentajes que no significan
-//     lo mismo.
-//   · EL TECHO SE ANUNCIA, arriba a la izquierda de cada banda. Un eje que se
-//     mueve solo y no lo dice es un eje que miente.
-//   · LAS MARCAS SON FINAS (ver la cabecera de HistoryGraph.qml): trazo de 2 px,
-//     relleno al 10 % —velo, no bloque—, punto de 8 px con anillo de superficie
-//     y ni una rejilla. Eso es lo que separa un gráfico tranquilo de un panel de
-//     monitorización, y no es cuestión de gusto: son medidas.
+// And the curves are governed by three decisions that are explained where they
+// live, but it is worth knowing they exist before touching anything:
+//   · ONE BAND PER SERIES, each with its own ceiling (see `ceilFor`). Sharing an
+//     axis between processor and memory condemned one of the two to crawl along
+//     the floor, and on top of that invited comparing two percentages that do
+//     not mean the same thing.
+//   · THE CEILING IS ANNOUNCED, top left of each band. An axis that moves on its
+//     own and does not say so is an axis that lies.
+//   · THE MARKS ARE THIN (see the header of HistoryGraph.qml): 2 px stroke,
+//     10 % fill —a veil, not a block—, an 8 px point with a surface ring and not
+//     a single grid line. That is what separates a calm chart from a monitoring
+//     dashboard, and it is not a matter of taste: they are measurements.
 import QtQuick
 import QtQuick.Layouts
 
@@ -45,10 +49,10 @@ Item {
 
     readonly property bool active: ShellState.panel === "system"
 
-    // ─────────────── lo que de verdad hay que avisar ───────────────
-    // Sin frase de ánimo: si no pasa nada, el subtítulo cuenta desde cuándo
-    // está encendido y cómo va la batería, que son datos. Solo cuando pasa
-    // algo, el subtítulo (y el icono de la cabecera) cambian de color.
+    // ─────────────── what really needs a warning ───────────────
+    // No cheering phrase: if nothing is happening, the subtitle says how long
+    // it has been on and how the battery is doing, which are facts. Only when
+    // something happens do the subtitle (and the header icon) change colour.
     readonly property bool battLow: ShellState.batt >= 0 && ShellState.batt < 18 && !ShellState.ac
     readonly property bool hot: ShellState.cpuTemp >= 78
     readonly property color headTone: root.battLow ? Colors.crit
@@ -68,40 +72,40 @@ Item {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  LAS ESCALAS SE AJUSTAN A LO QUE HAY
+    //  THE SCALES FIT WHAT IS THERE
     //
-    //  Con el eje clavado en 0..100 las curvas pasaban la vida arrastrándose
-    //  por el borde de abajo: en reposo el procesador va al 4 % y la memoria al
-    //  21 %, así que tres cuartas partes de la carta eran hueco y la señal, un
-    //  temblor de dos píxeles. Un gráfico que no usa su alto no es un gráfico,
-    //  es un adorno.
+    //  With the axis nailed to 0..100 the curves spent their life crawling
+    //  along the bottom edge: at rest the processor runs at 4 % and memory at
+    //  21 %, so three quarters of the card were empty and the signal was a
+    //  two-pixel tremor. A chart that does not use its height is not a chart,
+    //  it is an ornament.
     //
-    //  Pero autoescalar a pelo tampoco vale: el techo bailaría en cada muestra
-    //  y la curva se movería aunque el equipo no hiciera nada. Por eso el techo
-    //  SALTA ENTRE CUATRO VALORES (25 · 50 · 75 · 100) y se anuncia arriba a la
-    //  izquierda, en el sitio donde un eje lleva su etiqueta. Así la banda está
-    //  siempre llena, el salto ocurre pocas veces y nunca hay que adivinar
-    //  contra qué se está midiendo.
+    //  But raw autoscaling will not do either: the ceiling would dance with
+    //  every sample and the curve would move even if the machine did nothing.
+    //  That is why the ceiling JUMPS BETWEEN FOUR VALUES (25 · 50 · 75 · 100)
+    //  and is announced top left, in the place where an axis carries its label.
+    //  That way the band is always full, the jump happens rarely and you never
+    //  have to guess what it is being measured against.
     //
-    //  Y CADA SERIE TIENE SU BANDA. Compartir eje entre procesador y memoria
-    //  era el error de fondo: en reposo la memoria va cuatro o cinco veces más
-    //  alta que el procesador, así que un eje que dejara respirar a una
-    //  aplastaba a la otra contra el suelo, hiciera lo que hiciera. Dos bandas
-    //  apiladas con techo propio caben en el mismo alto, se llenan las dos, y
-    //  además dejan de invitar a comparar dos cosas que no se comparan (un 20 %
-    //  de RAM y un 20 % de CPU no significan ni de lejos lo mismo).
+    //  And EACH SERIES HAS ITS OWN BAND. Sharing an axis between processor and
+    //  memory was the underlying mistake: at rest memory runs four or five
+    //  times higher than the processor, so an axis that let one breathe
+    //  squashed the other against the floor, whatever it did. Two stacked
+    //  bands with their own ceiling fit in the same height, both fill up, and
+    //  they also stop inviting a comparison between two things that do not
+    //  compare (20 % of RAM and 20 % of CPU do not mean remotely the same).
     // ══════════════════════════════════════════════════════════════════════
-    //  La escalera baja hasta 5 a propósito. Con el primer peldaño en 25 —que
-    //  es lo que parece razonable al escribirlo— un procesador en reposo al 4 %
-    //  seguía siendo una raya a un tercio de altura: se había cambiado el eje
-    //  pero no el problema. Los peldaños son números que se leen de un vistazo
-    //  (5·10·20·30·50·75·100), y el 1,25 es aire por arriba: sin él la serie se
-    //  pega al borde superior de su banda y parece estar tocando techo.
-    //  Los peldaños van apretados por abajo y sueltos por arriba a propósito:
-    //  entre 5 y 20 es donde vive un portátil en reposo y un salto de 10 a 20
-    //  deja media banda vacía, mientras que arriba dar el salto de 50 a 75 no
-    //  se nota porque a esas alturas lo que se mira es la forma del pico, no el
-    //  número exacto.
+    //  The ladder goes down to 5 on purpose. With the first rung at 25 —which
+    //  is what seems reasonable when you write it— a processor at rest at 4 %
+    //  was still a line at a third of the height: the axis had changed but not
+    //  the problem. The rungs are numbers you read at a glance
+    //  (5·10·20·30·50·75·100), and the 1.25 is headroom: without it the series
+    //  sticks to the top edge of its band and seems to be hitting the ceiling.
+    //  The rungs are tight at the bottom and loose at the top on purpose:
+    //  between 5 and 20 is where a laptop at rest lives and a jump from 10 to
+    //  20 leaves half the band empty, whereas up top the jump from 50 to 75
+    //  goes unnoticed because by then what you look at is the shape of the
+    //  peak, not the exact number.
     readonly property var ceilSteps: [5, 10, 15, 20, 30, 40, 50, 75, 100]
     function ceilFor(series) {
         let m = 0;
@@ -112,12 +116,12 @@ Item {
         return 100;
     }
 
-    // La temperatura no tiene escala redonda que valga: entre 38 y 44 °C hay
-    // seis grados de recorrido real y en 0..100 —o incluso en 35..95— eso es
-    // una raya recta. Aquí la ventana se ciñe a lo que ha pasado en el último
-    // minuto y medio, con un mínimo de 10 grados para que dos décimas de nada
-    // no se vean como una montaña. El grado exacto lo canta la cifra grande;
-    // la curva está para enseñar la FORMA.
+    // No round scale works for temperature: between 38 and 44 °C there are six
+    // degrees of real travel and on 0..100 —or even on 35..95— that is a
+    // straight line. Here the window hugs what has happened in the last minute
+    // and a half, with a minimum of 10 degrees so that two tenths of nothing do
+    // not look like a mountain. The big figure calls out the exact degree; the
+    // curve is there to show the SHAPE.
     readonly property var tempRange: {
         const h = ShellState.tempHistory;
         if (!h || h.length === 0) return { lo: 35, hi: 55 };
@@ -131,14 +135,15 @@ Item {
         return { lo: Math.max(0, mid - span / 2), hi: mid + span / 2 };
     }
 
-    // ─────────────── lectura al vuelo ───────────────
-    // sysstats.sh escupe una muestra cada 1,5 s (ver ShellState): de ahí sale
-    // tanto el «hace 90 s» del rótulo como esta cuenta atrás.
+    // ─────────────── reading on the fly ───────────────
+    // sysstats.sh spits out a sample every 1.5 s (see ShellState): that is
+    // where both the label's «hace 90 s» (90 s ago) and this countdown come
+    // from.
     readonly property real samplePeriod: 1.5
 
-    // Índice de la muestra más cercana a una X. Se redondea en vez de truncar
-    // porque la cruz se engancha al punto MÁS PRÓXIMO: apuntas a un instante,
-    // no tienes que cazar una línea de dos píxeles.
+    // Index of the sample nearest to an X. It rounds instead of truncating
+    // because the crosshair snaps to the NEAREST point: you point at an
+    // instant, you do not have to hunt a two-pixel line.
     function sampleAt(x, w, series) {
         const n = series ? series.length : 0;
         if (n < 2 || w <= 0) return -1;
@@ -154,18 +159,18 @@ Item {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  EL TONO DE LAS CURVAS NO ES Colors.accent A SECAS
+    //  THE CURVES' TONE IS NOT PLAIN Colors.accent
     //
-    //  El acento sale de pywal, o sea del fondo de pantalla, y con un fondo
-    //  oscuro vuelve oscuro: sobre la superficie de la tarjeta (casi negra) una
-    //  curva así se pierde. Aquí no vale «suele verse bien» — un trazo de 2 px
-    //  es un elemento gráfico y pide 3:1 contra su fondo. Se sube la
-    //  luminosidad del acento, y SOLO la luminosidad, hasta llegar a ese 3:1:
-    //  el tono sigue siendo el de pywal, así que el retematizado se conserva
-    //  entero. Es la misma receta que Colors.onWallAccent usa para la barra,
-    //  pero medida contra la tarjeta en vez de contra el wallpaper.
+    //  The accent comes from pywal, that is from the wallpaper, and with a dark
+    //  wallpaper it comes back dark: on the card's surface (almost black) a
+    //  curve like that gets lost. «It usually looks fine» will not do here — a
+    //  2 px stroke is a graphical element and needs 3:1 against its
+    //  background. The accent's lightness is raised, and ONLY the lightness,
+    //  until it reaches that 3:1: the hue is still pywal's, so the re-theming
+    //  is kept whole. It is the same recipe Colors.onWallAccent uses for the
+    //  bar, but measured against the card instead of against the wallpaper.
     // ══════════════════════════════════════════════════════════════════════
-    readonly property color plotSurface: "#101010"   // tarjeta (4,5 % sobre el notch)
+    readonly property color plotSurface: Colors.surface1   // the card's surface
     function readable(c) {
         const h = c.hslHue < 0 ? 0 : c.hslHue;
         const s = c.hslSaturation;
@@ -183,7 +188,7 @@ Item {
     readonly property color diskTone: root.readable(ShellState.disk >= 92 ? Colors.crit
         : ShellState.disk >= 82 ? Colors.warn : Colors.accent)
 
-    MouseArea { anchors.fill: parent }   // el hueco pertenece al panel
+    MouseArea { anchors.fill: parent }   // the gap belongs to the panel
 
     Item {
         id: keys
@@ -196,18 +201,18 @@ Item {
     }
     onActiveChanged: if (root.active) keys.forceActiveFocus()
 
-    // ─────────────── una tarjeta de las de la casa ───────────────
-    // La misma cascada que los conmutadores del centro de control: es el gesto
-    // propio de este shell y no había razón para que aquí no lo hubiera. Como
-    // allí, NO se toca la opacidad — de eso ya se encarga el NotchLayer, y dos
-    // fundidos encadenados se multiplican.
+    // ─────────────── one of the house cards ───────────────
+    // The same cascade as the Control Centre toggles: it is this shell's own
+    // gesture and there was no reason for it to be missing here. As there, the
+    // opacity is NOT touched — the NotchLayer already takes care of that, and
+    // two chained fades multiply.
     component Card: Rectangle {
         id: card
         property int idx: 0
         radius: Appearance.radM
-        color: Qt.rgba(1, 1, 1, 0.045)
+        color: Colors.surface1
         border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.075)
+        border.color: Colors.hairline
 
         property real ent: ShellState.mode === "system" ? 1 : 0
         Behavior on ent {
@@ -224,28 +229,28 @@ Item {
         transform: Translate { y: (1 - card.ent) * 10 }
     }
 
-    // ─────────────── una banda: cabecera de la serie + su curva ───────────────
+    // ─────────────── one band: series header + its curve ───────────────
     //
-    // LECTURA AL VUELO, SIN GLOBO. Pasar el ratón por la curva engancha una
-    // cruz a la muestra más cercana, y el valor que ya estaba en la cabecera se
-    // convierte EN la lectura: la cifra grande pasa a ser la de ese instante y
-    // la nota de al lado dice hace cuánto fue. Un globo flotante habría sido
-    // otra superficie encima de un panel que ya es una superficie encima del
-    // notch, y además taparía justo el trozo de curva que se está mirando.
-    // Nada queda escondido detrás del ratón: en reposo la cifra es la de ahora,
-    // que es el dato que importa.
+    // READING ON THE FLY, NO TOOLTIP. Moving the mouse over the curve snaps a
+    // crosshair to the nearest sample, and the value already in the header
+    // BECOMES the reading: the big figure turns into that instant's and the
+    // note beside it says how long ago it was. A floating tooltip would have
+    // been yet another surface on top of a panel that is already a surface on
+    // top of the notch, and it would also cover exactly the stretch of curve
+    // being looked at. Nothing stays hidden behind the mouse: at rest the
+    // figure is the current one, which is the fact that matters.
     component Lane: ColumnLayout {
         id: lane
         property string label: ""
         property string value: ""
         property string note: ""
-        property string aside: ""          // solo la primera banda lleva el «últimos 90 s»
+        property string aside: ""          // only the first band carries the «últimos 90 s» (last 90 s)
         property string unit: " %"
         property color tone: Colors.accent
         property var series: []
         readonly property int ceil: root.ceilFor(lane.series)
 
-        property int hover: -1             // muestra señalada, o -1
+        property int hover: -1             // the sample pointed at, or -1
         readonly property bool reading: lane.hover >= 0 && lane.hover < (lane.series ? lane.series.length : 0)
 
         spacing: 5
@@ -262,8 +267,8 @@ Item {
             Text {
                 Layout.alignment: Qt.AlignBaseline
                 text: lane.label
-                color: "#9a9a9a"
-                font.family: Appearance.fontUI; font.pixelSize: 11
+                color: Colors.label2
+                font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXS
             }
             Text {
                 Layout.alignment: Qt.AlignBaseline
@@ -271,31 +276,32 @@ Item {
                 text: lane.reading
                     ? Math.round(lane.series[lane.hover]) + lane.unit
                     : lane.value
-                color: "#ffffff"
+                color: Colors.label
                 font.family: Appearance.fontUI; font.pixelSize: 18
                 font.weight: Font.DemiBold
+                font.features: ({ "tnum": 1 })
             }
             Text {
                 Layout.alignment: Qt.AlignBaseline
                 Layout.fillWidth: true
                 text: lane.reading ? root.agoText(lane.series.length - 1 - lane.hover) : lane.note
-                color: "#7d7d7d"; elide: Text.ElideRight
-                font.family: Appearance.fontUI; font.pixelSize: 10
+                color: Colors.label3; elide: Text.ElideRight
+                font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
                 font.features: ({ "tnum": 1 })
             }
             Text {
                 Layout.alignment: Qt.AlignBaseline
                 visible: lane.aside.length > 0
                 text: lane.aside
-                color: "#5e5e5e"
-                font.family: Appearance.fontUI; font.pixelSize: 10
+                color: Colors.label3
+                font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
             }
         }
 
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            // Sitio para que el punto vivo del extremo no se coma el filete.
+            // Room so the live point at the end does not eat the hairline.
             Layout.rightMargin: 4
 
             HistoryGraph {
@@ -313,9 +319,9 @@ Item {
                 markIndex: lane.hover
             }
 
-            // acceptedButtons: NoButton — este ratón solo escucha. Si aceptara
-            // clics se comería el que cierra el panel, que lo atiende el
-            // MouseArea de la raíz.
+            // acceptedButtons: NoButton — this mouse area only listens. If it
+            // accepted clicks it would eat the one that closes the panel, which
+            // the root MouseArea handles.
             MouseArea {
                 anchors.fill: parent
                 hoverEnabled: true
@@ -324,12 +330,12 @@ Item {
                 onExited: lane.hover = -1
             }
 
-            // La etiqueta del eje, donde va la etiqueta de un eje.
+            // The axis label, where an axis label goes.
             Text {
                 anchors { left: parent.left; top: parent.top }
                 text: lane.ceil + " %"
-                color: "#4f4f4f"
-                font.family: Appearance.fontUI; font.pixelSize: 9
+                color: Colors.label3
+                font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
                 font.features: ({ "tnum": 1 })
             }
         }
@@ -340,7 +346,7 @@ Item {
         anchors { fill: parent; leftMargin: 22; rightMargin: 20; topMargin: 20; bottomMargin: 18 }
         spacing: 12
 
-        // ─────────────── cabecera ───────────────
+        // ─────────────── header ───────────────
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
@@ -354,12 +360,12 @@ Item {
             ColumnLayout {
                 spacing: 0
                 Text {
-                    // El mismo nombre que la puerta por la que se entra desde el
-                    // centro de control. Una puerta y una habitación con nombres
-                    // distintos son dos sitios.
-                    text: I18n.tr("Tu equipo")
-                    color: "#ffffff"
-                    font.family: Appearance.fontUI; font.pixelSize: 13; font.weight: Font.DemiBold
+                    // The same name as the door you come in through from the
+                    // Control Centre. A door and a room with different names
+                    // are two places.
+                    text: I18n.tr("Tu máquina")
+                    color: Colors.label
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsM; font.weight: Font.DemiBold
                 }
                 Text {
                     text: root.battLow ? I18n.tr("Batería baja · {0}", ShellState.battEstimateText)
@@ -369,23 +375,24 @@ Item {
                                       root.uptime(ShellState.uptimeSeconds), ShellState.batt,
                                       ShellState.ac ? I18n.tr(", cargando") : "")
                             : I18n.tr("Encendido desde hace {0}", root.uptime(ShellState.uptimeSeconds))
-                    color: root.battLow ? Colors.crit : root.hot ? Colors.warn : "#8a8a8a"
+                    color: root.battLow ? Colors.crit : root.hot ? Colors.warn : Colors.label2
                     elide: Text.ElideRight
-                    font.family: Appearance.fontUI; font.pixelSize: 11
+                    font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXS
+                    font.features: ({ "tnum": 1 })
                     Behavior on color { ColorAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
                 }
             }
             Item { Layout.fillWidth: true }
 
-            // Donde Red y Bluetooth ponen su interruptor. Aquí no hay nada que
-            // encender, pero sí de dónde se viene: un botón de verdad, no un
-            // texto gris suelto.
+            // Where Network and Bluetooth put their switch. Here there is
+            // nothing to turn on, but there is somewhere you came from: a real
+            // button, not a loose bit of grey text.
             Rectangle {
                 implicitWidth: backRow.implicitWidth + 24
                 implicitHeight: 29
                 radius: Appearance.radS
                 color: backMa.containsMouse ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.16)
-                                            : Qt.rgba(1, 1, 1, 0.05)
+                                            : Colors.fill3
                 Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
                 Row {
@@ -395,15 +402,15 @@ Item {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "‹"
-                        color: backMa.containsMouse ? Colors.accent : "#8a8a8a"
+                        color: backMa.containsMouse ? Colors.accentInk : Colors.label3
                         font.family: Appearance.fontUI; font.pixelSize: 15
                         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: I18n.tr("Centro de control")
-                        color: backMa.containsMouse ? Colors.accent : "#cfcfcf"
-                        font.family: Appearance.fontUI; font.pixelSize: 11
+                        color: backMa.containsMouse ? Colors.accentInk : Colors.label
+                        font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXS
                         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
                     }
                 }
@@ -417,17 +424,18 @@ Item {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: "#1e1e1e" }
+        Rectangle { Layout.fillWidth: true; height: 1; color: Colors.hairline }
 
-        // ─────────────── cuerpo ───────────────
+        // ─────────────── body ───────────────
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 14
 
-            // ── izquierda: minuto y medio de actividad ──
-            // La leyenda ya dice qué es cada línea, así que no lleva encima un
-            // título («actividad reciente») que repita lo mismo en minúsculas.
+            // ── left: a minute and a half of activity ──
+            // The legend already says what each line is, so there is no title
+            // on top («actividad reciente», recent activity) repeating the same
+            // thing in lower case.
             Card {
                 idx: 0
                 Layout.fillWidth: true
@@ -448,18 +456,18 @@ Item {
                         tone: root.plotTone
                         series: ShellState.cpuHistory
                     }
-                    // La memoria NO reparte alto a partes iguales con el
-                    // procesador. En noventa segundos la RAM se mueve dos o
-                    // tres puntos: darle media carta era dedicar el mismo
-                    // espacio a una recta que a la única serie que de verdad
-                    // pasa cosas. Una franja baja dice «esto está aquí y está
-                    // tranquilo» sin gritar, y el procesador se queda con el
-                    // alto que necesita para que se le vea la forma.
-                    // (Alto clavado por los tres lados por lo mismo que la
-                    // columna derecha: Lane es un ColumnLayout, y un layout
-                    // dentro de otro se rellena por defecto — con solo
-                    // preferredHeight se quedaba con la carta entera y dejaba
-                    // al procesador en una rendija.)
+                    // Memory does NOT split the height evenly with the
+                    // processor. In ninety seconds RAM moves two or three
+                    // points: giving it half the card meant devoting the same
+                    // space to a straight line as to the only series where
+                    // things actually happen. A low strip says «this is here
+                    // and it is calm» without shouting, and the processor keeps
+                    // the height it needs for its shape to show.
+                    // (Height pinned on all three counts for the same reason
+                    // as the right-hand column: Lane is a ColumnLayout, and a
+                    // layout inside another fills by default — with only
+                    // preferredHeight it took the whole card and left the
+                    // processor in a slit.)
                     Lane {
                         Layout.fillWidth: true
                         Layout.fillHeight: false
@@ -472,24 +480,23 @@ Item {
                             ? I18n.tr("{0} de {1} GiB", root.gibFromKib(ShellState.memUsedKib),
                                       root.gibFromKib(ShellState.memTotalKib))
                             : ""
-                        // Mismo acento que el procesador, no la tinta del
-                        // wallpaper: cuando las dos series compartían carta
-                        // hacía falta distinguirlas por color, pero ahora cada
-                        // una tiene su banda rotulada y el segundo tono solo
-                        // servía para que media tarjeta saliera de un gris
-                        // lavado que no es de ninguna parte. Un acento, como en
-                        // el resto del shell.
+                        // Same accent as the processor, not the wallpaper's
+                        // ink: when the two series shared a card they had to be
+                        // told apart by colour, but now each has its own
+                        // labelled band and the second tone only served to make
+                        // half the card come out a washed-out grey that belongs
+                        // nowhere. One accent, as in the rest of the shell.
                         tone: root.plotTone
                         series: ShellState.memHistory
                     }
                 }
             }
 
-            // ── derecha: lo que cambia despacio ──
-            // Ancho clavado por los tres lados: un ColumnLayout anidado dentro
-            // de un RowLayout se rellena por defecto (para los layouts fillWidth
-            // vale true, no como en el resto de items) y se comía entera la
-            // columna de la izquierda.
+            // ── right: what changes slowly ──
+            // Width pinned on all three counts: a ColumnLayout nested inside a
+            // RowLayout fills by default (for layouts fillWidth is true, unlike
+            // the rest of the items) and it swallowed the left-hand column
+            // whole.
             ColumnLayout {
                 Layout.fillWidth: false
                 Layout.minimumWidth: 272
@@ -498,14 +505,14 @@ Item {
                 Layout.fillHeight: true
                 spacing: 12
 
-                // ── temperatura: también tiene curva ──
+                // ── temperature: it has a curve too ──
                 Card {
                     id: tempCard
                     idx: 1
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
-                    // Misma lectura al vuelo que las bandas de la izquierda.
+                    // Same reading on the fly as the bands on the left.
                     property int hover: -1
                     readonly property bool reading: tempCard.hover >= 0
                         && tempCard.hover < ShellState.tempHistory.length
@@ -526,23 +533,25 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 text: I18n.tr("Temperatura")
-                                color: "#9a9a9a"
-                                font.family: Appearance.fontUI; font.pixelSize: 11
+                                color: Colors.label2
+                                font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXS
                             }
                             Text {
                                 text: tempCard.reading
                                     ? Math.round(ShellState.tempHistory[tempCard.hover]) + " °C"
                                     : ShellState.cpuTemp >= 0 ? Math.round(ShellState.cpuTemp) + " °C" : "—"
-                                color: "#ffffff"
+                                color: Colors.label
                                 font.family: Appearance.fontUI; font.pixelSize: 18
                                 font.weight: Font.DemiBold
+                                font.features: ({ "tnum": 1 })
                             }
                         }
 
-                        // El estado va con PALABRA además de con color: el acento
-                        // sale de pywal y con una paleta de croma bajo el salto a
-                        // «aviso» es casi invisible. Un color de estado no puede
-                        // ser el único canal que dice el estado.
+                        // The state comes with a WORD as well as a colour: the
+                        // accent comes from pywal and with a low-chroma palette
+                        // the jump to «aviso» (warning) is almost invisible. A
+                        // state colour cannot be the only channel saying the
+                        // state.
                         Text {
                             Layout.fillWidth: true
                             Layout.leftMargin: 24
@@ -552,8 +561,9 @@ Item {
                                 : ShellState.cpuTemp < 52 ? I18n.tr("Fresco")
                                 : ShellState.cpuTemp < 68 ? I18n.tr("Templado")
                                 : ShellState.cpuTemp < 80 ? I18n.tr("Caliente") : I18n.tr("Muy caliente")
-                            color: "#7d7d7d"
-                            font.family: Appearance.fontUI; font.pixelSize: 10
+                            color: Colors.label3
+                            font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
+                            font.features: ({ "tnum": 1 })
                         }
 
                         Item {
@@ -589,10 +599,10 @@ Item {
                     }
                 }
 
-                // ── espacio en disco: aquí no hay historia que contar ──
-                // El disco no se mueve en noventa segundos, así que una curva
-                // sería una raya recta fingiendo ser un gráfico. Una barra dice
-                // lo mismo y no miente sobre lo que hay debajo.
+                // ── disk space: no history to tell here ──
+                // The disk does not move in ninety seconds, so a curve would be
+                // a straight line pretending to be a chart. A bar says the same
+                // and does not lie about what is underneath.
                 Card {
                     idx: 2
                     Layout.fillWidth: true
@@ -615,14 +625,15 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 text: I18n.tr("Almacenamiento")
-                                color: "#9a9a9a"
-                                font.family: Appearance.fontUI; font.pixelSize: 11
+                                color: Colors.label2
+                                font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXS
                             }
                             Text {
                                 text: ShellState.disk + " %"
-                                color: "#ffffff"
+                                color: Colors.label
                                 font.family: Appearance.fontUI; font.pixelSize: 15
                                 font.weight: Font.DemiBold
+                                font.features: ({ "tnum": 1 })
                             }
                         }
 
@@ -630,17 +641,24 @@ Item {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 3
                             radius: 2
-                            // La pista es un escalón claro del MISMO tono que
-                            // el relleno, no un gris de la casa: así el estado
-                            // (acento / aviso / crítico) se lee a lo largo de
-                            // toda la barra y no solo en el trozo lleno.
+                            // The track is a light step of the SAME tone as
+                            // the fill, not a house grey: that way the state
+                            // (accent / warning / critical) reads along the
+                            // whole bar and not only in the filled part.
                             color: Qt.rgba(root.diskTone.r, root.diskTone.g, root.diskTone.b, 0.18)
                             Rectangle {
+                                // The fraction, not the width: the rail widens
+                                // with the panel as it opens and animating the
+                                // width makes the disk look as if it were
+                                // filling up by itself. See the long
+                                // explanation in PokeTeamPanel.
+                                property real p: Math.max(0, Math.min(1, ShellState.disk / 100))
+                                Behavior on p { NumberAnimation { duration: Appearance.mTick; easing.type: Easing.Linear } }
+
                                 height: parent.height
                                 radius: parent.radius
-                                width: parent.width * Math.max(0, Math.min(1, ShellState.disk / 100))
+                                width: parent.width * p
                                 color: root.diskTone
-                                Behavior on width { NumberAnimation { duration: Appearance.mTick; easing.type: Easing.Linear } }
                                 Behavior on color { ColorAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
                             }
                         }
@@ -652,8 +670,9 @@ Item {
                                           root.gibFromBytes(Math.max(0, ShellState.diskTotalBytes - ShellState.diskUsedBytes)),
                                           root.gibFromBytes(ShellState.diskTotalBytes))
                                 : ""
-                            color: "#7d7d7d"; elide: Text.ElideRight
-                            font.family: Appearance.fontUI; font.pixelSize: 10
+                            color: Colors.label3; elide: Text.ElideRight
+                            font.family: Appearance.fontUI; font.pixelSize: Appearance.fsXXS
+                            font.features: ({ "tnum": 1 })
                         }
                     }
                 }

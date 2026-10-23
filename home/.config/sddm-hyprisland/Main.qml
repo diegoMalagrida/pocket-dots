@@ -1,12 +1,12 @@
-// hyprisland — tema SDDM que replica la isla de hyprlock.
+// hyprisland — SDDM theme that replicates hyprlock's island.
 //
-// Objetivo: que la pantalla de login al arrancar sea INDISTINGUIBLE del bloqueo
-// que lanza el notch. Cada numero de aqui viene de ~/.config/hypr/hyprlock.conf;
-// si cambias uno alli, cambialo aqui. Las duraciones y curvas son las de
-// ~/.config/motion-language.md (PANEL 320, CONTENIDO 210, RESPUESTA 130).
+// Goal: that the login screen at boot be INDISTINGUISHABLE from the lock screen
+// the notch launches. Every number here comes from ~/.config/hypr/hyprlock.conf;
+// if you change one there, change it here. The durations and curves are those
+// of quickshell/Appearance.qml (PANEL 320, CONTENIDO 210, RESPUESTA 130).
 //
-// Los glifos van escapados (\u{F033E}) a proposito: son Private Use Area de
-// Nerd Font y no sobreviven a todos los editores. No los pegues literales.
+// The glyphs are escaped (\u{F033E}) on purpose: they are Nerd Font Private Use
+// Area and do not survive every editor. Do not paste them literally.
 
 import QtQuick
 import QtQuick.Effects
@@ -14,27 +14,27 @@ import QtQuick.Effects
 Item {
     id: root
 
-    // El foco es critico: si el campo no lo recibe, no hay forma de entrar.
-    // forceActiveFocus() en Component.onCompleted NO basta — el item aun no
-    // cuelga de la ventana y la llamada se pierde en silencio. De ahi el
-    // focus: true aqui, el reintento con Timer y el reenvio de teclas.
+    // Focus is critical: if the field does not get it, there is no way in.
+    // forceActiveFocus() in Component.onCompleted is NOT enough — the item does
+    // not hang from the window yet and the call is lost silently. Hence the
+    // focus: true here, the retry with a Timer and the key forwarding.
     focus: true
     Keys.forwardTo: [password]
 
-    // ---- Paleta: espejo de ~/.cache/wal/colors-hyprlock.conf -----------------
-    // El acento lo escribe login-sync.sh en /var/lib/sddm-hyprisland/accent
-    // cada vez que cambia el wallpaper. NO es readonly a proposito: se lee de
-    // disco al arrancar (ver Component.onCompleted) y se asigna. Lo que trae
-    // theme.conf es solo el punto de partida -lo siembra el instalador del
-    // tema con el acento del momento- para que no se vea saltar el color
-    // mientras entra la isla. El resto es fijo, igual que en el notch: la
-    // superficie es negra y pywal solo aporta el acento.
+    // ---- Palette: mirror of ~/.cache/wal/colors-hyprlock.conf ----------------
+    // The accent is written by login-sync.sh to /var/lib/sddm-hyprisland/accent
+    // every time the wallpaper changes. It is NOT readonly on purpose: it is
+    // read from disk at startup (see Component.onCompleted) and assigned. What
+    // theme.conf carries is only the starting point -the theme installer seeds
+    // it with the accent of the moment- so the colour is not seen to jump
+    // while the island comes in. The rest is fixed, just as in the notch: the
+    // surface is black and pywal only contributes the accent.
     property color accent:              config.accent || "#8cd8c2"
 
-    // Idioma del login. Sale de theme.conf porque aqui no hay sesion de
-    // usuario todavia y no se puede leer el JSON del rice: SDDM corre antes
-    // de que exista el $HOME de nadie. Lo escribe el instalador.
-    // Si la clave no esta, castellano, que es lo que habia siempre.
+    // Login language. It comes from theme.conf because there is no user
+    // session here yet and the rice's JSON cannot be read: SDDM runs before
+    // anybody's $HOME exists. The installer writes it.
+    // If the key is missing, Spanish, which is what there always was.
     readonly property string uiLang:    config.language || "es"
     readonly property bool english:     uiLang === "en"
     readonly property color surface:    Qt.rgba(0, 0, 0, 0.941)   // rgba(000000f0)
@@ -47,18 +47,18 @@ Item {
     readonly property color warnColor:  "#e0a458"
     readonly property color failColor:  "#e05c5c"
 
-    // ---- Geometria de la isla (hyprlock: shape 520x340, rounding 32) ---------
+    // ---- Island geometry (hyprlock: shape 520x340, rounding 32) -------------
     readonly property int islandW: 520
     readonly property int islandH: 340
     readonly property int fieldW:  360
     readonly property int fieldH:  50
 
-    // ---- Estado del login ---------------------------------------------------
+    // ---- Login state --------------------------------------------------------
     property int  attempts: 0
     property bool checking: false
     property bool failed: false
-    // RememberLastUser=true en /etc/sddm.conf, asi que lastUser suele bastar;
-    // firstUser cubre el primer arranque y el modo test, donde viene vacio.
+    // RememberLastUser=true in /etc/sddm.conf, so lastUser is usually enough;
+    // firstUser covers the first boot and test mode, where it comes empty.
     property string firstUser: ""
     property string userName: userModel.lastUser || firstUser
 
@@ -71,20 +71,62 @@ Item {
         }
     }
 
-    // ---- Sesiones -----------------------------------------------------------
-    // Antes se entraba SIEMPRE en sessionModel.lastIndex y no habia forma de
-    // elegir otra. El dia que Hyprland no arranco eso dejo la maquina cerrada
-    // por dentro: Plasma estaba instalado y no habia manera de llegar a el sin
-    // editar la linea del kernel desde el gestor de arranque.
+    // ---- User portrait --------------------------------------------------------
+    // The photo comes from the model's `icon` role, which SDDM already resolves
+    // against FacesDir (/usr/share/sddm/faces/<user>.face.icon, with
+    // EnableAvatars in /etc/sddm.conf). No path is built by hand here. It is the
+    // same file hyprlock reads, and it is there and not in $HOME because the
+    // greeter runs as its own user and cannot get into /home/diego, which is
+    // 0700.
     //
-    // El comportamiento por defecto NO cambia: sessionPick vale -1 mientras
-    // nadie toque el selector, y en ese caso se le pasa a sddm.login() el mismo
-    // sessionModel.lastIndex de siempre.
+    // The whole model is walked before knowing who was the last to log in, so
+    // the photos are stored by name and the portrait is chosen afterwards.
+    property var userIcons: ({})
+    readonly property string userFace: faceOf(userName)
+
+    function faceOf(user) {
+        var p = userIcons[user] || "";
+        if (p === "")
+            return "";
+        return p.indexOf("file:") === 0 ? p : "file://" + p;
+    }
+
+    // The whole object is reassigned, as in rememberSession: mutating it in place
+    // does not notify the binding and the portrait would be left without a photo.
+    function rememberFace(user, facePath) {
+        var m = {};
+        for (var k in userIcons)
+            m[k] = userIcons[k];
+        m[user] = facePath;
+        userIcons = m;
+    }
+
+    // A separate Repeater from the one above on purpose. If the `icon` role
+    // disappeared in some SDDM version, the whole delegate fails: this way it
+    // takes down the portrait and nothing else, not the name you log in with.
+    Repeater {
+        model: userModel
+        delegate: Item {
+            required property string name
+            required property string icon
+            Component.onCompleted: root.rememberFace(name, icon)
+        }
+    }
+
+    // ---- Sessions -----------------------------------------------------------
+    // It used to ALWAYS log into sessionModel.lastIndex and there was no way to
+    // pick another. The day Hyprland did not start, that left the machine locked
+    // from the inside: Plasma was installed and there was no way to reach it
+    // without editing the kernel line from the boot manager.
     //
-    // Este Repeater no dibuja nada: solo copia los nombres del modelo. Se leen
-    // por rol ("name", igual que en userModel) y no con
-    // sessionModel.data(idx, 260) como hace el tema `silent`, porque ese 260 es
-    // el numero crudo del enum de SDDM y se rompe en silencio si lo reordenan.
+    // The default behaviour does NOT change: sessionPick is -1 as long as nobody
+    // touches the selector, and in that case sddm.login() is given the same
+    // sessionModel.lastIndex as always.
+    //
+    // This Repeater draws nothing: it only copies the names from the model.
+    // They are read by role ("name", just as in userModel) and not with
+    // sessionModel.data(idx, 260) as the `silent` theme does, because that 260
+    // is the raw number of SDDM's enum and breaks silently if it is reordered.
     property var sessionNames: []
     property int sessionPick: -1
     readonly property int sessionCurrent: sessionPick >= 0 ? sessionPick
@@ -103,8 +145,8 @@ Item {
         }
     }
 
-    // Se reasigna el array entero a proposito: mutar uno en sitio no notifica a
-    // los bindings y la etiqueta se quedaria vacia.
+    // The whole array is reassigned on purpose: mutating one in place does not
+    // notify the bindings and the label would be left empty.
     function rememberSession(i, sessionTitle) {
         var a = sessionNames.slice();
         while (a.length <= i)
@@ -113,25 +155,37 @@ Item {
         sessionNames = a;
     }
 
-    // Ciclar, no desplegar. Un ComboBox de Qt mete su propio marco y su propio
-    // popup encima de la isla, y un popup abierto puede tapar el campo o robarle
-    // el foco, que es el fallo que mas caro costo montando este tema. Ciclando
-    // no hay nada que se pueda quedar abierto.
+    // Cycle, do not drop down. A Qt ComboBox brings its own frame and its own
+    // popup on top of the island, and an open popup can cover the field or steal
+    // its focus, which is the bug that cost the most while building this theme.
+    // Cycling, there is nothing that can be left open.
     function cycleSession(step) {
         var n = sessionProbe.count;
         if (n <= 1)
             return;
         var cur = (sessionCurrent >= 0 && sessionCurrent < n) ? sessionCurrent : 0;
         sessionPick = (cur + step + n) % n;
-        password.forceActiveFocus();      // el foco vuelve al campo, siempre
+        password.forceActiveFocus();      // focus goes back to the field, always
     }
 
-    // La curva `softOut` de hyprlock.conf. Es la hermana de `forma` del lenguaje
-    // de movimiento: 90 % del recorrido en el primer tercio, aterrizaje largo.
+    // The `softOut` curve from hyprlock.conf. It is the sister of the motion
+    // language's `forma`: 90 % of the travel in the first third, long landing.
     readonly property var softOut: [0.16, 1.0, 0.3, 1.0, 1.0, 1.0]
 
+    // ---- Points to pixels ---------------------------------------------------
+    // hyprlock draws with pango, and the `font_size` in hyprlock.conf is in
+    // POINTS at 96 dpi. Qt measures in pixels. Copying the number as it is
+    // -which is what this theme used to do- leaves all the login typography 25 %
+    // smaller than the lock screen's: measured on screenshots of both screens,
+    // the date is 253 px wide in hyprlock and 190 in the login, exactly 4/3.
+    //
+    // So the numbers from hyprlock.conf are copied here AS THEY ARE and
+    // converted with this. If some day you change a font_size there, bring the
+    // same number over and do not touch it.
+    readonly property real pt: 4 / 3
+
     // =========================================================================
-    // Fondo: el wallpaper actual, desenfocado y bajado de luz igual que hyprlock
+    // Background: the current wallpaper, blurred and dimmed just like hyprlock
     // (blur_passes 2, blur_size 4, brightness 0.68, contrast 0.92, vibrancy).
     // =========================================================================
     Rectangle {
@@ -142,10 +196,11 @@ Item {
     Image {
         id: wallpaper
         anchors.fill: parent
-        // Ruta fija y absoluta: ahi deja el fondo login-sync.sh, que corre como
-        // tu usuario. Si el fichero no esta -tema recien instalado, o wallpaper
-        // sin cambiar todavia- Qt marca status Error y caemos al que viene
-        // dentro del tema, que es el ultimo que se publico con sudo.
+        // Fixed, absolute path: that is where login-sync.sh, which runs as your
+        // user, leaves the wallpaper. If the file is not there -theme just
+        // installed, or wallpaper not changed yet- Qt sets status Error and we
+        // fall back to the one shipped inside the theme, which is the last one
+        // published with sudo.
         source: "file:///var/lib/sddm-hyprisland/current.jpg"
         onStatusChanged: if (status === Image.Error && source != fallback)
                              source = fallback
@@ -162,28 +217,60 @@ Item {
         source: wallpaper
         blurEnabled: true
         blur: 1.0
-        blurMax: 40
+        // blur_passes 2 with blur_size 4 is a GENTLE blur: in hyprlock the
+        // wallpaper's scene can still be recognised. Here there used to be
+        // blurMax 40, which is a 40 px radius and wiped out the whole image.
+        // Calibrated against a hyprlock screenshot by measuring the background's
+        // mean gradient (how much detail survives) until the two numbers matched.
+        blurMax: 13
         blurMultiplier: 1.0
-        brightness: -0.32     // hyprlock brightness 0.68 (multiplicador)
         contrast: -0.08       // hyprlock contrast 0.92
         saturation: 0.14      // hyprlock vibrancy 0.14
+        // brightness is NOT touched here: MultiEffect's is ADDITIVE (-0.32
+        // subtracts 82 of each channel's 255 and crushes the background to
+        // black), whereas hyprlock's is a MULTIPLIER. The scrim below does the
+        // real multiplication.
+    }
+
+    // hyprlock brightness 0.68, which is a multiplication. A 32 % black on top
+    // gives exactly that: pixel * (1 - 0.32). Measured: with the additive
+    // brightness the login background had a mean brightness of 3.6 out of 255
+    // against the lock screen's 49.3 -fourteen times darker-; this way both
+    // come out the same.
+    Rectangle {
+        anchors.fill: parent
+        color: Qt.rgba(0, 0, 0, 0.22)
     }
 
     // =========================================================================
-    // La isla
+    // The island
     // =========================================================================
 
-    // Sombra (hyprlock: shadow_passes 3, shadow_size 18, rgba(000000a6)).
-    // Se dibuja como un degradado de anillos y no con MultiEffect a proposito:
-    // un layer.effect recorta la sombra al borde del item, y alimentarlo con
-    // una fuente `visible: false` daba un halo GRIS CLARO en vez de sombra.
-    // Anillos de 1 px con alfa decreciente: predecible y sin efectos raros.
+    // Shadow (hyprlock: shadow_passes 3, shadow_size 18, rgba(000000a6)).
+    // It is drawn as a gradient of rings and not with MultiEffect on purpose:
+    // a layer.effect clips the shadow to the item's edge, and feeding it a
+    // `visible: false` source gave a LIGHT GREY halo instead of a shadow.
+    // 1 px rings with decreasing alpha: predictable and no odd effects.
+    //
+    // NO VERTICAL OFFSET. Here there used to be a `verticalCenterOffset: 6` that
+    // moved the rings down 6 px, like one of those drop shadows that "fall"
+    // downwards. hyprlock does not do that: its shape only has shadow_passes,
+    // shadow_size, shadow_color and shadow_boost -- there is no shadow_offset,
+    // and the shadow surrounds the shape evenly on all four sides.
+    //
+    // The effect was what Diego saw and described as "something extra under the
+    // black": at the top the island itself covered the rings, but at the bottom
+    // they came apart and let SIX PIXELS of clean background show between the
+    // island and its shadow, which read as a coloured rim. Measured on the
+    // greeter screenshot: at the bottom edge it went (9,4,4) inside -> 1 px of
+    // border -> y=710..715 at (155,68,69), that is, the background -> y=716 the
+    // shadow starting abruptly at (54,24,24). At the left edge, on the other
+    // hand, the shadow met the island with no such gap.
     Repeater {
         model: 18                                  // shadow_size
         delegate: Rectangle {
             required property int index
             anchors.centerIn: island
-            anchors.verticalCenterOffset: 6
             width: island.width + (index + 1) * 2
             height: island.height + (index + 1) * 2
             radius: island.radius + index + 1
@@ -204,7 +291,7 @@ Item {
         border.width: 1
         border.color: root.outline
 
-        // PANEL entra: 320 ms.
+        // PANEL enters: 320 ms.
         opacity: 0
         Component.onCompleted: opacity = 1
         Behavior on opacity {
@@ -215,11 +302,14 @@ Item {
             }
         }
 
-        // ---- Medallon de bloqueo (42x42, +130 sobre el centro) --------------
+        // ---- Lock medallion (42x42, +130 above the centre) ------------------
+        // 44 and not 42: hyprlock draws the 42 shape and adds the 1 px border
+        // OUTSIDE it, whereas Qt paints it inside. With 44 the circle measures
+        // the same 44 px edge to edge as on the lock screen.
         Rectangle {
-            width: 42
-            height: 42
-            radius: 21
+            width: 44
+            height: 44
+            radius: 22
             color: root.surfaceAlt
             border.width: 1
             border.color: root.accent
@@ -231,41 +321,112 @@ Item {
                 anchors.centerIn: parent
                 text: "\u{F033E}"                     // nf-md-lock
                 font.family: "JetBrainsMono Nerd Font"
-                font.pixelSize: 17
+                font.pixelSize: Math.round(17 * root.pt)
                 color: root.accent
             }
         }
 
-        // ---- Reloj (68 px, cifras tabulares para que no bailen) -------------
+        // ---- Portrait (the same medallion, with a photo) --------------------
+        // 50 and not 48: hyprlock declares `size = 48` and adds its 1 px border
+        // OUTSIDE it, just as with the shape above.
+        //
+        // It sits on top of the medallion, so it covers the padlock when there
+        // is a photo. If there is none -or SDDM returns a default.face.icon that
+        // does not exist- this stays entirely invisible and the usual padlock is
+        // still underneath: this screen cannot be left with a hole.
+        //
+        // `clip` cuts to a rectangle, never to a circle; hence the disc and the
+        // MultiEffect, which is also how the lock screen solves it.
+        Item {
+            id: portrait
+
+            width: 50
+            height: 50
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: -130
+            visible: face.status === Image.Ready
+
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                color: root.surfaceAlt
+                border.width: 1
+                border.color: root.accent
+
+                Behavior on border.color {
+                    ColorAnimation {
+                        duration: 130                 // RESPUESTA
+                        easing.type: Easing.Bezier
+                        easing.bezierCurve: root.softOut
+                    }
+                }
+            }
+
+            Image {
+                id: face
+
+                anchors.fill: parent
+                anchors.margins: 1
+                source: root.userFace
+                visible: false                        // the MultiEffect draws it
+                asynchronous: true
+                fillMode: Image.PreserveAspectCrop
+                sourceSize.width: 128
+                sourceSize.height: 128
+            }
+
+            Rectangle {
+                id: faceDisc
+
+                anchors.fill: face
+                radius: width / 2
+                visible: false
+                layer.enabled: true
+            }
+
+            MultiEffect {
+                anchors.fill: face
+                source: face
+                maskEnabled: true
+                maskSource: faceDisc
+            }
+        }
+
+        // ---- Clock (68 px, tabular figures so they do not jiggle) -----------
         Text {
             id: clock
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: -58
             font.family: "Adwaita Sans"
-            font.pixelSize: 68
+            font.pixelSize: Math.round(68 * root.pt)
             font.features: ({ "tnum": 1 })
             color: root.textColor
             text: Qt.formatDateTime(new Date(), "HH:mm")
         }
 
-        // ---- Fecha en espanol, independiente del locale del sistema ---------
+        // ---- Date in Spanish, independent of the system locale --------------
         Text {
             id: dateLabel
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: -4
             font.family: "Adwaita Sans"
-            font.pixelSize: 15
+            font.pixelSize: Math.round(15 * root.pt)
             color: root.muted
             text: root.localDate()
         }
 
-        // ---- Campo-pildora --------------------------------------------------
+        // ---- Pill field -----------------------------------------------------
         Rectangle {
             id: field
-            width: root.fieldW
-            height: root.fieldH
+            // fieldW/fieldH are the INTERIOR, which is what hyprlock declares in
+            // `size`; its outline_thickness goes outside and Qt paints it
+            // inside, hence the +4. The password dots are still measured
+            // against fieldH, which is what hyprlock does with dots_size.
+            width: root.fieldW + 4
+            height: root.fieldH + 4
             radius: height / 2                        // hyprlock rounding -1
             color: root.surfaceAlt
             border.width: 2                           // outline_thickness
@@ -273,8 +434,8 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: 58
 
-            // El color del borde ES el mensaje: acento en reposo, ambar con
-            // bloq-mayus, verde comprobando, rojo al fallar.
+            // The border colour IS the message: accent at rest, amber with
+            // caps lock, green while checking, red on failure.
             border.color: root.checking ? root.okColor
                         : root.failed ? root.failColor
                         : keyboard.capsLock ? root.warnColor
@@ -288,8 +449,8 @@ Item {
                 }
             }
 
-            // Captura las pulsaciones; los puntos se dibujan a mano debajo para
-            // clavar el tamano de hyprlock (dots_size 0.20, spacing 0.38).
+            // Captures the keystrokes; the dots are drawn by hand below to nail
+            // hyprlock's size (dots_size 0.20, spacing 0.38).
             TextInput {
                 id: password
                 anchors.fill: parent
@@ -309,10 +470,10 @@ Item {
                         root.doLogin();
                         event.accepted = true;
                     }
-                    // Ruta de teclado para el selector, por si el raton no
-                    // responde: F1 pasa a la siguiente sesion, Mayus+F1 a la
-                    // anterior. F1 no escribe nada, asi que no puede acabar
-                    // dentro de la contrasena.
+                    // Keyboard route for the selector, in case the mouse does
+                    // not respond: F1 moves to the next session, Shift+F1 to the
+                    // previous one. F1 types nothing, so it cannot end up inside
+                    // the password.
                     if (event.key === Qt.Key_F1) {
                         root.cycleSession((event.modifiers & Qt.ShiftModifier) ? -1 : 1);
                         event.accepted = true;
@@ -320,11 +481,15 @@ Item {
                 }
             }
 
-            // Estado en texto, centrado, sustituye al placeholder.
+            // Status as text, centred, replaces the placeholder.
             Text {
                 anchors.centerIn: parent
                 font.family: "Adwaita Sans"
-                font.pixelSize: 14
+                // The input-field in hyprlock.conf does not declare font_size, so
+                // it uses its default of 12 pt. Measured on both screenshots: the
+                // placeholder is 161 px wide on the lock screen and 142 with the
+                // 14 px there used to be here; 12 pt gives the same 161.
+                font.pixelSize: Math.round(12 * root.pt)
                 visible: text !== ""
                 color: root.checking ? root.okColor
                      : root.failed ? root.failColor
@@ -335,7 +500,7 @@ Item {
                     : ""
             }
 
-            // Los puntos. Diametro = 0.20 * alto, hueco = 0.38 * diametro.
+            // The dots. Diameter = 0.20 * height, gap = 0.38 * diameter.
             Row {
                 anchors.centerIn: parent
                 spacing: root.fieldH * 0.20 * 0.38
@@ -349,7 +514,7 @@ Item {
                         radius: width / 2
                         color: root.textColor
 
-                        // CONTENIDO entra: 210 ms.
+                        // CONTENIDO enters: 210 ms.
                         scale: 0
                         Component.onCompleted: scale = 1
                         Behavior on scale {
@@ -364,14 +529,14 @@ Item {
             }
         }
 
-        // ---- Pie: identidad a la izquierda, bateria a la derecha ------------
+        // ---- Footer: identity on the left, battery on the right ------------
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.horizontalCenterOffset: -154
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: 124
             font.family: "JetBrainsMono Nerd Font"
-            font.pixelSize: 12
+            font.pixelSize: Math.round(12 * root.pt)
             color: root.dim
             text: "\u{F0004}  " + root.userName      // nf-md-account
         }
@@ -383,36 +548,47 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: 124
             font.family: "JetBrainsMono Nerd Font"
-            font.pixelSize: 12
+            font.pixelSize: Math.round(12 * root.pt)
             color: root.dim
             text: ""
         }
 
-        // ---- Selector de sesion: el tercer dato del pie ----------------------
-        // Va en la MISMA fila que el usuario y la bateria (offset 124), con la
-        // misma fuente, el mismo cuerpo y el mismo gris. Entre esos dos hay 248
-        // px libres, asi que no cuesta ni un pixel de alto ni una linea nueva:
-        // el pie pasa de dos datos descolgados a una fila de tres.
+        // ---- Session selector: the one thing the lock screen does not have ----
+        // hyprlock does not have this, and the island has to be the same screen.
+        // But removing it is not an option either: the day Hyprland did not
+        // start, always logging into the last session left the machine locked
+        // from the inside, with Plasma installed and no way to reach it.
         //
-        // Si el modelo no diera ningun nombre, esto no se dibuja y la isla queda
-        // EXACTAMENTE como estaba. Ese es el modo de fallo que interesa.
+        // The compromise is to show only the little monitor icon in the centre
+        // of the footer -12 px of grey, between two gaps of 100- and bring out
+        // the session name only on hover. At rest the footer is "user ... o ...
+        // battery", which is hyprlock's with a speck in the middle; as soon as
+        // you look for it, it is all there. The keyboard does not depend on the
+        // mouse: F1 still cycles.
+        //
+        // If the model gave no name at all, this is not drawn and the island is
+        // left EXACTLY like the lock screen. That is the failure mode we want.
         Text {
             id: sessionLabel
             visible: root.sessionName !== ""
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: 124
-            // Tope de ancho por si algun .desktop trae un nombre kilometrico:
-            // antes de rozar al usuario o a la bateria, se corta.
+            // Width cap in case some .desktop carries a mile-long name: it is
+            // cut before it touches the user or the battery.
             width: Math.min(implicitWidth, 232)
             elide: Text.ElideRight
             horizontalAlignment: Text.AlignHCenter
             font.family: "JetBrainsMono Nerd Font"
-            font.pixelSize: 12
-            // El chevron aparece solo si hay a donde ir. Con una sola sesion
-            // esto es un dato, no un boton, y no debe insinuar lo contrario.
-            text: "\u{F0379}  " + root.sessionName          // nf-md-monitor
-                + (sessionProbe.count > 1 ? "  \u{F0140}" : "")   // nf-md-chevron_down
+            font.pixelSize: Math.round(12 * root.pt)
+            // The name and the chevron only on hover. The chevron, moreover,
+            // only if there is somewhere to go: with a single session this is a
+            // piece of information, not a button, and must not suggest otherwise.
+            text: "\u{F0379}"                                   // nf-md-monitor
+                + (sessionArea.containsMouse
+                     ? "  " + root.sessionName
+                       + (sessionProbe.count > 1 ? "  \u{F0140}" : "")  // chevron
+                     : "")
             color: sessionArea.containsMouse ? root.accent : root.dim
 
             Behavior on color {
@@ -423,10 +599,16 @@ Item {
                 }
             }
 
+            // The mouse area does NOT hang from the Text: if it did, the text
+            // would shrink when the pointer left, the area would shrink with it
+            // and the hover would switch off and on in a loop. It is fixed and
+            // the size of the icon with some slack, so it does not move when the
+            // label grows.
             MouseArea {
                 id: sessionArea
-                anchors.fill: parent
-                anchors.margins: -8               // blanco de clic algo mayor
+                anchors.centerIn: parent
+                width: 44
+                height: 28
                 enabled: sessionProbe.count > 1
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
@@ -439,7 +621,7 @@ Item {
     }
 
     // =========================================================================
-    // Relojes y datos
+    // Clocks and data
     // =========================================================================
     Timer {
         interval: 1000
@@ -459,13 +641,14 @@ Item {
         onTriggered: root.refreshBattery()
     }
 
-    // Mismo formato que ~/.config/hypr/scripts/lock-info.sh, y por el mismo
-    // motivo: la sesion corre con LC_TIME=C pero la interfaz habla espanol.
+    // Same format as ~/.config/hypr/scripts/lock-info.sh, and for the same
+    // reason: the session runs with LC_TIME=C but the interface speaks Spanish.
     //
-    // En ingles NO se reusa esa tabla ni se confia en el locale de la sesion:
-    // se pide a Qt el locale en_GB explicito. Depender de LC_TIME=C daria el
-    // mismo resultado hoy, pero el dia que alguien toque el entorno de SDDM la
-    // fecha cambiaria de idioma sin que nadie hubiera tocado el tema.
+    // In English that table is NOT reused, nor is the session locale trusted:
+    // Qt is asked for the en_GB locale explicitly. Relying on LC_TIME=C would
+    // give the same result today, but the day someone touches SDDM's
+    // environment the date would change language without anyone having
+    // touched the theme.
     function localDate() {
         var d = new Date();
         if (root.english)
@@ -480,9 +663,9 @@ Item {
                " de " + months[d.getMonth()];
     }
 
-    // OJO: el XMLHttpRequest de QML **no admite modo sincrono**. Con
-    // open(..., false) el send() lanza "Error: Invalid state" y te quedas sin
-    // dato y sin pista. Todo lector de ficheros de aqui va por callback.
+    // CAREFUL: QML's XMLHttpRequest **does not support synchronous mode**. With
+    // open(..., false) send() throws "Error: Invalid state" and you are left
+    // with no data and no clue. Every file reader here goes through a callback.
     function readFile(path, done) {
         var xhr = new XMLHttpRequest();
         xhr.onreadystatechange = function () {
@@ -497,7 +680,7 @@ Item {
         }
     }
 
-    // Se descubre una vez cual es la bateria y luego solo se releen sus datos.
+    // Which battery it is gets discovered once, and then only its data is re-read.
     property string batteryPath: ""
 
     function findBattery(i) {
@@ -539,9 +722,9 @@ Item {
             return;
         checking = true;
         failed = false;
-        // sessionCurrent ES sessionModel.lastIndex mientras nadie toque el
-        // selector del pie, asi que sin tocar nada esto se comporta igual que
-        // cuando aqui ponia lastIndex a pelo.
+        // sessionCurrent IS sessionModel.lastIndex as long as nobody touches the
+        // footer selector, so without touching anything this behaves the same
+        // as when it said plain lastIndex here.
         sddm.login(userName, password.text, sessionCurrent);
     }
 
@@ -562,11 +745,11 @@ Item {
         }
     }
 
-    // Foco auto-reparador. Medido: ni Component.onCompleted ni un unico
-    // reintento diferido agarran el foco — la ventana se activa despues y Qt no
-    // se lo da a nadie, asi que el campo se queda mudo hasta que haces clic.
-    // Este timer reinsiste mientras el campo NO tenga el foco y se apaga solo
-    // en cuanto lo consigue, asi que tambien lo recupera si se pierde.
+    // Self-repairing focus. Measured: neither Component.onCompleted nor a single
+    // deferred retry grabs the focus — the window is activated later and Qt
+    // gives it to nobody, so the field stays mute until you click.
+    // This timer keeps insisting while the field does NOT have focus and stops
+    // by itself as soon as it gets it, so it also recovers it if it is lost.
     Timer {
         interval: 200
         running: !password.activeFocus
@@ -575,7 +758,7 @@ Item {
         onTriggered: password.forceActiveFocus()
     }
 
-    // Ultimo recurso: un clic en cualquier parte devuelve el foco al campo.
+    // Last resort: a click anywhere gives the focus back to the field.
     MouseArea {
         anchors.fill: parent
         z: -1
@@ -585,9 +768,10 @@ Item {
     Component.onCompleted: {
         password.forceActiveFocus();
         findBattery(0);
-        // El acento vivo. El fichero lo escribe tu usuario, no root, asi que se
-        // valida antes de usarlo: solo se acepta exactamente #rrggbb. Si no
-        // esta o no cuela, se queda el de theme.conf y no se nota nada.
+        // The live accent. The file is written by your user, not root, so it is
+        // validated before use: only exactly #rrggbb is accepted. If it is
+        // missing or does not pass, the one from theme.conf stays and nothing
+        // shows.
         readFile("/var/lib/sddm-hyprisland/accent", function (txt) {
             if (/^#[0-9a-fA-F]{6}$/.test(txt))
                 root.accent = txt;

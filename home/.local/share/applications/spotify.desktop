@@ -1,0 +1,26 @@
+[Desktop Entry]
+# User override of the system's spotify.desktop (/usr/share/applications).
+# It only changes the Exec line: it adds Chromium's debugging port so that
+# ~/.config/hypr/scripts/spicetify-push-colors.py can push pywal's new palette
+# into the ALREADY OPEN window, without restarting or reloading Spotify.
+#
+# --remote-allow-origins is mandatory since Spotify 1.2.8 (Chromium 111 tightened
+# the Origin check on the DevTools WebSocket). See:
+# https://spicetify.app/docs/development/spotify-cli-flags
+#
+# Port 9333 and not the usual 9222, which is the one Chrome uses by default and
+# you have it installed: this way they do not collide.
+#
+# The port listens ONLY on 127.0.0.1. Even so, any local process can run
+# JavaScript inside Spotify while it is open. To turn it off: delete this file
+# and restart Spotify.
+Type=Application
+Name=Spotify
+GenericName=Music Player
+Icon=spotify-client
+TryExec=spotify
+Exec=spotify --remote-debugging-port=9333 --remote-allow-origins=http://127.0.0.1:9333 --uri=%u
+Terminal=false
+MimeType=x-scheme-handler/spotify;
+Categories=Audio;Music;Player;AudioVideo;
+StartupWMClass=spotify

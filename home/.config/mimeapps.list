@@ -16,3 +16,6 @@ x-scheme-handler/https=google-chrome.desktop
 x-scheme-handler/about=google-chrome.desktop
 x-scheme-handler/unknown=google-chrome.desktop
 x-scheme-handler/discord=vesktop.desktop
+inode/directory=thunar.desktop
+x-directory/normal=thunar.desktop
+application/x-gnome-saved-search=thunar.desktop

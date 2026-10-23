@@ -12,7 +12,15 @@ fi
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
-export EDITOR=code
+# --wait is NOT optional here. Without it, `code` hands control back at once and
+# whoever called the editor carries on without waiting: `git commit` without -m
+# reads the STILL EMPTY message file and aborts with "Aborting commit due to
+# empty commit message". The same with `systemctl edit`, `crontab -e` or
+# `visudo`: the window opens, the command has already finished, and whatever
+# you type goes nowhere.
+# VISUAL follows because git and sudo prefer it over EDITOR when it exists.
+export EDITOR='code --wait'
+export VISUAL="$EDITOR"
 
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time Oh My Zsh is loaded, in which case,
@@ -115,16 +123,15 @@ source $ZSH/oh-my-zsh.sh
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
 alias ls="exa -l"
-alias lisp='cd ~/uni/lisp/practica-lisp && ./scritps/run.sh'
 
-# fzf usa los 16 colores ANSI que kitty recarga desde pywal.
-# Respeta cualquier --color personalizado que el usuario ya haya definido.
+# fzf uses the 16 ANSI colours that kitty reloads from pywal.
+# It respects any custom --color the user has already defined.
 case " ${FZF_DEFAULT_OPTS-} " in
   *" --color="*) ;;
   *) export FZF_DEFAULT_OPTS="${FZF_DEFAULT_OPTS:+$FZF_DEFAULT_OPTS }--color=base16" ;;
 esac
 
-# Glow y la ayuda Markdown de gh comparten el mismo estilo Glamour pywal.
+# Glow and gh's Markdown help share the same pywal Glamour style.
 export GLAMOUR_STYLE="$HOME/.cache/wal/colors-glamour.json"
 
 
@@ -135,29 +142,30 @@ export GLAMOUR_STYLE="$HOME/.cache/wal/colors-glamour.json"
 
 
 
-# ---- fastfetch solo en la primera kitty del workspace ----
+# ---- fastfetch only in the workspace's first kitty ----
 
 fastfetch_ws_if_first() {
   command -v hyprctl >/dev/null 2>&1 || return
   command -v jq >/dev/null 2>&1 || return
 
-  # Sin compositor, ni se intenta. Esta guarda es la reparacion de un susto
-  # real: la noche que la torre se quedo sin escritorio, ABRIR UNA TERMINAL
-  # escupia
+  # Without a compositor, it is not even attempted. This guard is the fix for a
+  # real scare: the night the tower was left without a desktop, OPENING A
+  # TERMINAL spat out
   #     parse error: Invalid numeric literal at line 1, column 28
-  # y eso fue lo primero que se vio, asi que parecia LA causa del problema
-  # cuando no tenia nada que ver. El motivo: `hyprctl` sin Hyprland detras no
-  # falla en silencio, imprime su queja ("Couldn't connect to ...") por STDOUT,
-  # o sea directamente por la tuberia, y jq intenta parsearla como JSON. El
-  # `2>/dev/null` que habia solo tapaba el stderr de hyprctl, que estaba vacio.
+  # and that was the first thing anyone saw, so it looked like THE cause of the
+  # problem when it had nothing to do with it. The reason: `hyprctl` with no
+  # Hyprland behind it does not fail silently, it prints its complaint
+  # ("Couldn't connect to ...") on STDOUT, that is, straight down the pipe, and
+  # jq tries to parse it as JSON. The `2>/dev/null` that was there only hid
+  # hyprctl's stderr, which was empty.
   #
-  # HYPRLAND_INSTANCE_SIGNATURE la exporta Hyprland a todo lo que lanza (y uwsm
-  # la propaga a la sesion), asi que existe dentro del escritorio y no existe en
-  # una tty pelada, que es exactamente la distincion que hace falta.
+  # Hyprland exports HYPRLAND_INSTANCE_SIGNATURE to everything it launches (and
+  # uwsm propagates it to the session), so it exists inside the desktop and does
+  # not exist on a bare tty, which is exactly the distinction needed.
   [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] || return
 
   local ws
-  # jq tambien callado: si hyprctl responde una cosa rara, se vuelve sin ruido.
+  # jq silenced too: if hyprctl answers something odd, return without noise.
   ws=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.id' 2>/dev/null) || return
   [[ -z "$ws" || "$ws" == "null" ]] && return
 
@@ -200,7 +208,16 @@ alias matrix='unimatrix -n -s 96 -l 'o''
 
 
 export PATH="$HOME/.local/bin:$PATH"
-# Evita duplicados al combinar .profile, uv y recargas manuales de .zshrc.
+# Avoids duplicates when combining .profile, uv and manual reloads of .zshrc.
+#
+# The :A goes BEFORE the typeset -U on purpose. typeset -U deduplicates by
+# comparing STRINGS, and "/home/diego/.local/bin" and
+# "/home/diego/.local/share/../bin" are different strings pointing to the SAME
+# directory, so both survived (the second is added by the `. ~/.local/bin/env`
+# in ~/.profile). Every command the shell had not cached made one extra call
+# while looking for the executable.
+# :A resolves the .. and the symlinks, and then typeset -U sees only one.
+path=( ${path[@]:A} )
 typeset -U path PATH
 
 # BEGIN YAZI Y WRAPPER
@@ -214,15 +231,16 @@ function y() {
 }
 # END YAZI Y WRAPPER
 
-# ---- Prompt naranja+azul (overrides de Powerlevel10k) ----
+# ---- Orange+blue prompt (Powerlevel10k overrides) ----
 [[ -f ~/.config/p10k/diego-theme.zsh ]] && source ~/.config/p10k/diego-theme.zsh
 
 
-# ---- Sprites tematizados: sesga la ELECCION del pokemon segun el tema pywal ----
-# Solo decide QUE fichero sale; el pintado (kitten icat / chafa) no se toca.
-# El ranking lo calcula 'poke-theme' comparando la paleta de cada sprite con la
-# del tema; aqui solo se lee un fichero ya ordenado (0 forks, 0 ms perceptibles).
-# Si no hay ranking valido devuelve 1 y quien llama se queda con el azar de antes.
+# ---- Themed sprites: biases the CHOICE of pokemon by the pywal theme ----
+# It only decides WHICH file comes out; the drawing (kitten icat / chafa) is
+# left alone. The ranking is computed by 'poke-theme' comparing each sprite's
+# palette with the theme's; here an already sorted file is only read (0 forks,
+# 0 ms you could notice). If there is no valid ranking it returns 1 and the
+# caller keeps the old random pick.
 poke_theme_pick() {
   emulate -L zsh
   REPLY=""
@@ -230,13 +248,14 @@ poke_theme_pick() {
   local rank="$HOME/.cache/pokepalette/rank-${tipo}.txt"
   local wal="$HOME/.cache/wal/colors.json"
 
-  # Interruptor (pokeball del centro de control / 'poke-theme off'). Sin fichero
-  # = activado. $(<fichero) en zsh es lectura interna, no lanza ningun proceso.
+  # Switch (the Control Centre pokeball / 'poke-theme off'). No file = on.
+  # $(<file) in zsh is an internal read, it does not launch any process.
   local estado="$HOME/.config/poke-theme/state"
   [[ -r $estado && $(<$estado) == off ]] && return 1
 
-  # Ranking ausente o mas viejo que el tema -> se regenera en 2o plano (~0.1 s)
-  # y esta terminal tira del ranking anterior; la siguiente ya sale al dia.
+  # Ranking missing or older than the theme -> it is regenerated in the
+  # background (~0.1 s) and this terminal makes do with the previous ranking;
+  # the next one comes out up to date.
   if [[ ! -s $rank || ( -f $wal && $wal -nt $rank ) ]]; then
     [[ -s $HOME/.cache/pokepalette/sprites.tsv ]] && \
       (poke-theme rank -q >/dev/null 2>&1 &) 2>/dev/null
@@ -245,8 +264,8 @@ poke_theme_pick() {
 
   local -a mejores=("${(@f)$(<$rank)}")
   (( ${#mejores} )) || return 1
-  # De los N que mas pegan, sesgo hacia la cabeza: dos tiradas y me quedo la menor
-  # (los que mas se ajustan salen mas, pero sigue habiendo variedad).
+  # Of the N that fit best, bias towards the head: two rolls and keep the lower
+  # (the best matches come out more often, but there is still variety).
   local n=$(( ${#mejores} < 40 ? ${#mejores} : 40 ))
   local a=$(( RANDOM % n )) b=$(( RANDOM % n ))
   local i=$(( (a < b ? a : b) + 1 ))
@@ -254,31 +273,32 @@ poke_theme_pick() {
   REPLY=${mejores[i]}
 }
 
-# ---- Logo de fastfetch = pokemon aleatorio (pokeshell) ----
-# Elige un sprite cacheado con glob NATIVO de zsh (NO 'ls', que esta aliaseado a eza).
-# Copia a un nombre sin ':' y lo pinta fastfetch (kitty). En 2o plano caza otro.
+# ---- fastfetch logo = random pokemon (pokeshell) ----
+# Picks a cached sprite with a NATIVE zsh glob (NOT 'ls', which is aliased to eza).
+# Copies to a name without ':' and fastfetch draws it (kitty). In the background
+# it hunts for another.
 pokefetch() {
   emulate -L zsh
   local adir="$HOME/.cache/pokeanim" aart="$HOME/.cache/pokeart"
 
-  # === Preferido: pokemon ANIMADO (imagen kitty izq + info derecha) ===
+  # === Preferred: ANIMATED pokemon (kitty image left + info right) ===
   local -a gifs=("$adir"/*.gif(N))
   if (( ${#gifs} )) && command -v kitten >/dev/null 2>&1; then
-    poke_theme_pick gif   # sesga por tema; si no hay ranking cae al azar de siempre
+    poke_theme_pick gif   # biased by theme; with no ranking it falls back to the usual random pick
     local gif=${REPLY:-${gifs[RANDOM % ${#gifs} + 1]}}
-    # POKE_FIJO=<numero> clava el sprite de ESTA terminal. Manda sobre el sesgo
-    # por tema y sobre el azar, y solo afecta a quien lleve la variable puesta:
-    #   POKE_FIJO=254 kitty        una terminal con Sceptile, el resto igual
-    # Lo usa la grabacion del video para que el escritorio abra siempre con el
-    # mismo. Si ese numero no esta descargado, se ignora sin decir nada.
+    # POKE_FIJO=<number> pins the sprite of THIS terminal. It overrides the theme
+    # bias and the random pick, and only affects whoever has the variable set:
+    #   POKE_FIJO=254 kitty        one terminal with Sceptile, the rest as usual
+    # The video recording uses it so that the desktop always opens with the
+    # same one. If that number is not downloaded, it is ignored without a word.
     [[ -n ${POKE_FIJO:-} && -f $adir/$POKE_FIJO.gif ]] && gif=$adir/$POKE_FIJO.gif
     local play="$gif"
     local big="$adir/.box/${gif:t}"
     if [[ ! -f $big ]]; then
       mkdir -p "$adir/.box"
       if command -v ffmpeg >/dev/null 2>&1; then
-        # frames de lienzo completo (-gifflags -offsetting) + dispose background (default ffmpeg)
-        # = sin fragmentos ni trails en kitten icat; nearest-neighbor = pixel art nitido; ~0.2s
+        # full-canvas frames (-gifflags -offsetting) + dispose background (ffmpeg default)
+        # = no fragments or trails in kitten icat; nearest-neighbour = crisp pixel art; ~0.2s
         ffmpeg -y -i "$gif" -filter_complex 'fps=15,scale=w=200:h=168:force_original_aspect_ratio=decrease:flags=neighbor,format=rgba,pad=200:ih:(200-iw)/2:0:color=#00000000,split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128:diff_mode=none' -gifflags -offsetting "$big" >/dev/null 2>&1
       elif command -v magick >/dev/null 2>&1; then
         magick "$gif" -coalesce -filter point -resize 200x168 "$big" 2>/dev/null
@@ -287,21 +307,21 @@ pokefetch() {
     [[ -f $big ]] && play="$big"
     local -a il=("${(@f)$(fastfetch --logo none 2>/dev/null)}")
     local n=${#il} indent=32 ln
-    printf "\033[2J\033[H"                          # limpia el instant-prompt de p10k (evita prompt doble)
-    printf "\0337"                                  # guarda cursor
-    for ln in "${il[@]}"; do printf "%*s%s\n" $indent "" "$ln"; done   # info a la derecha
-    printf "\0338"                                  # vuelve arriba
-    printf "\033[2B"                                # baja SOLO el sprite 2 filas (lo centra con la info)
-    kitten icat --align left --loop -1 "$play" 2>/dev/null   # gif animado izq (no bloquea)
-    printf "\0338"                                  # vuelve arriba otra vez
-    printf "\033[%dB" $n                            # baja n filas -> debajo de la info
+    printf "\033[2J\033[H"                          # clears the p10k instant prompt (avoids a double prompt)
+    printf "\0337"                                  # save cursor
+    for ln in "${il[@]}"; do printf "%*s%s\n" $indent "" "$ln"; done   # info on the right
+    printf "\0338"                                  # back to the top
+    printf "\033[2B"                                # moves ONLY the sprite down 2 rows (centres it against the info)
+    kitten icat --align left --loop -1 "$play" 2>/dev/null   # animated gif on the left (non-blocking)
+    printf "\0338"                                  # back to the top again
+    printf "\033[%dB" $n                            # down n rows -> below the info
     return
   fi
 
-  # === Fallback: bloques estaticos de alta-res ===
+  # === Fallback: static high-res blocks ===
   local -a sprites=("$aart"/*.png(N.))
   local sprite="" idx
-  poke_theme_pick png   # mismo sesgo por tema para el fallback de chafa
+  poke_theme_pick png   # same theme bias for the chafa fallback
   [[ -n ${POKE_FIJO:-} && -f $aart/$POKE_FIJO.png ]] && REPLY=$aart/$POKE_FIJO.png
   if [[ -n $REPLY ]] && tail -c 12 -- "$REPLY" 2>/dev/null | grep -qa IEND; then
     sprite="$REPLY"
@@ -321,17 +341,20 @@ pokefetch() {
   fi
 }
 
-# ---- pokeanim: pokemon ANIMADO a demanda (kitty, pixeles reales) ----
-# Los sprites animados (gen5) son pequenos: los pre-escalo x5 con vecino-cercano
-# (pixel-art nitido) y los reproduce kitten icat en bucle. Ctrl+C para salir.
-# El grafico animado NO va en el arranque (kitty no pinta en el hook precmd), por eso
-# es un comando aparte. Ejecuta:  pokeanim
+# ---- pokeanim: ANIMATED pokemon on demand (kitty, real pixels) ----
+# The animated sprites (gen5) are small: they are pre-scaled x5 with nearest
+# neighbour (crisp pixel art) and kitten icat plays them in a loop. Ctrl+C to quit.
+# The animated graphic does NOT go at startup (kitty does not draw in the precmd
+# hook), which is why it is a separate command. Run:  pokeanim
 pokeanim() {
   emulate -L zsh
   local dir="$HOME/.cache/pokeanim"
   local -a gifs=("$dir"/*.gif(N))
   if (( ! ${#gifs} )); then
-    print -- "No hay animados en cache todavia (se estan descargando)."
+    # lang.sh in a subshell: read now, so it follows a language changed after
+    # this terminal opened, and nothing of it is left in the interactive shell.
+    print -- "$(. "$HOME/.config/hypr/scripts/lang.sh" 2>/dev/null || tr_() { printf '%s' "$1"; }
+               tr_ "No hay animados en cache todavia (se estan descargando)." "No animated sprites cached yet (downloading).")"
     return 1
   fi
   local gif=${gifs[RANDOM % ${#gifs} + 1]}
@@ -347,12 +370,13 @@ pokeanim() {
   fi
 }
 
-# ---- pokefa: PRUEBA del pokemon animado integrado (imagen izq + info derecha) ----
+# ---- pokefa: TEST of the built-in animated pokemon (image left + info right) ----
 pokefa() {
   emulate -L zsh
   local adir="$HOME/.cache/pokeanim"
   local -a gifs=("$adir"/*.gif(N))
-  (( ${#gifs} )) || { print -- "no hay gifs"; return 1; }
+  (( ${#gifs} )) || { print -- "$(. "$HOME/.config/hypr/scripts/lang.sh" 2>/dev/null || tr_() { printf '%s' "$1"; }
+                                    tr_ "no hay gifs" "No GIFs")"; return 1; }
   command -v kitten >/dev/null 2>&1 || { print -- "no kitten"; return 1; }
   local gif=${gifs[RANDOM % ${#gifs} + 1]} play="$gif"
   if command -v magick >/dev/null 2>&1; then
@@ -362,22 +386,58 @@ pokefa() {
   local -a il=("${(@f)$(fastfetch --logo none 2>/dev/null)}")
   local n=${#il}
   local W=26 gap=4 H=$n
-  # consulta la fila del cursor -> colocamos con --place (fija, sin scroll)
+  # query the cursor row -> place with --place (fixed, no scrolling)
   local pos row
   printf "\033[6n"
   read -s -t 1 -d R pos 2>/dev/null
   pos=${pos##*\[}; row=${pos%%;*}
   [[ $row == <-> ]] || row=1
-  # gif animado (bucle server-side, no bloquea) en WxH celdas, columna 0, fila actual
+  # animated gif (server-side loop, non-blocking) in WxH cells, column 0, current row
   kitten icat --align left --place ${W}x${H}@0x$((row-1)) "$play" 2>/dev/null
-  # info a la derecha, alineada
+  # info on the right, aligned
   local r=$row ln
   for ln in "${il[@]}"; do
     printf "\033[%d;%dH%s" $r $((W+gap+1)) "$ln"
     (( r++ ))
   done
-  printf "\033[%d;1H" $(( row + H ))   # cursor debajo -> prompt limpio
+  printf "\033[%d;1H" $(( row + H ))   # cursor below -> clean prompt
 }
 
-# --- tooling moderno ---
-eval "$(zoxide init zsh)"        # z <dir> = salto inteligente; zi = con fzf
+# --- modern tooling ---
+eval "$(zoxide init zsh)"        # z <dir> = smart jump; zi = with fzf
+
+# --- tool credentials, if there are any ---
+#
+# NO secret lives here, and none can: this file is versioned in ~/dotfiles,
+# which is a public repo. They go in ~/.config/environment.d/, outside the
+# repo, one per file and in mode 600.
+#
+# systemd --user already reads that directory when the session starts, so the
+# variables reach everything the desktop opens. This loop is only for the
+# terminals of a session that was ALREADY open when the credential changed,
+# which would otherwise have to wait for a session restart.
+#
+# `set -a` exports everything defined while it is on: those files are in
+# environment.d format (KEY=value, no `export`), and without this the variable
+# would be defined but not exported, that is, invisible to the program
+# waiting for it.
+for _cred in "$HOME"/.config/environment.d/*.conf(N); do
+  [ -r "$_cred" ] || continue
+  set -a
+  . "$_cred"
+  set +a
+done
+unset _cred
+
+# --- conda (the miniconda from the Arch package, in /opt/miniconda3) ---
+#
+# It is done with the hook and NOT with `conda init zsh`, which would write a
+# generated fifteen-line block here. This defines the `conda` function and
+# little else; above all it does NOT activate `base` on its own, so the (name)
+# at the start of the prompt only shows up when you activate an environment of
+# yours and not in every terminal.
+#
+# Environments go to ~/.conda/envs: /opt/miniconda3 belongs to root and cannot
+# be written to without sudo, which is exactly what you do not want for an
+# environment.
+[ -r /opt/miniconda3/etc/profile.d/conda.sh ] && . /opt/miniconda3/etc/profile.d/conda.sh

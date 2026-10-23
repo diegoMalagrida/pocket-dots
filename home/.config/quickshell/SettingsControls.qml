@@ -1,32 +1,33 @@
-// SettingsControls.qml — los controles de la app de Ajustes.
-// Se usan como tipos desde las secciones: `SettingsControls.Card_ { ... }`.
+// SettingsControls.qml — the controls of the Settings app.
+// The sections use them as types: `SettingsControls.Card_ { ... }`.
 //
-// DOS DECISIONES QUE EXPLICAN TODO LO DEMÁS:
+// TWO DECISIONS THAT EXPLAIN EVERYTHING ELSE:
 //
-// 1) La descripción de un ajuste NO va debajo de su etiqueta. Antes sí, y cada
-//    fila medía tres líneas: en una ventana de 520 px de alto cabían siete
-//    ajustes y Apariencia era un scroll infinito. Ahora la fila mide 42 px y la
-//    descripción viaja a `ShellState.settingsHint`, que la ventana enseña en
-//    una franja fija al pie. Cero reflow al pasar el ratón, nada tapando nada,
-//    y no se pierde ni una palabra.
+// 1) A setting's description does NOT go under its label. It used to, and each
+//    row was three lines tall: a 520 px tall window fitted seven settings and
+//    Appearance was an endless scroll. Now the row is 42 px and the
+//    description travels to `ShellState.settingsHint`, which the window shows
+//    in a fixed strip at the bottom. Zero reflow on hover, nothing covering
+//    anything, and not a single word lost.
 //
-// 2) Los ajustes van en TARJETAS redondeadas (ley 1 de ~/.config/motion-language.md:
-//    lo redondo es del shell). Antes era una lista plana con separadores de
-//    1 px, que no agrupaba nada y no hablaba el idioma del resto del rice.
+// 2) Settings go in rounded CARDS (law 1 of the rice's motion rules:
+//    roundness belongs to the shell). It used to be a flat list with 1 px
+//    separators, which grouped nothing and did not speak the language of the
+//    rest of the rice.
 //
-// Movimiento: aquí solo hay hover y pulsación, o sea RESPUESTA (130 ms), y
-// simétrico porque el hover es un estado, no un evento (ley 3).
+// Motion: there is only hover and press here, i.e. RESPONSE (130 ms), and
+// symmetric because hover is a state, not an event (law 3).
 import QtQuick
 import QtQuick.Layouts
 
 QtObject {
     id: root
 
-    // ─────────── tarjeta de grupo ───────────
-    // Se esconde sola si el buscador no deja ninguna fila dentro. El recuento
-    // NO puede mirar el `visible` de los hijos: en QML `visible` es efectiva,
-    // así que al ocultarse la tarjeta sus filas dirían false y ya no volvería a
-    // aparecer nunca. Por eso cada fila publica `matches` aparte.
+    // ─────────── group card ───────────
+    // It hides itself if the search leaves no row inside it. The count can NOT
+    // look at the children's `visible`: in QML `visible` is the effective
+    // value, so once the card hid, its rows would say false and it would never
+    // appear again. That is why each row publishes `matches` separately.
     component Card_: ColumnLayout {
         id: card
         property string title: ""
@@ -51,20 +52,19 @@ QtObject {
             Layout.leftMargin: 3
             visible: card.title.length > 0
             text: card.title
-            color: Colors.accent
+            color: Colors.accentInk
             font.family: Appearance.fontUI
             font.pixelSize: Appearance.fsXS
             font.weight: Font.DemiBold
-            font.letterSpacing: 0.6
         }
 
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: inner.implicitHeight + 10
             radius: Appearance.radM
-            color: Qt.rgba(1, 1, 1, 0.045)
+            color: Colors.surface1
             border.width: 1
-            border.color: Qt.rgba(1, 1, 1, 0.075)
+            border.color: Colors.hairline
 
             ColumnLayout {
                 id: inner
@@ -74,16 +74,16 @@ QtObject {
         }
     }
 
-    // ─────────── fila: etiqueta + control ───────────
+    // ─────────── row: label + control ───────────
     component Row_: Rectangle {
         id: r
         property string label: ""
         property string hint: ""
-        property bool active: true                  // false = atenuada (p. ej. bluetooth bloqueado)
-        property bool shown: true                   // false = no aplica ahora (p. ej. ajustes de isla en modo notch)
+        property bool active: true                  // false = dimmed (e.g. bluetooth blocked)
+        property bool shown: true                   // false = does not apply right now (e.g. island settings in notch mode)
         readonly property bool isSettingsRow: true
-        // OJO: quien use la fila NO debe tocar `visible` (rompería el buscador);
-        // para condicionar una fila está `shown`.
+        // CAREFUL: whoever uses the row must NOT touch `visible` (it would break
+        // the search); to make a row conditional there is `shown`.
         readonly property bool matches: r.shown && ShellState.settingsMatch(r.label, r.hint)
         default property alias content: inner.data
 
@@ -95,23 +95,23 @@ QtObject {
         Component.onCompleted: r._recount()
 
         Layout.fillWidth: true
-        // 42 px es el SUELO, no el alto. Estaba cocido, y el selector de fuentes
-        // —siete opciones en un Flow de 270 px— parte en tres líneas: esas
-        // líneas se salían de la fila y se pintaban ENCIMA del ajuste de abajo y
-        // del borde de la tarjeta (el slider de "Tamaño de la hora" quedaba
-        // tachado por las pastillas). Un control que crece tiene que empujar la
-        // fila, no derramarse fuera de ella.
+        // 42 px is the FLOOR, not the height. It was hard-coded, and the font
+        // picker —seven options in a 270 px Flow— wraps onto three lines: those
+        // lines spilled out of the row and were painted ON TOP of the setting
+        // below and the card's border (the "Tamaño de la hora" (clock size)
+        // slider ended up struck through by the pills). A control that grows
+        // has to push the row, not spill out of it.
         Layout.preferredHeight: Math.max(42, inner.implicitHeight + 14)
         visible: r.matches
         radius: Appearance.radS
-        color: hh.hovered ? Qt.rgba(1, 1, 1, 0.065) : "transparent"
+        color: hh.hovered ? Colors.fill2 : "transparent"
         opacity: r.active ? 1 : 0.42
         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
         Behavior on opacity { NumberAnimation { duration: Appearance.mQuick } }
 
-        // HoverHandler y no MouseArea: no bloquea, así que la fila sabe que
-        // tiene el ratón encima aunque el puntero esté justo sobre el slider, y
-        // el slider sigue recibiendo sus clics.
+        // HoverHandler and not MouseArea: it does not block, so the row knows
+        // the mouse is over it even when the pointer is right over the slider,
+        // and the slider still gets its clicks.
         HoverHandler {
             id: hh
             onHoveredChanged: {
@@ -129,7 +129,7 @@ QtObject {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 120
                 text: r.label
-                color: "#ffffff"
+                color: Colors.label
                 elide: Text.ElideRight
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsS
@@ -137,7 +137,7 @@ QtObject {
         }
     }
 
-    // ─────────── fila entera clicable (lleva a otro sitio) ───────────
+    // ─────────── whole clickable row (leads somewhere else) ───────────
     component Action_: Rectangle {
         id: a
         property string label: ""
@@ -160,7 +160,7 @@ QtObject {
         Layout.preferredHeight: 42
         visible: a.matches
         radius: Appearance.radS
-        color: aMa.containsMouse ? Qt.rgba(1, 1, 1, 0.07) : "transparent"
+        color: aMa.containsMouse ? Colors.fill2 : "transparent"
         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
         RowLayout {
@@ -169,28 +169,33 @@ QtObject {
             Text {
                 visible: a.icon.length > 0
                 text: a.icon
-                color: "#9a9a9a"
+                color: Colors.label2
                 font.family: Appearance.font
                 font.pixelSize: 14
             }
             Text {
                 Layout.fillWidth: true
                 text: a.label
-                color: "#ffffff"
+                color: Colors.label
                 elide: Text.ElideRight
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsS
             }
             Text {
                 text: a.value
-                color: "#8a8a8a"
+                color: Colors.label2
                 elide: Text.ElideRight
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsXS
+                // Counters that refresh by themselves land here (the
+                // notification queue, the number of applications): with fontUI,
+                // which is proportional, the width jitters on every refresh
+                // without tabular figures.
+                font.features: ({ "tnum": 1 })
             }
             Text {
                 text: "›"
-                color: aMa.containsMouse ? "#ffffff" : "#6a6a6a"
+                color: aMa.containsMouse ? Colors.label : Colors.label3
                 font.family: Appearance.fontUI
                 font.pixelSize: 15
             }
@@ -207,16 +212,16 @@ QtObject {
         }
     }
 
-    // ─────────── interruptor ───────────
+    // ─────────── switch ───────────
     component Switch_: Rectangle {
         id: sw
         property bool checked: false
-        property bool live: true                    // false = no responde (y se ve apagado)
+        property bool live: true                    // false = does not respond (and looks off)
         signal toggled(bool value)
 
         implicitWidth: 38; implicitHeight: 21
         radius: 11
-        color: sw.checked ? Colors.accent : Qt.rgba(1, 1, 1, 0.14)
+        color: sw.checked ? Colors.accent : Colors.fill1
         opacity: sw.live ? 1 : 0.45
         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
@@ -236,7 +241,7 @@ QtObject {
         }
     }
 
-    // ─────────── deslizador con valor ───────────
+    // ─────────── slider with value ───────────
     component Slider_: RowLayout {
         id: sl
         property real value: 0
@@ -244,9 +249,11 @@ QtObject {
         property real to: 100
         property int decimals: 0
         property string suffix: ""
+        // Step per Ctrl+wheel notch. 0 = derive it from the range (see onWheel).
+        property real stepSize: 0
         signal moved(real v)
 
-        // igual que en NotchSlider: se anima el valor, nunca el ancho derivado
+        // same as in NotchSlider: the value is animated, never the derived width
         property real shown: sl.value
         Behavior on shown {
             enabled: !drag.pressed
@@ -262,7 +269,7 @@ QtObject {
             Layout.fillWidth: true
             Layout.preferredHeight: 5
             radius: 3
-            color: "#2c2c2c"
+            color: Colors.fill3
 
             Rectangle {
                 id: fill
@@ -290,21 +297,41 @@ QtObject {
                 }
                 onPressed: function (m) { emit(m.x); }
                 onPositionChanged: function (m) { if (pressed) emit(m.x); }
-                // La rueda hace SCROLL de la página, no mueve el deslizador. Los
-                // sliders ocupan la mitad derecha de cada fila, así que bajando
-                // por Apariencia el puntero pasa por encima de uno sin querer y
-                // acababas cambiando el alto de la banda creyendo que scrolleabas.
-                // Con Ctrl sí ajusta: sirve para afinar de uno en uno sin arrastrar.
+                // The wheel SCROLLS the page, it does not move the slider. The
+                // sliders take up the right half of each row, so scrolling down
+                // Appearance the pointer passes over one by accident and you
+                // ended up changing the band height thinking you were scrolling.
+                // With Ctrl it does adjust: handy for fine-tuning one at a time
+                // without dragging.
                 //
-                // accepted = false es lo que deja que el evento suba hasta el
-                // Flickable de la página; sin esa línea el MouseArea se lo queda
-                // (onWheel acepta por defecto) y la página no se mueve.
+                // accepted = false is what lets the event bubble up to the
+                // page's Flickable; without that line the MouseArea keeps it
+                // (onWheel accepts by default) and the page does not move.
                 onWheel: function (w) {
                     if (!(w.modifiers & Qt.ControlModifier)) {
                         w.accepted = false;
                         return;
                     }
-                    const step = (sl.to - sl.from) / 40;
+                    // THE STEP CANNOT COME FROM THE RANGE ALONE.
+                    //
+                    // This used to be plain `(to - from) / 40`, and on two of
+                    // the twelve sliders it gave less than their onMoved can
+                    // store: "Separación del borde" (edge gap, 0-14) came out at
+                    // 0.35 and "Tamaño de la hora" (clock size, 12-24) at 0.30,
+                    // and both round to an integer. Math.round(v + 0.35)
+                    // returns the SAME integer, so Config did not change, the
+                    // binding gave back the previous value and the next turn
+                    // repeated the sum from the same starting value. Stuck by
+                    // construction -not by accumulation- and at the ends too,
+                    // while the comment above promised one-at-a-time tuning.
+                    //
+                    // The floor is the resolution the slider itself displays:
+                    // if it labels integers, one notch is worth 1. That way the
+                    // ten that already worked keep their big step and the two
+                    // broken ones start moving.
+                    const step = sl.stepSize > 0
+                        ? sl.stepSize
+                        : Math.max((sl.to - sl.from) / 40, Math.pow(10, -sl.decimals));
                     sl.moved(Math.max(sl.from, Math.min(sl.to, sl.value + (w.angleDelta.y > 0 ? step : -step))));
                 }
             }
@@ -314,14 +341,14 @@ QtObject {
             Layout.preferredWidth: 44
             horizontalAlignment: Text.AlignRight
             text: sl.shown.toFixed(sl.decimals) + sl.suffix
-            color: "#9a9a9a"
+            color: Colors.label2
             font.family: Appearance.fontUI
             font.pixelSize: Appearance.fsXS
             font.features: ({ "tnum": 1 })
         }
     }
 
-    // ─────────── selector de opciones ───────────
+    // ─────────── option picker ───────────
     component Choice_: Flow {
         id: ch
         property var options: []
@@ -341,13 +368,13 @@ QtObject {
                 implicitHeight: 26
                 radius: 9
                 color: sel ? Qt.rgba(Colors.accent.r, Colors.accent.g, Colors.accent.b, 0.28)
-                     : cMa.containsMouse ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(1, 1, 1, 0.05)
+                     : cMa.containsMouse ? Colors.fill2 : Colors.fill3
                 Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
                 Text {
                     id: t
                     anchors.centerIn: parent
                     text: modelData
-                    color: parent.sel ? "#ffffff" : "#9a9a9a"
+                    color: parent.sel ? Colors.label : Colors.label2
                     font.family: Appearance.fontUI
                     font.pixelSize: Appearance.fsXS
                     font.weight: parent.sel ? Font.Medium : Font.Normal
@@ -363,7 +390,7 @@ QtObject {
         }
     }
 
-    // ─────────── botón pequeño ───────────
+    // ─────────── small button ───────────
     component Btn_: Rectangle {
         id: b
         property string text: ""
@@ -374,15 +401,15 @@ QtObject {
         implicitHeight: 28
         radius: 9
         color: bMa.containsMouse
-             ? (b.danger ? Qt.rgba(Colors.crit.r, Colors.crit.g, Colors.crit.b, 0.30) : Qt.rgba(1, 1, 1, 0.13))
-             : Qt.rgba(1, 1, 1, 0.06)
+             ? (b.danger ? Qt.rgba(Colors.crit.r, Colors.crit.g, Colors.crit.b, 0.30) : Colors.fill2)
+             : Colors.fill3
         Behavior on color { ColorAnimation { duration: Appearance.mQuick; easing.type: Easing.OutQuad } }
 
         Text {
             id: bt
             anchors.centerIn: parent
             text: b.text
-            color: bMa.containsMouse ? "#ffffff" : "#9a9a9a"
+            color: bMa.containsMouse ? Colors.label : Colors.label2
             font.family: Appearance.fontUI
             font.pixelSize: Appearance.fsXS
         }
@@ -395,26 +422,33 @@ QtObject {
         }
     }
 
-    // ─────────── valor de solo lectura (Acerca de) ───────────
+    // ─────────── read-only value (About) ───────────
     component Val_: Text {
         Layout.maximumWidth: 310
-        color: "#b9b9b9"
+        color: Colors.label2
         elide: Text.ElideRight
         horizontalAlignment: Text.AlignRight
         font.family: Appearance.fontUI
         font.pixelSize: Appearance.fsS
+        // Tabular figures: this shows the battery percentage, the watts, the
+        // cycles and the remaining time, which refresh by themselves. With
+        // fontUI, which is proportional, a "1" is not as wide as an "8" and the
+        // value —right-aligned— moved on every update.
+        font.features: ({ "tnum": 1 })
     }
 
-    // ─────────── texto suelto (estados vacíos, notas) ───────────
+    // ─────────── loose text (empty states, notes) ───────────
     component Note_: Text {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        color: "#777777"
+        color: Colors.label3
         font.family: Appearance.fontUI
         font.pixelSize: Appearance.fsXS
+        lineHeight: Appearance.leading(Appearance.fsXS)
+        lineHeightMode: Text.FixedHeight
     }
 
-    // ─────────── estado vacío con intención, no un hueco que parece roto ───────────
+    // ─────────── an empty state with intent, not a gap that looks broken ───────────
     component Empty_: Rectangle {
         id: empty
         property string icon: ""
@@ -424,9 +458,9 @@ QtObject {
         Layout.fillWidth: true
         Layout.preferredHeight: 126
         radius: Appearance.radM
-        color: Qt.rgba(1, 1, 1, 0.025)
+        color: Colors.surface1
         border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.055)
+        border.color: Colors.hairline
 
         ColumnLayout {
             anchors.centerIn: parent
@@ -435,14 +469,14 @@ QtObject {
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: empty.icon
-                color: "#777777"
+                color: Colors.label3
                 font.family: Appearance.font
-                font.pixelSize: 22
+                font.pixelSize: Appearance.fsXL
             }
             Text {
                 Layout.fillWidth: true
                 text: empty.title
-                color: "#c9c9c9"
+                color: Colors.label
                 horizontalAlignment: Text.AlignHCenter
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsS
@@ -451,11 +485,13 @@ QtObject {
             Text {
                 Layout.fillWidth: true
                 text: empty.body
-                color: "#707070"
+                color: Colors.label2
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
                 font.family: Appearance.fontUI
                 font.pixelSize: Appearance.fsXS
+                lineHeight: Appearance.leading(Appearance.fsXS)
+                lineHeightMode: Text.FixedHeight
             }
         }
     }

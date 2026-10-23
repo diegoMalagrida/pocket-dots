@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""poke-cries — downloads each pokémon's cry to ~/.cache/pokecries/N.ogg.
+
+They are served by the PokeAPI repository (cries/latest). Once downloaded, the
+SUPER+O popup plays the critter's cry when it opens, without ever touching the
+network.
+
+    poke-cries 6 25       those
+    poke-cries --todo     all 1025 in parallel
+"""
+import sys, urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+DIR = Path.home() / ".cache" / "pokecries"
+URL = "https://raw.githubusercontent.com/PokeAPI/cries/main/cries/pokemon/latest/{}.ogg"
+
+def uno(n: int) -> bool:
+    destino = DIR / f"{n}.ogg"
+    if destino.exists():
+        return True
+    try:
+        pet = urllib.request.Request(URL.format(n), headers={"User-Agent": "poke-cries/1"})
+        with urllib.request.urlopen(pet, timeout=25) as r:
+            datos = r.read()
+        tmp = destino.with_suffix(".tmp")
+        tmp.write_bytes(datos)
+        tmp.replace(destino)
+        return True
+    except Exception as e:
+        print(f"  #{n}: {e}", file=sys.stderr)
+        return False
+
+def main() -> int:
+    DIR.mkdir(parents=True, exist_ok=True)
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__); return 2
+    nums = range(1, 1026) if args == ["--todo"] else [int(a) for a in args if a.isdigit()]
+    pendientes = [n for n in nums if not (DIR / f"{n}.ogg").exists()]
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        hechos = sum(ex.map(uno, pendientes))
+    print(tr(f"gritos: {hechos} bajados, {len(list(DIR.glob('*.ogg')))} en total",
+             f"Cries: {hechos} downloaded, {len(list(DIR.glob('*.ogg')))} in total"))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

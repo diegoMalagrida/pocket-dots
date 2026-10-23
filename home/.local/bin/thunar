@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Thunar wrapper so that it speaks the rice's language.
+#
+# ~/.local/bin comes before /usr/bin in the PATH, so this catches every way of
+# opening it: the Super+E bind, thunar.desktop (its Exec is `thunar %F`, with
+# no absolute path) and any `thunar` typed in a terminal. The only one that
+# slips through is D-Bus activation, which has the absolute path written in
+# its .service; there Thunar comes up in the system language, and that is the
+# price of not touching files in /usr.
+#
+# It does NOT set GTK_THEME. It did for a while, to load a theme of its own
+# into Thunar without repainting the other GTK3 applications, and it had to
+# go: the variable FREEZES the CSS of the whole process, so the open window
+# was not recoloured when the wallpaper changed. The ricing now lives in the
+# theme gtk-pywal.sh generates, which is global to GTK3 and DOES apply live.
+#
+# LANGUAGE and not LANG: LANGUAGE only picks the gettext catalogue, so it
+# works even though the es_ES locale is not generated (which is the case: only
+# en_US.UTF-8 is here). Changing LANG would require generating the locale, and
+# it would also trample the date and number formats.
+set -uo pipefail
+
+REAL=/usr/bin/thunar
+IDIOMA="$HOME/.config/hypr/scripts/thunar-language.sh"
+ESTADO="${XDG_RUNTIME_DIR:-/tmp}/thunar-idioma"
+
+LOC=es
+[ -x "$IDIOMA" ] && LOC=$("$IDIOMA" 2>/dev/null | tail -1)
+[ -n "$LOC" ] || LOC=es
+
+# Thunar outlives the window that opened it (it stays on as a daemon serving
+# the others), so if the rice's language has changed since it started, the new
+# window would come up in the old language. It is asked to quit, and the exec
+# below starts a new one, already in the right language.
+ANTERIOR=$(cat "$ESTADO" 2>/dev/null || true)
+if [ -n "$ANTERIOR" ] && [ "$ANTERIOR" != "$LOC" ] && pgrep -x thunar >/dev/null 2>&1; then
+	"$REAL" -q 2>/dev/null || true
+fi
+printf '%s' "$LOC" > "$ESTADO" 2>/dev/null || true
+
+if [ "$LOC" = en ]; then
+	exec env LANGUAGE=en "$REAL" "$@"
+fi
+exec env LANGUAGE=es "$REAL" "$@"

@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""poke-dex — downloads each pokémon's pokédex entry to the local cache.
+
+The SUPER+O popup wants to show what a real pokédex would show: the category
+("Pokemon Llama", Flame Pokémon), the game's description, the base stats, the
+height, the weight and the abilities. None of that was available locally, and
+the house rule is that the desktop does not depend on the network: it is
+downloaded ONCE from PokeAPI and served from ~/.cache/pokepalette/dex/N.json
+for ever.
+
+    poke-dex 6 129           downloads those (to test without waiting)
+    poke-dex --todo          all 1025, in parallel (a few minutes)
+
+Each entry stores Spanish AND English for whatever has a translation, because
+the rice switches language live and the pokédex has to switch with it.
+"""
+from __future__ import annotations
+import json, sys, urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+
+def tr(es, en):
+    try:
+        import json
+        from pathlib import Path
+        with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+DEX = Path.home() / ".cache" / "pokepalette" / "dex"
+HABS = Path.home() / ".cache" / "pokepalette" / "habilidades.json"
+API = "https://pokeapi.co/api/v2"
+
+ORDEN_STATS = ["hp", "attack", "defense", "special-attack", "special-defense", "speed"]
+
+
+def pide(url: str):
+    pet = urllib.request.Request(url, headers={"User-Agent": "poke-dex/1 (rice de diego)"})
+    with urllib.request.urlopen(pet, timeout=25) as r:
+        return json.loads(r.read())
+
+
+def texto_limpio(t: str) -> str:
+    # flavour texts carry line breaks and \f from the original games
+    return " ".join(t.replace("\f", " ").replace("\n", " ").split())
+
+
+def en_idioma(lista, campo, idioma):
+    for e in lista:
+        if e.get("language", {}).get("name") == idioma:
+            return e.get(campo)
+    return None
+
+
+def ficha(num: int) -> bool:
+    destino = DEX / f"{num}.json"
+    if destino.exists():
+        return True
+    try:
+        p = pide(f"{API}/pokemon/{num}")
+        s = pide(f"{API}/pokemon-species/{num}")
+    except Exception as e:
+        print(f"  #{num}: {e}", file=sys.stderr)
+        return False
+
+    stats = {x["stat"]["name"]: x["base_stat"] for x in p.get("stats", [])}
+    # the description: the LAST one in each language, which is usually the one
+    # from the most recent game and the best written
+    textos = {}
+    for idioma in ("es", "en"):
+        candidatos = [e["flavor_text"] for e in s.get("flavor_text_entries", [])
+                      if e.get("language", {}).get("name") == idioma]
+        if candidatos:
+            textos[idioma] = texto_limpio(candidatos[-1])
+
+    d = {
+        "num": num,
+        "genero": {i: en_idioma(s.get("genera", []), "genus", i) for i in ("es", "en")},
+        "texto": textos,
+        "m": round(p.get("height", 0) / 10, 1),
+        "kg": round(p.get("weight", 0) / 10, 1),
+        "stats": [stats.get(k, 0) for k in ORDEN_STATS],
+        "habilidades": [{"clave": h["ability"]["name"], "oculta": h.get("is_hidden", False)}
+                        for h in p.get("abilities", [])],
+    }
+    tmp = destino.with_suffix(".tmp")
+    tmp.write_text(json.dumps(d, ensure_ascii=False))
+    tmp.replace(destino)
+    return True
+
+
+def habilidades() -> None:
+    """The key->name dictionary per language, fetched once for all of them."""
+    if HABS.exists():
+        return
+    try:
+        lista = pide(f"{API}/ability?limit=1000").get("results", [])
+    except Exception as e:
+        print(tr(f"  habilidades: {e}", f"  Abilities: {e}"), file=sys.stderr)
+        return
+    fuera = {}
+
+    def una(entrada):
+        try:
+            a = pide(entrada["url"])
+            fuera[entrada["name"]] = {i: en_idioma(a.get("names", []), "name", i)
+                                      for i in ("es", "en")}
+        except Exception:
+            pass
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        list(ex.map(una, lista))
+    tmp = HABS.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(fuera, ensure_ascii=False))
+    tmp.replace(HABS)
+    print(tr(f"habilidades: {len(fuera)}", f"Abilities: {len(fuera)}"))
+
+
+def main() -> int:
+    DEX.mkdir(parents=True, exist_ok=True)
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__)
+        return 2
+    if args == ["--todo"]:
+        nums = [n for n in range(1, 1026) if not (DEX / f"{n}.json").exists()]
+        print(tr(f"faltan {len(nums)} fichas", f"{len(nums)} entries missing"))
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            hechos = sum(ex.map(ficha, nums))
+        print(tr(f"bajadas {hechos} de {len(nums)}", f"Downloaded {hechos} of {len(nums)}"))
+        habilidades()
+        return 0
+    ok = all(ficha(int(a)) for a in args if a.isdigit())
+    habilidades()
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

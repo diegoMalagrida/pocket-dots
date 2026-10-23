@@ -179,7 +179,7 @@ tranquilo está vacía del todo:
 |---|---|---|---|
 | `launcher` | `Super+R` / clic en el logo de Arch | buscador + lista de aplicaciones | 660 × **según contenido** |
 | `control` | clic en el notch / `Super+D` / campana | reproductor vertical + sliders + conmutadores + notificaciones | 1080 × 526 |
-| `system` | botón Tu equipo / `Super+Shift+D` | paisaje de actividad + espacio, temperatura y batería | 920 × 420 |
+| `system` | botón Tu máquina / `Super+Shift+D` | paisaje de actividad + espacio, temperatura y batería | 920 × 420 |
 | `network` | chevron de "Red" en el centro de control / icono de red | wifis, PSK, perfiles WPA-Enterprise, encender/apagar | 470 × 412 |
 | `bluetooth` | chevron de "Bluetooth" en el centro de control | emparejar, conectar, olvidar, encender/apagar | 470 × 412 |
 | `power` | `Super+Shift+E` / tecla de encendido | bloquear · suspender · salir · reiniciar · apagar | 520 × 158 |
@@ -216,7 +216,7 @@ un panel nuevo son tres pasos**: un valor más en `panel`, su tamaño en
 
 **Paneles actuales**: `MediaPanel.qml`, `LauncherPanel.qml`, `ControlPanel.qml`,
 `NetworkPanel.qml`, `PowerPanel.qml`, `BluetoothPanel.qml`, `OverviewPanel.qml`,
-`CalendarPanel.qml`.
+`CalendarPanel.qml`, `GithubPanel.qml`.
 
 #### El calendario (`CalendarPanel.qml`)
 
@@ -244,6 +244,129 @@ a propósito**: todas las caras del notch son vistas sobre algo que el sistema y
 sabe, y unas notas harían del shell el dueño de datos del usuario, con su copia
 de seguridad, su corrupción y su migración detrás. Un calendario, en cambio, es
 una vista sobre el tiempo.
+
+#### GitHub (`GithubPanel.qml`)
+
+El año de contribuciones y los últimos commits. Dos puertas, como el calendario:
+la **tarjeta del centro de control** —que ya enseña por su cuenta las últimas
+doce semanas, el total y la racha— y el atajo `quickshell:github`.
+
+Los cuadros **no son verdes**. Van con el acento de pywal, igual que todo lo
+demás: un widget que trae su propia paleta se ve pegado encima del escritorio, no
+dentro. El nivel de cada día (0..4) lo decide GitHub y aquí solo gradúa la
+opacidad.
+
+Los datos los trae `scripts/github-stats.py` con **una sola** consulta a la API
+GraphQL, autenticada por el `gh` que ya está instalado: el shell no toca ningún
+token ni sabe dónde vive. El script guarda la respuesta en
+`~/.cache/quickshell/github.json` y, si la red falla, la devuelve marcada como
+`stale`, así que el panel enseña lo de la última vez —diciéndolo— en vez de
+quedarse en blanco. La cadencia la lleva un `Timer` de QML cada 15 minutos, nunca
+un bucle en bash, más un refresco al abrir el panel y otro con la tecla `R`.
+
+Al pasar por encima de un cuadro, el renglón de debajo deja de decir la racha y
+pasa a decir ese día. Es **un solo** `MouseArea` sobre la rejilla entera que
+divide por el paso para saber sobre cuál estás, y no 371 MouseAreas; y es un
+renglón fijo y no un globo flotante, que taparía la rejilla justo por donde estás
+mirando.
+
+#### El equipo Pokémon (`PokeTeamPanel.qml`)
+
+`Super+Shift+O`. Seis Pokémon que **suben de nivel con tus commits**. La idea es
+de las mascotas de [Impasto](https://github.com/andreumassanet/impasto)
+(GPL-3.0); la diferencia está en de dónde sale la experiencia: allí se la
+ganan dejándose cuidar, aquí de trabajar.
+
+Toda la lógica del juego —experiencia, niveles, evoluciones, naturalezas,
+medallas, caja— vive en `~/.local/bin/poke-team`, no en QML. El panel solo
+pinta su JSON y le manda órdenes. Es la misma regla que `monitors.py` o
+`github-stats.py`, y aquí se pagó sola: los fallos del reparto se encontraron
+probando el motor desde la terminal, sin abrir el shell.
+
+**Cómo se cuenta la experiencia**, que es lo único delicado. GitHub no dice «has
+hecho un commit»; dice cuántas contribuciones llevas cada día. Así que se guarda
+cuántas se habían contado ya y en cada sincronización se vuelve a sumar la
+rejilla **entera** desde el día que montaste el equipo: la diferencia es lo que
+toca repartir. Comparar totales y no incrementos es lo que hace que no se pierda
+nada tras días sin encender el ordenador, y que sincronizar diez veces seguidas
+no cuente diez veces. Al instalarse **no** regala el histórico: contar las 795
+contribuciones que ya había habría puesto el equipo a nivel 40 el primer día.
+
+Cada contribución da 12 de experiencia, y sobre eso actúan tres multiplicadores:
+la **racha** de GitHub (+10 % por día seguido, tope el doble a los diez), el
+reparto (el líder se lleva el 60 %, o partes iguales con **Repartir
+experiencia** encendido, como el objeto de los juegos) y la **naturaleza** de
+cada individuo. Las 25 naturalezas están, y la estadística que suben se traduce a
+lo único que existe aquí: lo deprisa que aprende ese bicho.
+
+**Evolucionan de verdad**, con las cadenas y los niveles de los juegos, que
+`poke-evolutions` cachea de PokéAPI. Si sólo hay una salida, evoluciona solo; si
+hay varias —Eevee tiene ocho— espera a que elijas. Cuando pasa, el notch se
+reserva su propia cara: el sprite alterna entre las dos formas cada vez más
+rápido, como en el juego, y remata en la fuente Game Boy.
+
+El **líder pasea por el escritorio**: es el shimeji que anda por encima de las
+ventanas, y al evolucionar **se transforma**. Lo mantiene en su sitio
+`poke-leader-shimeji`, que se llama tras cada relectura y sale en 30 ms si no hay
+nada que cambiar.
+
+Ese bicho se fabrica con `poke-shimeji-pixel`, y su animación **no viene del
+sprite**: los de gen 5 solo traen la de estarse quieto. Las 46 poses que pide el
+formato se fabrican deformando ese fotograma, con la tabla `POSE` que dice qué
+es cada una —`shime2` y `shime3` son los pasos, `22` el salto, `18` el
+aterrizaje, `11` sentado— y aplicando a cada una su **squash & stretch**: se
+estira al saltar, se aplasta al caer, se eleva e inclina al dar un paso. Nada de
+rotar, que en pixel art ensucia los bordes; se escala, se desplaza y se inclinan
+las filas (*shear*), que respetan la rejilla. Y el lienzo se recorta al mínimo
+que contiene las 46, porque el aire sobrante es justo lo que hace que Hyprland
+deforme al bicho al acercarse al borde.
+
+Y **te hace caso**: la plantilla traía a cero los comportamientos que miran al
+ratón, así que el Pokémon te ignoraba. Ahora te persigue, se sienta a mirarte y
+te sigue con la cabeza.
+
+Lo demás que hay dentro: **tipos** con su color de siempre (`poke-types` los trae
+en 18 peticiones, no en 1025, porque `/type/fire` devuelve todos los de fuego de
+golpe), **variocolores** con una probabilidad de 1 entre 64 que sobreviven a las
+evoluciones, las **ocho medallas** de Kanto por contribuciones acumuladas, el
+**rango** del entrenador por nivel total, y la **caja** del PC para los que no
+caben en el equipo, que conservan nivel, mote y naturaleza.
+
+La partida vive en `~/.config/poke-equipo/equipo.json` y se copia una vez al día
+antes de tocarla: son meses de niveles y un fallo tonto no puede llevárselos.
+
+**La lista se arrastra para reordenarla.** Coges una fila, las de en medio se
+apartan para abrirle el hueco y al soltar cae donde la dejes. Mientras arrastras
+no se reordena nada de verdad: el equipo solo cambia al soltar, con una orden
+`poke-team mover <de> <a>` —que hubo que añadirle al motor, porque con `lider`
+solo se puede mandar uno al frente y encadenando eso no se llega a un orden
+cualquiera—. Un clic sin arrastre sigue haciendo lo de siempre: poner esa fila de
+líder. Los distingue un umbral de 6 px, para que el temblor de la mano al pulsar
+no arranque un arrastre.
+
+**Los puestos libres se dibujan**, como un aro vacío que se pulsa para ir a la
+pokédex. Antes no estaban, y con cuatro bichos el panel enseñaba cuatro filas y
+después un agujero muerto hasta el pie. Dibujarlos cierra el hueco y de paso hace
+visible que caben más, que antes solo lo sabías si te fijabas en que seguía
+habiendo un botón «Añadir» arriba.
+
+Y con ellos **el alto del panel se calcula**, en vez de los 424 px fijos de
+siempre: `196 + 44 × tamaño del equipo`, o sea 460 con los seis puestos. Los 424
+venían de cuando la lista tenía tantas filas como bichos llevaras, así que
+sobraban con cuatro y **faltaban con el equipo lleno** —el pie acababa a 3 px del
+borde en vez de a los 16 que pide el marco, y todo se veía apretado—. El cálculo
+vive en `ShellState.qml` y no en el panel por lo mismo que el del overview: el
+notch tiene que saber cuánto va a medir antes de que el panel exista, porque el
+morfeo de la forma arranca en el mismo fotograma que la capa. La pokédex y la
+caja, que comparten superficie, ganan de paso casi una fila más de rejilla.
+
+Y la pokédex **filtra por tipo**, en una fila de pastillas que se desplaza sobre
+la rejilla. Una fila y no dos: los dieciocho rótulos piden unos 950 px y ahí hay
+538, así que en dos filas cabrían justos pero le quitarían 28 px a la rejilla
+para siempre, filtres o no. Sin los colores de la serie, por lo mismo que los
+tipos de las filas del equipo: son una paleta ajena, y aquí además sobrarían,
+porque lo que hay que distinguir no es un tipo de otro —eso lo dice el rótulo—
+sino el que está puesto de los demás, y para eso ya está el acento.
 
 #### El mapa de escritorios (`OverviewPanel.qml` + `OverviewWindow.qml`)
 
@@ -338,10 +461,44 @@ subsecuencia — escribir "kit" pone `kitty` el primero.
 El **centro de control** (`ControlPanel.qml`) sustituye al de swaync **y al
 antiguo Sidebar/dashboard**. Izquierda: media, sliders de volumen y brillo, siete
 conmutadores (red, bluetooth, no molestar, cafeína, luz nocturna, remoto y
-pokémon) y una puerta etiquetada como «Tu equipo». Derecha: el historial de
-notificaciones.
+pokémon), la tira del equipo pokémon y dos puertas, «Tu máquina» y GitHub.
+Derecha: el historial de notificaciones.
 
-El panel **Tu equipo** conserva 60 muestras del mismo `sysstats.sh` que ya
+La **tira del equipo** (`PokeTeamStrip.qml`) ocupa el hueco que quedaba entre los
+conmutadores y el tiempo, y es un vistazo al equipo que `poke-team` va subiendo
+de nivel con los aportes de GitHub: los seis puestos en fila, con el sprite
+animado, la barra de experiencia —en color de acento la del líder—, un punto con
+el color de su tipo y una flecha que late sobre quien esté listo para
+evolucionar. Los puestos libres se dibujan como un aro vacío, así que la tira
+mide siempre lo mismo entre en el equipo quien entre. Al señalar un bicho, el
+renglón de la cabecera cuenta ese bicho en vez de resumir al entrenador —el
+mismo patrón que el panel de GitHub—, y un clic en cualquier punto abre
+`PokeTeamPanel` entero. Existe porque el equipo subía de nivel a espaldas de uno:
+no había forma de enterarse de una evolución pendiente sin abrir `Super+P` a
+mano.
+
+**El tiempo** sale de `wttr.in` y durante mucho tiempo tuvo dos fallos a la vista
+que nadie miró: la condición llegaba siempre en inglés («Clear») en un shell que
+por lo demás está entero en el idioma que tengas puesto, y el icono que la
+acompañaba era el del deslizador de **brillo**, hiciera el tiempo que hiciera.
+Ahora el idioma va en la URL y traduce el propio servicio —son 48 descripciones
+con matices como «Patchy light drizzle», y una tabla a mano se queda coja—, y
+para el icono se pide además `%x`, un símbolo de una a tres letras que **no**
+depende del idioma: `o` despejado, `m`/`mm`/`mmm` nubes, `.` chubascos, `!`
+tormenta, `x` lluvia helada. Se mira de lo más específico a lo menos, porque
+`!/` es tormenta *con* lluvia y comprobar la lluvia antes sacaría un paraguas en
+plena tormenta.
+
+**Sin música sonando**, la columna izquierda enseña **lo último que sonó**: su
+carátula apagada, el tema, el artista, y el botón de play vuelve a abrir la app
+que lo estaba tocando. No es «reanudar» —eso no existe si el programa está
+cerrado— pero es lo que quieres al pulsarlo. Se guarda en
+`~/.cache/quickshell/ultimo-tema.json` y no solo en memoria, porque el shell se
+recarga cada vez que se toca un `.qml` y un «lo último» que se olvida en cada
+recarga no es lo último de nada. Si nunca sonó nada, la columna queda como
+siempre.
+
+El panel **Tu máquina** conserva 60 muestras del mismo `sysstats.sh` que ya
 alimentaba el centro de control (90 segundos, sin un segundo sondeo paralelo):
 superpone CPU y RAM en un solo paisaje y deja espacio, temperatura y batería
 como tres lecturas tranquilas al margen. El wallpaper actual entra con muy poca
@@ -565,8 +722,8 @@ palabras y en español deja "Martes, 4 De Agosto". Usa `ShellState.capitalize()`
 ## El idioma (castellano e inglés)
 
 El shell habla castellano e inglés. La capa son tres ficheros: `I18n.qml` (el
-singleton con `I18n.tr(...)`), `translations-en.js` (el diccionario inglés, 402
-entradas) y `tools/i18n-check.py` (el repaso).
+singleton con `I18n.tr(...)`), `translations-en.js` (el diccionario inglés, unas
+600 entradas) y `tools/i18n-check.py` (el repaso).
 
 **El castellano es el código.** Las cadenas siguen escritas en español dentro de
 cada `.qml`, envueltas en `I18n.tr(...)`, y **la clave del diccionario es esa
@@ -616,7 +773,8 @@ diffea mejor. No lo devuelvas a QML.
 maneras:
 
 - al instalar, con `./install.sh --lang en` (sin la opción, el instalador
-  pregunta);
+  pregunta, y propone el de tu locale: castellano con `es_*`, inglés con
+  cualquier otro);
 - en caliente, en **Ajustes › Apariencia › Idioma del shell** — el cambio es
   inmediato y no toca el idioma del sistema ni el de las aplicaciones, solo el
   del shell;
@@ -1013,8 +1171,7 @@ estabas mirando.
   teclado» del menú de comandos. Los siete scripts de rofi que ya no llamaba
   nadie (`list_keybinds.sh`, `hypr/scripts/menu.sh`, `hypr/wallpaper-picker.sh`,
   `rofi/cliphist-menu.sh`, `rofi/cliphist-paste.sh`,
-  `rofi/scripts/network-menu.sh`, `rofi/scripts/bluetooth-menu.sh`) están en
-  `~/.config/menus-rofi-retirados-20260819.tar.gz`.
+  `rofi/scripts/network-menu.sh`, `rofi/scripts/bluetooth-menu.sh`) se retiraron.
 
   Ese mismo día, un poco después: **rofi se ha ido entero**. El único
   superviviente era `hypr/scripts/webapp-install.sh` (`Super+Ctrl+W`), dos
@@ -1024,9 +1181,7 @@ estabas mirando.
   un solo uso vivo, así que se van con él `~/.config/rofi/` (112 ficheros de
   temas), la plantilla `wal/templates/colors-rofi.rasi`, la regla de capa
   `rofi-blur` de Hyprland y el paquete en `packages/pacman.txt`. Y por el mismo
-  motivo `wlogout`, al que sustituyó `PowerPanel.qml`. Todo en
-  `~/.config/rofi-wlogout-retirados-20260819.tar.gz` y
-  `~/.config/webapp-install-retirado-20260819.tar.gz`.
+  motivo `wlogout`, al que sustituyó `PowerPanel.qml`.
 
   Lo que quedaba no era código muerto y ya está: era una descripción falsa del
   escritorio en un repo a punto de publicarse.
@@ -1076,30 +1231,19 @@ estabas mirando.
   paleta de cada sprite y los ordena para el tema vigente), `poke_theme_pick()`
   en `~/.zshrc` y una linea en `set-wallpaper.sh` que reordena en 2o plano al
   cambiar de fondo. Preferencia en `~/.config/poke-theme/state`.
-- Copias: `~/.config/hypr/hyprland.conf.bak-notch-*`, `shell.qml.bak-notch`.
-
-### Volver a waybar
-```
-cp ~/.config/hypr/hyprland.conf.bak-notch-* ~/.config/hypr/hyprland.conf
-cp ~/.config/quickshell/shell.qml.bak-notch ~/.config/quickshell/shell.qml
-hyprctl reload; ~/.config/quickshell/reload.sh; (waybar >/dev/null 2>&1 &)
-```
-
 ## Probar sin tocar el escritorio
 ```
 qs -p ~/.config/quickshell/TopShell.qml
 ```
 
-## `~/.config/quickshell-old/`
-Intentos superados, fuera del directorio de carga: `Bar.qml` (barra flotante
-original), `MenuBar.qml` + `Notch.qml` + `NotchState.qml` + `NotchBar.qml` (la
-versión de dos ventanas, que se veía como dos piezas distintas), `Osd.qml` y
-`Notifications.qml` (los popups sueltos, ya cubiertos por el modo `notif`) y
-`Sidebar.qml` (el dashboard de `Super+N`, absorbido por el centro de control;
-ese atajo pasó a alternar notch/isla).
-También hubo una versión con franja negra maciza de la que colgaba el notch:
-descartada, el bulto sobresalía de la banda reservada y estorbaba encima de las
-ventanas.
+## Lo que se probó antes
+Hubo una versión de **dos ventanas** —barra y notch por separado— y se veía
+como dos piezas distintas en vez de como una; de ahí que hoy todo salga de una
+sola superficie. Los popups sueltos de OSD y notificaciones se absorbieron en el
+modo `notif` del propio notch, y el dashboard de `Super+N` en el centro de
+control (ese atajo pasó a alternar notch/isla). Y hubo una versión con franja
+negra maciza de la que colgaba el notch: descartada, el bulto sobresalía de la
+banda reservada y estorbaba encima de las ventanas.
 
 ### Volver a swaync
 swaync esta ENMASCARADO desde el 2026-08-05: se activaba solo por D-Bus cada vez
