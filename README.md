@@ -15,6 +15,9 @@ lives on your windows.
 [![Quickshell](https://img.shields.io/badge/Quickshell-2F4F6F?style=for-the-badge)](https://quickshell.org)
 [![GPL-3.0](https://img.shields.io/badge/GPL--3.0-A42E2B?style=for-the-badge&logo=gnu&logoColor=white)](LICENSE)
 
+**[▶ Watch the 1:48 tour on YouTube](https://youtu.be/-ZAYRcpiIXg)**<br>
+<sub>If you like it, a ⭐ helps other people find it.</sub>
+
 [The notch](#the-notch-is-the-interface) ·
 [Colours](#change-the-wallpaper-change-everything) ·
 [Panels](#everything-unfolds-out-of-it) ·
@@ -28,12 +31,6 @@ lives on your windows.
 </div>
 
 ![The desktop: the notch at the top with the time, a terminal greeting with a pokémon, the file manager, and the team's leader standing on the bottom edge](media/hero.jpg)
-
-<div align="center">
-
-**[Watch the tour on YouTube](https://www.youtube.com/watch?v=4Vdd0ckEusA)**
-
-</div>
 
 ## The notch is the interface
 
