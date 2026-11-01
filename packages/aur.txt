@@ -1,4 +1,7 @@
-adw-gtk-theme-git
+# AUR packages. A line can name alternatives, `a|b`, as in pacman.txt: any one
+# already installed satisfies it (the repos' adw-gtk-theme, or Code - OSS, are
+# kept rather than fought over).
+adw-gtk-theme-git|adw-gtk-theme
 bibata-cursor-theme
 cbonsai
 google-chrome
@@ -18,7 +21,7 @@ ttf-twemoji
 tty-clock
 unimatrix-git
 vesktop
-visual-studio-code-bin
+visual-studio-code-bin|code
 wl_shimeji-git
 xdg-desktop-portal-luminous
 yay

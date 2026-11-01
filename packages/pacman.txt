@@ -1,3 +1,16 @@
+# A line can name ALTERNATIVES, separated by `|`: `tealdeer|tldr`. If any of
+# them is already installed the line is satisfied and nothing is added; only
+# when none is does the first one go in. That is for pairs that cannot live
+# together, where the one a machine already has is its owner's choice:
+# Omarchy ships tldr, and asking for tealdeer there used to cancel the whole
+# pacman transaction. (`jdk-openjdk|java-environment`: any JDK will do.)
+#
+# No kernel, bootloader or microcode here, on purpose. `linux`, `grub`,
+# `os-prober` and `efibootmgr` used to be listed, which put a second kernel and
+# its initramfs into /boot on CachyOS (linux-cachyos) or on an lts-only
+# machine, and added a bootloader nobody asked for. Those are the choices you
+# made when you installed Arch; the installer does not revisit them.
+#
 # python-dbus and python-gobject are needed by quickshell/scripts/bt-agent.py,
 # which this repo installs AND enables as a service. They are listed here
 # explicitly because nothing else asks for them: they used to be dragged in as
@@ -25,11 +38,10 @@ cli11
 cliphist
 cmatrix
 discord
-docker
+docker|podman-docker
 dosfstools
 duf
 dust
-efibootmgr
 expac
 eza
 fastfetch
@@ -45,7 +57,6 @@ glow
 gnome-keyring
 gping
 grim
-grub
 gst-libav
 gst-plugin-pipewire
 gvfs-mtp
@@ -62,7 +73,7 @@ impala
 imv
 iwd
 java-hamcrest
-jdk-openjdk
+jdk-openjdk|java-environment
 jq
 junit
 kitty
@@ -72,8 +83,8 @@ libaio
 libappindicator
 libgirepository
 libgsf
+libnotify
 libpulse
-linux
 linux-firmware
 loupe
 lshw
@@ -88,14 +99,13 @@ nodejs
 noto-fonts
 noto-fonts-cjk
 onefetch
-os-prober
 otf-font-awesome
 pacman-contrib
 pavucontrol
 pipewire
 pipewire-alsa
-pipewire-jack
-pipewire-pulse
+pipewire-jack|jack2
+pipewire-pulse|pulseaudio
 pkgfile
 playerctl
 procs
@@ -104,6 +114,7 @@ python-dbus
 python-gobject
 python-matplotlib
 python-pandas
+python-pillow
 python-typing_extensions
 qt5ct
 qt6-quicktimeline
@@ -120,7 +131,7 @@ seatd
 slurp
 sof-firmware
 tailscale
-tealdeer
+tealdeer|tldr
 tesseract-data-spa
 thunar
 thunar-archive-plugin

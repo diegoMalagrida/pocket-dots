@@ -109,18 +109,34 @@ Needs **Arch** and **Hyprland 0.56+** — the live config is `hyprland.lua`, not
 | `./install.sh -n` | print the whole plan, change nothing |
 | `./install.sh --lang en` | pick the language; without it, it follows your locale (Spanish for `es_*`, English otherwise) |
 | `./install.sh --copy` | copy the configs instead of symlinking them to the repo |
-| `./install.sh restore` | undo it |
+| `./install.sh restore` | undo it (it lists the backups first; `restore <backup>` picks one) |
 | `./diagnose` | what is missing or will not start |
 
-**What it touches.** It installs the packages in `packages/`, building `yay`
-first if it is missing, and lays `home/` into your `$HOME` as symlinks to the
-repo; everything it replaces is saved to `~/.dotfiles-backup/` first. Three
-steps write outside `$HOME`, and each asks for `sudo` first: `system` copies
-`system/etc/` into `/etc`, `sddm` installs the login theme and `spicetify`
-themes Spotify. It also detects your graphics card and installs its drivers,
-enables the services in `packages/services.txt`, makes zsh your shell and
-downloads the pokémon sprites, about 270 MB, which are not in git. It never
-touches `/boot`, the bootloader or your partitions.
+**What it touches.** It brings the system up to date (`pacman -Syu`) and
+installs the packages in `packages/`, building `yay` first if there is no AUR
+helper. It lays `home/` into your `$HOME` as symlinks to the repo (or copies,
+with `--copy`); everything it replaces is saved to `~/.dotfiles-backup/`
+first, and running it again changes only what changed. `system` copies
+`system/etc/` into `/etc`, keeping each original as `<file>.before-dotfiles`.
+It also detects your graphics card and installs its drivers, enables the
+services in `packages/services.txt`, makes zsh your shell and downloads the
+pokémon sprites, about 270 MB, which are not in git. It asks for `sudo` once,
+at the start. It never installs a kernel, a bootloader or microcode, and never
+edits `/boot`, the bootloader or your partitions: the only thing that can land
+in `/boot` is what your own kernel's upgrade writes during `pacman -Syu`.
+
+**What it leaves as it found it.** A package that collides with one you
+already have (`tldr` and `tealdeer`, PulseAudio and `pipewire-pulse`, an
+installed NVIDIA module and `nvidia-open`) is left out and the one you have
+stays; so is a name the repos no longer carry. If `power-profiles-daemon` or
+`tuned` already manages power, TLP is not installed; if iwd or
+systemd-networkd runs the network, NetworkManager is not enabled; if ufw or
+firewalld is on, the firewall in `system/` is not installed, and if an SSH
+server runs, it asks before letting SSH in only over Tailscale. The Wi-Fi
+country and the reflector mirrors follow your time zone, and are left alone on
+derivatives that manage their own mirrors. Everything left out is listed at
+the end, and the whole run is logged to `~/.local/state/pocket-dots/install.log`;
+it exits non-zero when something the desktop needs failed.
 
 **First steps.** Run `gh auth login`, so the team can count your commits. Then
 <kbd>Super</kbd> <kbd>Shift</kbd> <kbd>W</kbd> picks a wallpaper and
@@ -129,6 +145,36 @@ touches `/boot`, the bootloader or your partitions.
 It is made on a laptop with Intel graphics. [On a machine that is not this
 laptop](home/.config/quickshell/README.en.md#on-a-machine-that-is-not-this-laptop)
 says what changes.
+
+## Update
+
+If you already run the desktop, update it in place without redoing the full
+install:
+
+```sh
+./update.sh
+```
+
+It pulls the latest commits as a fast-forward. What the desktop rewrites by
+itself in the repo (pywal's files, `quickshell-rice.json`) and the paths
+`install.sh` adapted to your home are carried across the pull with your
+version kept; it only stops when the new commits change a file you edited
+by hand, and then it says which and how to take the update without losing the
+edit. It installs only the packages *added* to `packages/` since last time
+(after asking, because that means `pacman -Syu` first) and never puts back one
+you removed. In `$HOME` it updates only the copied files you never touched:
+one you edited is kept, with the new version next to it as `<file>.new`; one
+you deleted stays deleted; one the repo dropped goes if you never edited it.
+Everything it replaces goes to `~/.dotfiles-backup/<date>-update.*`, together
+with the commit it started from. Each settings migration runs once.
+Hyprland is reloaded, and Quickshell if it was running. Each run is logged to
+`~/.local/state/pocket-dots/update.log`.
+
+| | |
+|---|---|
+| `./update.sh -n` | show the full update plan, new commits included, without changing anything (it does fetch) |
+| `./update.sh --no-packages` | sync configs and reload without calling `pacman` |
+| `./update.sh restore` | undo the last update: its files, and the repo back to where it was if nothing moved it since; a file you edited after the update is kept in a backup, never overwritten |
 
 ## Keys
 
@@ -187,6 +233,7 @@ Google Sans Flex package is OFL-1.1, the yazi flavour is MIT, and the
 ## Credits
 
 - [Impasto](https://github.com/andreumassanet/impasto) — GPL-3.0
+- [43PR/dotfiles](https://github.com/43PR/dotfiles) — MIT
 - caelestia · end-4 / illogical-impulse
 - [surface-dots](https://github.com/snes19xx/surface-dots) · Tide-island
 - [wl_shimeji](https://github.com/CluelessCatBurger/wl_shimeji) · [Eevee by cachomon](https://sprites.shimejis.xyz/directory/pokemon-eevee-by-cachomon)

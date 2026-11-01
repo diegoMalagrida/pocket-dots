@@ -18,12 +18,17 @@ system		reflector.timer
 # Without this line they sit on disk and nobody ever starts them, which is the
 # same as not having the fix at all. The .path is the one to enable: it is what
 # watches TLP and re-runs the .service every time TLP undoes the setting.
-# Safe on a machine that is not this laptop: every ExecStart in the .service
-# is '-' prefixed, so a device that is not there does not fail the unit. Two
-# of the three name the Intel VMD domain (10000:...), which exists nowhere
-# else; the third, 0000:00:0e.0, is an ordinary PCI address that another
-# board may well have, and there it would simply pin that device's runtime
-# PM on.
+# Every ExecStart in the .service is '-' prefixed, so a device that is not
+# there does not fail the unit. Two of the three name the Intel VMD domain
+# (10000:...); the third, 0000:00:0e.0, is an ordinary PCI address that
+# another board may well have, where it would pin that device's runtime PM on.
+# So install.sh enables it only on a machine that has a VMD domain.
+#
+# A few other lines here are skipped where the machine already made the
+# choice (see service_skip_reason in install.sh): NetworkManager where iwd or
+# systemd-networkd runs the network, nftables next to ufw or firewalld, tlp
+# next to power-profiles-daemon or tuned, reflector.timer where the distro
+# manages its own mirrors, sddm where another login screen is enabled.
 system		nvme-vmd-runtime-pm.path
 
 # --- user ---

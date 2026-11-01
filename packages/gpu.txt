@@ -1,4 +1,4 @@
-# Video (and microcode) packages, picked at install time by the `graphics` phase
+# Video packages, picked at install time by the `graphics` phase
 # of install.sh. This file is NOT installed wholesale: only the lines whose
 # vendor matches the hardware actually found in the machine.
 #
@@ -15,7 +15,7 @@
 #
 # Format:  <vendor>  <arch>  <package>
 #
-#   vendor = common | intel | amd | nvidia | intel-cpu | amd-cpu
+#   vendor = common | intel | amd | nvidia
 #   arch   = 64  ->  always
 #            32  ->  lives in [multilib]; only installed if [multilib] is
 #                    enabled, which is something the `system` phase does. The
@@ -64,8 +64,11 @@ amd         32  lib32-vulkan-radeon
 #
 # `nvidia` (the old closed kernel module package) NO LONGER EXISTS in the Arch
 # repos -- nvidia-open replaces it outright. Do not put it back in this file.
-# nvidia-open is built against the plain `linux` kernel; on linux-lts/zen/etc.
-# install.sh swaps it for `nvidia-open-dkms` plus the matching headers.
+# nvidia-open is built against the plain `linux` kernel. install.sh settles the
+# module per machine: one already installed (nvidia-open-dkms, CachyOS's
+# linux-cachyos-nvidia-open...) stays; with other kernels it uses their own
+# prebuilt module if the repos have one, or nvidia-open-dkms plus the headers
+# of every installed kernel.
 nvidia      64  nvidia-open
 nvidia      64  nvidia-utils
 # The EGL platform for Wayland. Hyprland and Xwayland both go through it on
@@ -77,10 +80,11 @@ nvidia      64  libva-nvidia-driver
 nvidia      32  lib32-nvidia-utils
 
 # --------------------------------------------------------------- CPU microcode
-# Nothing to do with the GPU, same class of bug: intel-ucode was in pacman.txt
-# unconditionally, so an AMD machine got a package that does nothing and missed
-# the one it needs. Note that microcode only takes effect once the bootloader
-# loads it as an initrd, and this installer never writes to /boot -- it installs
-# the right package and tells you the command to regenerate grub.cfg yourself.
-intel-cpu   64  intel-ucode
-amd-cpu     64  amd-ucode
+# NOT installed any more, and kept here only so nobody adds it back by habit.
+# A microcode package drops an image into /boot that the bootloader (or the
+# initramfs) has to load, and this installer leaves /boot to you. The graphics
+# phase still checks for the one your CPU needs (intel-ucode or amd-ucode) and
+# tells you when it is missing. (It used to be intel-ucode in pacman.txt for
+# every machine: an AMD one got a package that does nothing.)
+#intel-cpu   64  intel-ucode
+#amd-cpu     64  amd-ucode
