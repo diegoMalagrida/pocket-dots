@@ -45,6 +45,51 @@
 
 **/.gitconfig.local
 
+# RustDesk keeps the machine's key pair, its ID, the permanent password and
+# the screen-capture permission in these files: anyone holding them can
+# connect to this laptop. No pattern above catches them (the capture token
+# lives in a key, not in the file name), hence the whole directory.
+# RustDesk is not part of the rice either: it is installed by hand.
+home/.config/rustdesk/
+**/RustDesk*.toml
+home/.local/share/logs/RustDesk/
+**/[Rr]ust[Dd]esk/
+
+# The rest of the places where programs keep keys, sessions or passwords and
+# that no pattern above catches by name: agent logins (.credentials.json has a
+# leading dot, so **/credentials.json misses it), the ssh keys that are not
+# rsa or ed25519, the machine's own ssh and wifi secrets if /etc is ever
+# copied into system/, VPN state, the face model of the login screen, and the
+# browser and Spotify sessions.
+**/.credentials.json
+**/.claude.json
+**/auth.json
+**/.codex/
+**/id_ecdsa*
+**/id_dsa*
+**/ssh_host_*
+**/system-connections/
+**/*.psk
+**/wpa_supplicant*.conf
+**/wireguard/
+**/*.ovpn
+**/tailscaled.state
+**/etc/shadow*
+**/etc/gshadow*
+**/howdy/models/
+**/.face
+**/.face.icon
+**/keyrings/
+**/kwalletd/
+**/.env.*
+**/.pgpass
+**/.aws/
+**/.kube/
+**/google-chrome/
+**/chromium/
+**/spotify/Users/
+**/obs-studio/basic/profiles/*/service.json
+
 home/.config/spotify/prefs
 home/.config/gh/
 **/sessionData/
