@@ -141,12 +141,63 @@ without it, one drag spawns a hundred processes.
   `StyledText`, `PillButton`, `Card`.
 - **Design**: `Colors` (pywal + semantic), `Appearance` (tokens), `Icons`.
 - **Entrypoint**: `shell.qml` → `TopShell` + `SettingsWindow` + `MediaControls`
-  + `WallpaperPicker`. (The fullscreen `Overview` was retired on 6 Aug 2026: it
+  + `WallpaperPicker` + `WallpaperFx`. (The fullscreen `Overview` was retired on 6 Aug 2026: it
   is now a face of the notch, `OverviewPanel.qml`.) Autostart:
   `quickshell.service` (user unit, supervised; NOT `exec-once` any more). To
   restart the shell use `systemctl --user restart quickshell`, not `pkill`:
   systemd would relaunch it anyway and you would end up with two startups
   fighting each other.
+
+## Wallpaper transitions (`WallpaperFx.qml`)
+
+Since 2026-10-30 the shell draws them, not awww. awww's own (fade, wipe, grow,
+wave… picked at random) "looked like PowerPoint 2013". There are two now, with a
+shader of our own (`shaders/wallfx.frag`) and the maps `~/.local/bin/wallfx`
+makes.
+
+- **Contagion**, for any wallpaper: 6 to 12 colonies land at random places and moments and eat
+  through the old wallpaper in 4 px cells, with ragged edges (Dijkstra over
+  noise at pixel resolution; on a coarse grid scaled up they
+  came out as round stains). On top, only what keeps it crisp: each cell that
+  has just flipped burns for an instant in the new palette's most vivid colour
+  (the accent can be a cream that vanishes on a cream sky), a thin glow rides
+  the front and now and then a spark jumps ahead. 1.8 s. The maps do not depend
+  on the image: there is a pool of 12 and each one is renewed after use.
+- **Outline**, when the wallpaper has a character, calm ("more nonchalant,
+  less neon", Diego asked after a version that lit it up like a Pokémon
+  evolution): the stage steps back a little, a thin quiet line in the palette's
+  lightest tone draws its outline (two pens from the top), the character fills
+  in from that outline and the rest of the world comes out of it with the same
+  4 px cells as the contagion. No glow, no flash. 2 s.
+
+Every extra effect is scaled by `sin(πt)`: zero at the start and at the end, so
+the hand-over to awww cannot show.
+
+**The character cut-out** is done by BiRefNet (rembg) **on the Intel GPU**
+through OpenVINO: ~3 s per wallpaper, 8-11 s on the CPU (the tower, with no
+Intel GPU, falls back to it). It happens once per wallpaper and is kept in
+`~/.cache/wallfx`. So that a **new wallpaper** has it in time:
+
+1. opening the picker runs `wallfx warm`, which cuts out whatever is missing
+   while you browse the cards;
+2. if you pick one that is not ready yet, `set-wallpaper.sh` waits for it (~8 s,
+   with a notification) before changing the palette, so everything changes at
+   once.
+
+Without the environment (`wallfx instalar` sets it up: venv + model, ~1 GB)
+everything uses contagion.
+
+`set-wallpaper.sh` asks `wallfx elige` which one applies and hands it to the
+shell over IPC (`qs ipc call wallfx play OLD NEW kind map line`). The shell puts
+its layer over awww (Bottom layer, no Hyprland animation: rule
+`sin-anim-wallfx`), switches awww underneath with no transition and, when done,
+gets out of the way: awww is still the wallpaper. If anything fails, awww
+changes on its own with a fade. `qs ipc call wallfx stats` tells how many fps
+the last one ran at (measured on 30 Oct: 60 fps both; the first one after the shell starts hitches ~100 ms while the shader is built).
+
+Wallpapers where the model cuts out something that is not a character (a
+bridge, a building) go in `~/.config/wallfx/sin-perfil`, one per line.
+Durations and curve in `motion-language.md`, step ESCENA.
 
 ## Division of responsibilities
 

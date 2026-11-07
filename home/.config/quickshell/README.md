@@ -140,11 +140,61 @@ deslizador de muestras emite en cada píxel del arrastre y no tiene señal de
   `StyledText`, `PillButton`, `Card`.
 - **Diseño**: `Colors` (pywal + semánticos), `Appearance` (tokens), `Icons`.
 - **Entrypoint**: `shell.qml` → `TopShell` + `SettingsWindow` + `MediaControls`
-  + `WallpaperPicker`. (El `Overview` de pantalla completa se retiró el
+  + `WallpaperPicker` + `WallpaperFx`. (El `Overview` de pantalla completa se retiró el
   6-ago-2026: ahora es una cara del notch, `OverviewPanel.qml`.) Autostart: `quickshell.service` (unidad de
   usuario, supervisada; ya NO `exec-once`). Para reiniciar la shell usa
   `systemctl --user restart quickshell`, no `pkill`: systemd la relanzaria
   igualmente y tendrias dos arranques peleandose.
+
+## Transiciones de fondo (`WallpaperFx.qml`)
+
+Desde el 2026-10-30 las dibuja el shell, no awww. Las de awww (fade, wipe,
+grow, wave… sacadas a suertes) «parecían de PowerPoint 2013». Ahora hay dos,
+con un shader propio (`shaders/wallfx.frag`) y los mapas que hace
+`~/.local/bin/wallfx`.
+
+- **Contagio**, para cualquier fondo: de 6 a 12 colonias brotan en sitios y momentos al azar y se
+  comen el fondo viejo en celdas de 4 px, con bordes deshilachados (Dijkstra
+  sobre ruido a resolución de píxel; en una rejilla gruesa
+  ampliada salían manchas redondas). Encima, solo lo que lo deja nítido: cada
+  celda que acaba de cambiar arde un instante en el color más vivo de la paleta
+  nueva (el acento puede ser un crema que desaparece sobre un cielo crema), un
+  halo fino sigue al frente y alguna chispa salta por delante. 1,8 s. Los mapas
+  no dependen de la imagen: hay 12 en un grupo y cada uno se renueva al usarse.
+- **Perfil**, si el fondo tiene un personaje, tranquilo («más nonchalant,
+  menos neón», pidió Diego tras una versión que lo encendía como una evolución
+  Pokémon): el escenario se aparta un poco, una línea fina y discreta en el tono
+  más claro de la paleta dibuja su contorno (dos plumas desde arriba), el
+  personaje se rellena desde ese contorno y el resto del mundo sale de él con
+  las mismas celdas de 4 px del contagio. Sin brillos ni destellos. 2 s.
+
+Todo efecto extra va multiplicado por `sin(πt)`: vale cero al principio y al
+final, así que el relevo con awww no se ve.
+
+**El recorte del personaje** lo hace BiRefNet (rembg) **en la gráfica Intel**
+con OpenVINO: ~3 s por fondo, 8-11 s en la CPU (la torre, sin Intel, cae ahí
+sola). Se hace una vez por fondo y se guarda en `~/.cache/wallfx`. Para que un
+**fondo nuevo** lo tenga a tiempo:
+
+1. al abrir el selector se lanza `wallfx warm`, que recorta los que falten
+   mientras miras las cartas;
+2. si eliges uno que aún no está, `set-wallpaper.sh` lo espera (~8 s, con una
+   notificación) antes de cambiar la paleta, para que todo cambie a la vez.
+
+Sin el entorno (`wallfx instalar` lo monta: venv + modelo, ~1 GB) todo va con
+contagio.
+
+`set-wallpaper.sh` pregunta a `wallfx elige` cuál toca y se lo pasa al shell
+por IPC (`qs ipc call wallfx play VIEJO NUEVO tipo mapa línea`). El shell pone
+su capa encima de awww (capa Bottom, sin animación de Hyprland: regla
+`sin-anim-wallfx`), cambia awww por debajo sin transición y, al acabar, se
+quita: awww sigue siendo el fondo. Si algo falla, awww cambia solo con un
+fundido. `qs ipc call wallfx stats` dice a cuántos fps fue la última (medido el
+30-oct: 60 fps las dos; la primera tras arrancar el shell da un tirón de ~100 ms al montar el shader).
+
+Los fondos en los que el modelo recorta algo que no es un personaje (un puente,
+un edificio) se apuntan en `~/.config/wallfx/sin-perfil`, uno por línea.
+Duraciones y curva en `motion-language.md`, escalón ESCENA.
 
 ## Reparto de responsabilidades
 

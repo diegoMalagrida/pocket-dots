@@ -52,6 +52,18 @@ Scope {
         }
     }
     function refreshThumbs() { thumbsProc.running = false; thumbsProc.running = true }
+
+    // Opening the picker is the moment a wallpaper added to the folder gets
+    // noticed (wall-thumbs.sh makes its card right now), so it is also the
+    // moment to cut out its character for the outline transition (~7 s on
+    // the GPU), while you browse. If you choose it before that is done,
+    // set-wallpaper.sh waits for it. Already-prepared wallpapers cost nothing,
+    // and only one runs at a time.
+    Process {
+        id: warmProc
+        command: [root.home + "/.local/bin/wallfx", "warm"]
+    }
+    function warmTransitions() { if (!warmProc.running) warmProc.running = true }
     Component.onCompleted: root.refreshThumbs()
 
     GlobalShortcut { name: "wallpaper"; description: "Wallpaper picker"; onPressed: root.open = !root.open }
@@ -101,6 +113,7 @@ Scope {
                     if (!root.open) return
                     stage.forceActiveFocus()
                     root.refreshThumbs()
+                    root.warmTransitions()
                 }
             }
 

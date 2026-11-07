@@ -14,4 +14,5 @@ Scope {
     SettingsWindow {}   // Settings app (floating window, launched from the notch)
     MediaControls {}
     WallpaperPicker {}
+    WallpaperFx {}      // wallpaper transitions, drawn here instead of by awww
 }

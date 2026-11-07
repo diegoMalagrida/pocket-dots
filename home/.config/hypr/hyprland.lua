@@ -826,6 +826,15 @@ hl.layer_rule({
     no_anim = true,
 })
 
+-- wallfx: the wallpaper transition (WallpaperFx.qml). It fades itself in over
+-- a copy of what awww is showing and only then switches awww underneath; a
+-- compositor fade on top of that would let the switch show through.
+hl.layer_rule({
+    name    = "sin-anim-wallfx",
+    match   = { namespace = "^(quickshell:wallfx)$" },
+    no_anim = true,
+})
+
 -- There was an "overview-funde" rule here (fade on the quickshell:overview
 -- layer, so the black veil of the full-screen overview would not appear all at
 -- once). Retired on 14 Sep 2026, and it was overdue: the full-screen overview

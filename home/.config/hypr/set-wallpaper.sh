@@ -59,6 +59,15 @@ if exec 9>"${XDG_RUNTIME_DIR:-/tmp}/set-wallpaper.lock" 2>/dev/null; then
     flock 9
 fi
 
+# Which transition this wallpaper gets (WallpaperFx.qml, see further down). For
+# a prepared wallpaper the answer is instant; for a NEW one `wallfx elige` cuts
+# its character out right now (~8 s, and it says so with a notification). It
+# is waited for HERE, before pywal, on purpose: otherwise the bar and the
+# terminals would wear the new colours over the old wallpaper while it waits.
+# This way the whole desktop changes at once, as always.
+eleccion=""
+[ -x "$HOME/.local/bin/wallfx" ] && eleccion="$("$HOME/.local/bin/wallfx" elige "$IMG" 2>/dev/null 9>&-)"
+
 # --saturate 0.5: raises the palette's saturation for more vivid colours (0.4 gentle, 0.6 strong, remove it for the original)
 # $PALETA is $IMG unless --paleta-de was passed (pokémon mode).
 if ! wal -i "$PALETA" --saturate 0.5 -n -q -s -t; then
@@ -184,10 +193,27 @@ fi
 ~/.config/hypr/scripts/spicetify-pywal.sh >/dev/null 2>&1 9>&- &
 
 # The wallpaper is visual; an awww failure does not invalidate the freshly generated palette.
-# apply ilyamiro style: random transition + from the centre + 144fps + 1s
-awww_transitions=(simple fade left right top bottom wipe grow center outer random wave)
-awww_rt="${awww_transitions[RANDOM % ${#awww_transitions[@]}]}"
-awww img "$IMG" --transition-type "$awww_rt" --transition-pos 0.5,0.5 --transition-fps 144 --transition-duration 1 >/dev/null 2>&1 || awww img "$IMG" >/dev/null 2>&1 || true
+#
+# The transition is the shell's, not awww's (WallpaperFx.qml, since 2026-10-30:
+# awww's random fade/wipe/grow/wave "look like PowerPoint 2013"). `wallfx elige`
+# says which one this wallpaper gets -the outline of its character if it has
+# one, contagion from the centre if not- and the shell draws it, switching awww
+# underneath by itself. It needs the image awww is showing NOW, to start from
+# it. If anything is missing (no shell, no wallfx, awww showing a colour), awww
+# changes on its own with a plain fade, as before but without the lottery.
+OLD_IMG="$(awww query 2>/dev/null | sed -n 's/.*currently displaying: image: //p' | head -n1)"
+wallfx_ok=""
+if [ -n "$OLD_IMG" ] && [ -f "$OLD_IMG" ] && [ -n "$eleccion" ]; then
+  read -r wfx_kind wfx_map wfx_line <<<"$eleccion"
+  [ "$(qs ipc call wallfx play "$OLD_IMG" "$IMG" "$wfx_kind" "$wfx_map" "${wfx_line:-$wfx_map}" 2>/dev/null)" = ok ] \
+    && wallfx_ok=1
+fi
+[ -n "$wallfx_ok" ] || awww img "$IMG" --transition-type fade --transition-duration 0.5 >/dev/null 2>&1 \
+  || awww img "$IMG" >/dev/null 2>&1 || true
+# The outline map of a wallpaper nobody has seen yet (a new download) is made
+# here, in the background and at low priority, for the NEXT time: cutting a
+# character out takes ~10 s, and nobody waits for that. Cached ones cost nothing.
+[ -x "$HOME/.local/bin/wallfx" ] && nice -n 15 "$HOME/.local/bin/wallfx" warm >/dev/null 2>&1 9>&- &
 
 # Reloads of running daemons.
 # Quickshell (bar + notch) does NOT need a reload: Colors.qml watches

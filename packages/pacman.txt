@@ -113,6 +113,7 @@ python-colorthief
 python-dbus
 python-gobject
 python-matplotlib
+python-numpy
 python-pandas
 python-pillow
 python-typing_extensions

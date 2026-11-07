@@ -14,6 +14,8 @@ lives on your windows.
 [![Hyprland](https://img.shields.io/badge/Hyprland_0.56+-58E1FF?style=for-the-badge&logo=hyprland&logoColor=black)](https://hypr.land)
 [![Quickshell](https://img.shields.io/badge/Quickshell-2F4F6F?style=for-the-badge)](https://quickshell.org)
 [![GPL-3.0](https://img.shields.io/badge/GPL--3.0-A42E2B?style=for-the-badge&logo=gnu&logoColor=white)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/diegoMalagrida/pocket-dots?style=for-the-badge&logo=github&color=E3B341&labelColor=24292F)](https://github.com/diegoMalagrida/pocket-dots/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/diegoMalagrida/pocket-dots?style=for-the-badge&logo=git&logoColor=white&color=3FB950&labelColor=24292F)](https://github.com/diegoMalagrida/pocket-dots/commits/main)
 
 **[▶ Watch the 1:48 tour on YouTube](https://youtu.be/-ZAYRcpiIXg)**<br>
 <sub>If you like it, a ⭐ helps other people find it.</sub>
@@ -24,7 +26,8 @@ lives on your windows.
 [The team](#a-team-of-six) ·
 [Install](#install) ·
 [Keys](#keys) ·
-[The long version](#the-long-version)
+[The long version](#the-long-version) ·
+[Star history](#star-history)
 
 <img src="media/pocket-banner.svg" width="100%" alt="The notch at the top of the screen opens to show the name, POCKET, in pixel capitals, while the wallpaper changes from one painting to another; the letters and the bar's colours follow it">
 
@@ -60,6 +63,14 @@ The picker unfolds from the notch with <kbd>Super</kbd> <kbd>Shift</kbd>
 <kbd>W</kbd>, with the wallpapers in your folder or from the web.
 
 <img src="media/wallpaper.webp" width="100%" alt="The wallpaper picker: the paintings as tilted cards in a row, the chosen one in front">
+
+The change itself is drawn by the shell, not by awww. A wallpaper with a
+character gets its outline drawn first, and the rest of the world grows out of
+it; one without spreads in as pixel colonies. The outline is cut out once per
+wallpaper with BiRefNet, and `wallfx instalar` sets that up (about 1 GB).
+Without it, every wallpaper gets the colonies.
+
+<img src="media/transitions.webp" width="100%" alt="The wallpaper picker opens over a snowy street; the chosen wallpaper comes in by drawing its character's outline first, the next one grows out of the outline of a wave, and a sunset spreads in as pixel colonies">
 
 ## Everything unfolds out of it
 
@@ -205,6 +216,7 @@ Settings. The ones to learn first:
 | The notch, the panels, the launcher, Settings | Quickshell | `home/.config/quickshell` |
 | Colours | pywal | `home/.config/hypr/set-wallpaper.sh`, `home/.config/wal` |
 | Wallpaper | awww | `home/.config/hypr/awww-start.sh` |
+| Wallpaper transitions | Quickshell and a shader, BiRefNet for the outline | `home/.config/quickshell/WallpaperFx.qml`, `home/.local/bin/wallfx` |
 | Lock screen | hyprlock | `home/.config/hypr/hyprlock.conf` |
 | Login | SDDM, with the hyprisland theme | `home/.config/sddm-hyprisland` |
 | Terminal | kitty, zsh with powerlevel10k | `home/.config/kitty`, `home/.config/zshrc.d` |
@@ -253,3 +265,15 @@ public domain at The Met.
 
 Pokemon is a trademark of Nintendo, Creatures Inc. and GAME FREAK inc. This is a
 personal desktop configuration and is not affiliated with them.
+
+## Star history
+
+<a href="https://www.star-history.com/#diegomalagrida/pocket-dots&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=diegomalagrida/pocket-dots&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=diegomalagrida/pocket-dots&type=date&legend=top-left" />
+    <img width="100%" alt="Star history of pocket-dots" src="https://api.star-history.com/svg?repos=diegomalagrida/pocket-dots&type=date&legend=top-left" />
+  </picture>
+</a>
+
+<img width="100%" alt="Repobeats: the repo's commits, pushes, issues and pull requests over the last 30 days" src="https://repobeats.axiom.co/api/embed/c24b542f4f66ad5eb6c15dbfd1ee19cc9dcadc72.svg">

@@ -1,0 +1,549 @@
+#!/usr/bin/env python3
+"""wallfx — the maps behind the wallpaper transitions that WallpaperFx.qml draws.
+
+A transition is a shader that, pixel by pixel, decides WHEN the new wallpaper
+arrives. That "when" is a map, and this script makes the maps; the shader only
+reads them. Two kinds:
+
+  CONTAGION (any wallpaper). A handful of colonies land at random places and
+  moments and eat through the old wallpaper along a noise field, with ragged,
+  crisp 4 px edges. It is Dijkstra over that noise, and it does not depend on
+  the image, so a small pool is made once and each map is renewed after use.
+
+  OUTLINE (wallpapers with a character). The character is cut out of the NEW
+  wallpaper (BiRefNet, through rembg), and the map says three things: how far
+  each pixel is from its silhouette (to draw the outline and fill it inwards),
+  where along the outline each point is (so the line is drawn like a pen
+  stroke), and in what order the rest arrives (outwards from the character).
+  It is per image, so it is cached by path, size and date.
+
+    wallfx spread                          a contagion map and its smooth twin (from the pool)
+    wallfx perfil IMG                      path to IMG's outline map; exit 1 if
+                                           IMG has no clear character
+    wallfx warm [DIR]                      precomputes the outline maps of a folder
+    wallfx elige NEW                       "perfil <map> <line>" or "contagio <map> <smooth>"
+    wallfx instalar                        sets up the cut-out (venv + model, ~1 GB)
+
+The cut-out needs ~/.local/share/wallfx/venv (rembg + onnxruntime + opencv) and
+the birefnet-general-lite model; without them, every wallpaper gets contagion.
+"""
+import hashlib
+import heapq
+import json
+import os
+import random
+import sys
+
+HOME = os.path.expanduser("~")
+CACHE = os.path.join(HOME, ".cache", "wallfx")
+VENV = os.path.join(HOME, ".local", "share", "wallfx")
+VENV_PY = os.path.join(VENV, "venv", "bin", "python")
+WALLS = os.path.join(HOME, "Pictures", "wallpapers")
+
+# The contagion grid: 240x135 cells, i.e. 8 px cells on a 1920x1080 screen:
+# chunky enough to read as pixel art at a glance (6 px looked like a soft
+# edge). The shader stretches it to whatever screen it is on.
+GW, GH = 240, 135
+POOL = 12           # contagion maps in the pool; one is picked at random each time
+FIELD_MAX = 1280    # long side of an outline map (the shader interpolates it)
+SD_RANGE = 16.0     # signed distance stored in +-16 map pixels around the outline
+WIDE = 48.0         # the wide outside distance (the glow), in map pixels
+
+
+def tr(es, en):
+    """The rice's language layer, as in poke-theme."""
+    try:
+        with open(os.path.join(HOME, ".config", "quickshell-rice.json"), encoding="utf-8") as f:
+            return en if json.load(f).get("language") == "en" else es
+    except (OSError, ValueError, AttributeError):
+        return es
+
+
+def _reexec_in_venv():
+    """The cut-out lives in its own venv. If this python lacks it, hand over."""
+    if sys.executable != VENV_PY and os.path.exists(VENV_PY):
+        os.execv(VENV_PY, [VENV_PY, os.path.abspath(__file__), *sys.argv[1:]])
+
+
+# ───────────────────────────── contagion ─────────────────────────────
+
+def _value_noise(rng, w, h, scale):
+    import numpy as np
+    nx, ny = int(w / scale) + 3, int(h / scale) + 3
+    lat = rng.random((ny, nx))
+    xs = np.arange(w) / scale
+    ys = np.arange(h) / scale
+    ix, iy = xs.astype(int), ys.astype(int)
+    fx, fy = xs - ix, ys - iy
+    fx, fy = fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy)
+    top = lat[iy][:, ix] * (1 - fx) + lat[iy][:, ix + 1] * fx
+    bot = lat[iy + 1][:, ix] * (1 - fx) + lat[iy + 1][:, ix + 1] * fx
+    return top * (1 - fy)[:, None] + bot * fy[:, None]
+
+
+def _blur(a, sigma):
+    """Separable Gaussian in numpy (the contagion maps are made with the system
+    python, which has no opencv)."""
+    import numpy as np
+    r = int(3 * sigma) + 1
+    x = np.arange(-r, r + 1)
+    k = np.exp(-x * x / (2.0 * sigma * sigma))
+    k /= k.sum()
+    a = np.pad(a, r, mode="edge")
+    a = sum(k[i] * a[:, i:i + a.shape[1] - 2 * r] for i in range(2 * r + 1))
+    a = sum(k[i] * a[i:i + a.shape[0] - 2 * r, :] for i in range(2 * r + 1))
+    return a
+
+
+def _rgb16(v, extra=None):
+    """A 0..1 field as 16 bits in G (high) and B (low), so that R stays free.
+    No alpha channel on purpose: Qt premultiplies textures that have one and
+    would wreck the numbers."""
+    import numpy as np
+    q = np.clip(v * 65535.0 + 0.5, 0, 65535).astype(np.uint16)
+    rgb = np.zeros(v.shape + (3,), np.uint8)
+    if extra is not None:
+        rgb[..., 0] = extra
+    rgb[..., 1] = q >> 8
+    rgb[..., 2] = q & 255
+    return rgb
+
+
+_STEPS = [(-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
+          (-1, -1, 1.4142), (1, -1, 1.4142), (-1, 1, 1.4142), (1, 1, 1.4142)]
+
+
+def _arrival(cost, seeds, GW=GW, GH=GH):
+    """Dijkstra over a GW x GH cost grid from (index, start time) seeds."""
+    INF = float("inf")
+    arrival = [INF] * (GW * GH)
+    heap = []
+    for i, t0 in seeds:
+        arrival[i] = t0
+        heap.append((t0, i))
+    heapq.heapify(heap)
+    while heap:
+        t, i = heapq.heappop(heap)
+        if t != arrival[i]:
+            continue
+        x, y = i % GW, i // GW
+        ci = cost[i]
+        for dx, dy, d in _STEPS:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < GW and 0 <= ny < GH:
+                j = ny * GW + nx
+                cand = t + (ci + cost[j]) * 0.5 * d
+                if cand < arrival[j]:
+                    arrival[j] = cand
+                    heapq.heappush(heap, (cand, j))
+    return arrival
+
+
+def _ranked(arrival, shape=(GH, GW)):
+    """Arrival times ranked to 0..65535, so that the covered AREA grows evenly:
+    at 30 % of the transition, 30 % of the screen is new."""
+    import numpy as np
+    a = np.array(arrival)
+    rank = np.empty(a.size)
+    rank[np.argsort(a, kind="stable")] = np.arange(a.size)
+    return (rank / (a.size - 1) * 65535).astype(np.uint16).reshape(shape)
+
+
+def _noise3(rng):
+    k = GW / 160.0                       # the scales were tuned on a 160-cell grid
+    return (0.52 * _value_noise(rng, GW, GH, rng.uniform(18, 65) * k)
+            + 0.30 * _value_noise(rng, GW, GH, rng.uniform(7, 20) * k)
+            + 0.18 * _value_noise(rng, GW, GH, rng.uniform(2, 6) * k))
+
+
+def contagion_map(seed):
+    """6-12 colonies landing at random places and random moments, each eating
+    through the old wallpaper along a noise field. It runs at the size of the
+    pixels themselves (480x270: 4 px cells on a 1080p screen) with per-cell
+    grain, which is what makes the fronts ragged and full of tendrils; done on
+    a coarser grid and scaled up, the colonies came out as round stains.
+    Ranked by area."""
+    import numpy as np
+    w, h = GW * 2, GH * 2
+    rng = np.random.default_rng(seed)
+    n = (0.52 * _value_noise(rng, w, h, rng.uniform(18, 65))
+         + 0.30 * _value_noise(rng, w, h, rng.uniform(7, 20))
+         + 0.18 * _value_noise(rng, w, h, rng.uniform(2, 6)))
+    cost = 0.12 + np.exp(rng.uniform(5, 9) * (n - 0.5)) + rng.uniform(0.15, 0.65) * rng.random((h, w))
+    cost = cost.ravel().tolist()
+    seeds = []
+    for _ in range(int(rng.integers(6, 13))):
+        x, y = int(rng.uniform(0.06, 0.94) * w), int(rng.uniform(0.08, 0.92) * h)
+        seeds.append((y * w + x, float(rng.uniform(0, (w * h) ** 0.5 * 0.12))))
+    return _ranked(_arrival(cost, seeds, w, h), (h, w))
+
+
+def _write_pair(path, liso, a):
+    """A contagion map (R high, G low, cell by cell) and its smooth twin,
+    blurred (G high, B low), for the soft glow that rides the front."""
+    import numpy as np
+    from PIL import Image
+    h, w = a.shape
+    rgb = np.zeros((h, w, 3), np.uint8)
+    rgb[..., 0] = a >> 8
+    rgb[..., 1] = a & 255
+    smooth = _blur(a.astype(np.float64) / 65535.0, 2.5)
+    # A temporary name of its own: the picker's warm-up, a change and a renewal
+    # can write the same slot at once, and with a shared one the second
+    # replace found its file already gone and the whole command died.
+    for dest, arr in ((path, rgb), (liso, _rgb16(smooth))):
+        tmp = f"{dest}.{os.getpid()}.tmp.png"
+        Image.fromarray(arr, "RGB").save(tmp)
+        os.replace(tmp, dest)
+
+
+def spread():
+    """(map, smooth) for a contagion. A pool of POOL maps, made once; every
+    time one is used it is replaced by a fresh one in the background, so the
+    pattern never repeats."""
+    d = os.path.join(CACHE, "spread")
+    os.makedirs(d, exist_ok=True)
+    k = random.randrange(POOL)
+    path = os.path.join(d, f"spread-{k}.png")
+    liso = os.path.join(d, f"spread-{k}-liso.png")
+    if not (os.path.exists(path) and os.path.exists(liso)):
+        _write_pair(path, liso, contagion_map(random.randrange(1 << 30)))
+    return path, liso
+
+
+def renew(path):
+    """Replace a used pool map with a fresh one (run in the background). It
+    waits a few seconds first: the shell is loading this very pair right now,
+    and swapping one file under it would leave it with mismatched halves."""
+    import time
+    time.sleep(4)
+    k = os.path.basename(path).split("-")[1].split(".")[0]
+    d = os.path.dirname(path)
+    _write_pair(os.path.join(d, f"spread-{k}.png"), os.path.join(d, f"spread-{k}-liso.png"),
+                contagion_map(random.randrange(1 << 30)))
+
+
+# ───────────────────────────── outline ─────────────────────────────
+
+def _key(img):
+    st = os.stat(img)
+    return hashlib.sha1(f"{os.path.realpath(img)}|{st.st_size}|{int(st.st_mtime)}".encode()).hexdigest()[:16]
+
+
+_session = None
+
+
+def _cutout(im):
+    """The character's mask. On the Intel GPU through OpenVINO it takes ~3 s;
+    on the CPU, 8-11 s. The first GPU run compiles the model (~40 s) and keeps
+    it in ~/.cache/wallfx/ov, after which loading takes ~3 s. A machine without
+    an Intel GPU (the tower) falls back to the CPU on its own."""
+    global _session
+    os.environ.setdefault("U2NET_HOME", os.path.join(VENV, "models"))
+    from rembg import new_session, remove
+    if _session is None:
+        try:
+            _session = new_session("birefnet-general-lite", providers=[
+                ("OpenVINOExecutionProvider", {"device_type": "GPU", "cache_dir": os.path.join(CACHE, "ov")}),
+                "CPUExecutionProvider"])
+        except Exception:
+            _session = new_session("birefnet-general-lite", providers=["CPUExecutionProvider"])
+    return remove(im, session=_session, only_mask=True)
+
+
+def perfil(img, force=False):
+    """(map, line) for IMG, or None when it has no clear character."""
+    d = os.path.join(CACHE, "perfil")
+    os.makedirs(d, exist_ok=True)
+    base = os.path.join(d, _key(img))
+    meta_path = base + ".json"
+    if not force and os.path.exists(meta_path):
+        meta = json.load(open(meta_path))
+        if not meta.get("ok"):
+            return None
+        if os.path.exists(base + "-campo.png") and os.path.exists(base + "-linea.png"):
+            return base + "-campo.png", base + "-linea.png"
+    try:
+        import cv2
+        import numpy as np
+        from PIL import Image
+    except ImportError:
+        return None
+
+    # One cut-out per wallpaper at a time: the picker's warm-up and a
+    # set-wallpaper.sh waiting for this same new wallpaper can meet here, and
+    # the second one just waits for the first and reads its result.
+    import fcntl
+    lock = open(base + ".lock", "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if not force and os.path.exists(meta_path):
+        meta = json.load(open(meta_path))
+        if not meta.get("ok"):
+            return None
+        if os.path.exists(base + "-campo.png") and os.path.exists(base + "-linea.png"):
+            return base + "-campo.png", base + "-linea.png"
+
+    im = Image.open(img).convert("RGB")
+    im.thumbnail((FIELD_MAX, FIELD_MAX))
+    # The cut-out is the slow part (~10 s) and does not depend on how the maps
+    # are drawn: it is kept, so redrawing the maps (--force) does not redo it.
+    mask_path = base + "-mascara.png"
+    if os.path.exists(mask_path):
+        mask = Image.open(mask_path).convert("L")
+    else:
+        mask = _cutout(im).convert("L")
+        mask.save(mask_path)
+    m = np.asarray(mask.resize(im.size), np.float32) / 255.0
+    h, w = m.shape
+    b = (m > 0.5).astype(np.uint8)
+    # Specks of foreground: out. They would be drawn as dots all over the screen.
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(b, connectivity=8)
+    keep = np.zeros(n, bool)
+    keep[1:] = stats[1:, cv2.CC_STAT_AREA] >= 0.002 * w * h
+    b = keep[lab].astype(np.uint8)
+    cover = float(b.mean())
+    unsure = float(((m > 0.1) & (m < 0.9)).mean())
+    # The decision: a character is something that takes part of the picture,
+    # not almost all of it (Charizard: the model calls the whole poster
+    # "foreground") nor a crumb, and that the model is sure about.
+    ok = 0.008 <= cover <= 0.72 and unsure <= 0.06
+    meta = {"img": img, "ok": ok, "cover": round(cover, 3), "unsure": round(unsure, 3), "w": w, "h": h}
+    if not ok:
+        json.dump(meta, open(meta_path, "w"))
+        return None
+
+    din = cv2.distanceTransform(b, cv2.DIST_L2, 5)
+    dout = cv2.distanceTransform(1 - b, cv2.DIST_L2, 5)
+    sd = dout - din                                   # > 0 outside the character
+
+    # Inwards: 0 on the silhouette, 1 at its deepest point.
+    inner = np.clip(din / max(np.percentile(din[b > 0], 99), 1.0), 0, 1)
+
+    # Outwards: distance to the character, roughened with noise so the front
+    # is not a perfect offset of the silhouette, then ranked like contagion.
+    rng = np.random.default_rng(int(_key(img)[:8], 16))
+    noise = (0.6 * _value_noise(rng, w, h, w / 9.0) + 0.4 * _value_noise(rng, w, h, w / 28.0))
+    warped = dout * (0.75 + 0.5 * noise) + noise * 0.08 * max(w, h)
+    outside = b == 0
+    order = np.zeros((h, w), np.float32)
+    vals = warped[outside]
+    r = np.empty(vals.size)
+    r[np.argsort(vals, kind="stable")] = np.arange(vals.size)
+    order[outside] = r / max(vals.size - 1, 1)
+
+    # Along the outline: every contour is drawn from its top point, with two
+    # pens going round in opposite directions that meet at the far side.
+    edge = np.zeros((h, w), np.uint8)
+    param_at = np.zeros((h, w), np.float32)
+    contours, _ = cv2.findContours(b, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    for c in contours:
+        # Tiny contours -the holes between flames, the gaps in a cloud- would
+        # be drawn as a spray of dots before anything else: they get no line.
+        if len(c) < 40 or abs(cv2.contourArea(c)) < 0.0008 * w * h:
+            continue
+        c = c[:, 0, :]
+        seg = np.sqrt((np.diff(c, axis=0, append=c[:1]) ** 2).sum(1))
+        s = np.concatenate([[0], np.cumsum(seg)[:-1]])
+        L = s[-1] + seg[-1]
+        s = (s - s[np.argmin(c[:, 1])]) % L
+        p = np.minimum(s, L - s) / (L / 2)
+        # Where the character runs off the picture its contour runs along the
+        # border, and that is not an outline: no line there (parameter 0).
+        p[(c[:, 0] <= 1) | (c[:, 0] >= w - 2) | (c[:, 1] <= 1) | (c[:, 1] >= h - 2)] = -1
+        edge[c[:, 1], c[:, 0]] = 1
+        param_at[c[:, 1], c[:, 0]] = p
+    line = np.zeros((h, w), np.uint8)
+    if edge.any():
+        # Spread each contour point's parameter to the pixels around it: the
+        # label of the nearest contour pixel, in raster order of those pixels.
+        _, labels = cv2.distanceTransformWithLabels(1 - edge, cv2.DIST_L2, 5,
+                                                    labelType=cv2.DIST_LABEL_PIXEL)
+        ys, xs = np.nonzero(edge)
+        table = np.concatenate([[0], param_at[ys, xs]])
+        near = np.abs(sd) < SD_RANGE
+        v = table[labels[near]]
+        line[near] = np.where(v < 0, 0, np.clip(v * 255, 1, 255)).astype(np.uint8)
+
+    rgb = np.zeros((h, w, 3), np.uint8)
+    # R: distance outside the silhouette, wide (up to WIDE map px), for the
+    # glow around the character when it lights up.
+    rgb[..., 0] = np.clip(dout / WIDE * 255, 0, 255)
+    rgb[..., 1] = np.clip(inner * 255, 0, 255)
+    rgb[..., 2] = np.clip((sd + SD_RANGE) / (2 * SD_RANGE) * 255, 0, 255)
+    # The line texture also carries the outside order as a smooth 16-bit
+    # surface (G, B): the shockwave that brings the world out of the character
+    # is a liquid edge, and its normals need more than 8 bits.
+    smooth = cv2.GaussianBlur(order.astype(np.float32), (0, 0), 4.0)
+    linea = _rgb16(smooth, extra=line)
+    for suffix, arr, mode in (("-campo.png", rgb, "RGB"), ("-linea.png", linea, "RGB")):
+        tmp = f"{base}{suffix}.{os.getpid()}.tmp.png"
+        Image.fromarray(arr, mode).save(tmp)
+        os.replace(tmp, base + suffix)
+    json.dump(meta, open(meta_path, "w"))
+    return base + "-campo.png", base + "-linea.png"
+
+
+def contagio(img):
+    """The contagion maps: a pool map, renewed behind our back once used."""
+    path, liso = spread()
+    if os.fork() == 0:                        # renew it without making anyone wait
+        try:
+            # Let go of stdout first: whoever reads our answer through a pipe
+            # (set-wallpaper.sh's $(...)) waits until every writer has closed
+            # it, and that would make it wait for the renewal too.
+            null = os.open(os.devnull, os.O_RDWR)
+            for fd in (0, 1, 2):
+                os.dup2(null, fd)
+            os.setsid()
+            renew(path)
+        finally:
+            os._exit(0)
+    return path, liso
+
+
+def sin_perfil():
+    """Wallpapers that get contagion even though the model found a subject in
+    them: ~/.config/wallfx/sin-perfil, one file name per line. The model finds
+    SOMETHING in almost any picture (a bridge, a building, a patch of field),
+    and outlining that reads as a mistake, not as a character."""
+    try:
+        with open(os.path.join(HOME, ".config", "wallfx", "sin-perfil")) as f:
+            return {l.strip() for l in f if l.strip() and not l.startswith("#")}
+    except OSError:
+        return set()
+
+
+def warm(folder):
+    import fcntl
+    os.makedirs(CACHE, exist_ok=True)
+    # The picker launches this every time it opens, and set-wallpaper.sh after
+    # every change: one at a time, and a second one simply leaves (the first is
+    # already on it).
+    lock = open(os.path.join(CACHE, ".warm.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return
+    # The contagion pool first: a slot that does not exist yet would cost a
+    # second at the moment of the change.
+    d = os.path.join(CACHE, "spread")
+    os.makedirs(d, exist_ok=True)
+    for k in range(POOL):
+        path, liso = os.path.join(d, f"spread-{k}.png"), os.path.join(d, f"spread-{k}-liso.png")
+        if not (os.path.exists(path) and os.path.exists(liso)):
+            _write_pair(path, liso, contagion_map(random.randrange(1 << 30)))
+    exts = (".jpg", ".jpeg", ".png", ".webp")
+
+    def listing():
+        out = []
+        for name in sorted(os.listdir(folder)):
+            path = os.path.join(folder, name)
+            if name.lower().endswith(exts) and os.path.isfile(path):
+                st = os.stat(path)
+                out.append((name, st.st_size, int(st.st_mtime)))
+        return out
+
+    # Files can arrive -or still be growing, mid-download- while a pass runs:
+    # another pass until the folder stands still. Failures are not cached, so a
+    # half-written file is simply tried again on the next pass.
+    seen = None
+    for _ in range(6):
+        now = listing()
+        if now == seen:
+            break
+        for name, _, _ in now:
+            try:
+                r = perfil(os.path.join(folder, name))
+                print(("perfil  " if r else "contagio") + "  " + name, flush=True)
+            except Exception as e:                       # one bad file must not stop the rest
+                print(f"error     {name}: {e}", file=sys.stderr, flush=True)
+        seen = now
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "spread":
+        print(*contagio(None))
+        return 0
+    if cmd in ("perfil", "warm"):
+        _reexec_in_venv()
+    if cmd == "perfil":
+        r = perfil(rest[0], force="--force" in rest)
+        if not r:
+            return 1
+        print(*r)
+        return 0
+    if cmd == "warm":
+        warm(rest[0] if rest else WALLS)
+        return 0
+    if cmd == "elige":
+        # Which transition NEW gets. A wallpaper nobody has prepared yet (just
+        # added, chosen before the picker's warm-up got to it) is prepared HERE,
+        # and set-wallpaper.sh waits: a new wallpaper has to get its outline
+        # too. That costs ~7 s on the GPU the first time, so it says so.
+        img = rest[0]
+        if os.path.basename(img) in sin_perfil():
+            print("contagio", *contagio(img))
+            return 0
+        base = os.path.join(CACHE, "perfil", _key(img))
+        try:
+            meta = json.load(open(base + ".json"))
+        except (OSError, ValueError):
+            meta = None
+        r = None
+        if meta is not None:
+            if meta.get("ok") and os.path.exists(base + "-campo.png") and os.path.exists(base + "-linea.png"):
+                r = (base + "-campo.png", base + "-linea.png")
+        elif os.path.exists(VENV_PY) and "--sin-esperar" not in rest:
+            _reexec_in_venv()
+            import signal
+            import subprocess
+            import threading
+            aviso = threading.Timer(1.5, lambda: subprocess.run(
+                ["notify-send", "-t", "4000", "-a", tr("Fondo", "Wallpaper"),
+                 tr("Preparando el fondo nuevo", "Preparing the new wallpaper"),
+                 tr("Recortando su personaje para la transición…", "Cutting out its character for the transition…")],
+                capture_output=True))
+            aviso.start()
+
+            def tarde(*_):
+                raise TimeoutError
+            signal.signal(signal.SIGALRM, tarde)
+            signal.alarm(25)                      # past this, contagion: the wallpaper must change
+            try:
+                r = perfil(img)
+            except Exception:
+                r = None
+            finally:
+                signal.alarm(0)
+                aviso.cancel()
+        if r:
+            print("perfil", *r)
+        else:
+            print("contagio", *contagio(img))
+        return 0
+    if cmd == "instalar":
+        import shutil
+        import subprocess
+        uv = shutil.which("uv")
+        if not uv:
+            print(tr("wallfx: hace falta uv (sudo pacman -S uv)", "wallfx: uv is needed (sudo pacman -S uv)"), file=sys.stderr)
+            return 1
+        os.makedirs(VENV, exist_ok=True)
+        subprocess.run([uv, "venv", "-q", os.path.join(VENV, "venv")], check=True)
+        # onnxruntime-openvino IS onnxruntime plus the Intel GPU; plain
+        # onnxruntime would be CPU only (3x slower here).
+        subprocess.run([uv, "pip", "install", "-q", "--python", VENV_PY, "rembg", "onnxruntime-openvino",
+                        "opencv-python-headless", "numpy", "pillow"], check=True)
+        print(tr("listo. `wallfx warm` recorta tus fondos (la primera vez baja el modelo, ~210 MB)",
+                 "done. `wallfx warm` cuts out your wallpapers (the first run downloads the model, ~210 MB)"))
+        return 0
+    print(tr(f"wallfx: no conozco «{cmd}»", f"wallfx: unknown command '{cmd}'"), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
