@@ -3,6 +3,7 @@
 
     ./tools/i18n-check.py            everything
     ./tools/i18n-check.py --faltan   only what has no translation
+    ./tools/i18n-check.py --lang pt  check another dictionary (default: en)
 
 Four things, which are the four ways of breaking this:
 
@@ -37,6 +38,8 @@ A_PROPOSITO = {
     ("I18n.qml", "Español"):
         "the language is shown in its own language so it can be found",
     ("I18n.qml", "English"):
+        "same as above",
+    ("I18n.qml", "Português"):
         "same as above",
     ("SettingsWindow.qml", "Ajustes"):
         "the window title matched by the hyprland.lua window rule "
@@ -170,14 +173,14 @@ def claves_de_pantallas():
     return fuera
 
 
-def diccionario():
-    """The entries of translations-en.js, without evaluating JavaScript."""
-    ruta = os.path.join(SHELL, "translations-en.js")
+def diccionario(lang="en"):
+    """The entries of translations-<lang>.js, without evaluating JavaScript."""
+    ruta = os.path.join(SHELL, "translations-" + lang + ".js")
     dic, dobles = {}, []
     dentro = False
     with open(ruta, encoding="utf-8") as f:
         for linea in f:
-            if linea.strip().startswith("var en"):
+            if linea.strip().startswith("var " + lang):
                 dentro = True
                 continue
             if not dentro:
@@ -195,7 +198,8 @@ def diccionario():
 
 def main():
     solo_faltan = "--faltan" in sys.argv
-    dic, dobles = diccionario()
+    lang = sys.argv[sys.argv.index("--lang") + 1] if "--lang" in sys.argv else "en"
+    dic, dobles = diccionario(lang)
 
     usadas = {}       # string -> files where it is used
     sin_envolver = {}  # file -> [strings]

@@ -21,6 +21,7 @@ import QtQuick
 // `undefined` when read from here. The full reason is in the header of
 // translations-en.js.
 import "translations-en.js" as Dict
+import "translations-pt.js" as DictPt
 
 Singleton {
     id: root
@@ -32,7 +33,8 @@ Singleton {
     // language they do not understand has to be able to find theirs in the list.
     readonly property var languages: [
         { code: "es", label: "Español" },
-        { code: "en", label: "English" }
+        { code: "en", label: "English" },
+        { code: "pt", label: "Português" }
     ]
 
     function labelFor(code) {
@@ -56,7 +58,8 @@ Singleton {
     // sentence split into pieces ("Quedan " + n + " minutos") cannot be
     // translated, because in another language the pieces go in another order.
     function tr(s, a0, a1, a2) {
-        var out = root.english && Dict.en[s] !== undefined ? Dict.en[s] : s;
+        var dict = root.english ? Dict.en : (root.lang === "pt" ? DictPt.pt : null);
+        var out = dict && dict[s] !== undefined ? dict[s] : s;
         if (a0 !== undefined) out = out.split("{0}").join(a0);
         if (a1 !== undefined) out = out.split("{1}").join(a1);
         if (a2 !== undefined) out = out.split("{2}").join(a2);
