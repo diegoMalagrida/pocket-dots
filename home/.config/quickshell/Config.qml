@@ -18,7 +18,7 @@ Singleton {
     id: root
 
     // ───────── language ─────────
-    // "es" | "en". I18n reads it and the whole interface hangs off that. The
+    // "es" | "en" | "pt". I18n reads it and the whole interface hangs off that. The
     // installer writes it according to what you choose at install time
     // (./install.sh --lang en).
     property alias language: opts.language

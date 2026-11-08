@@ -30,7 +30,7 @@ Singleton {
     // en_GB puts the day before the month (3/9/2026) and the time in 24 h, just
     // like Spanish. With en_US the date would flip round (9/3/2026) and "PM"
     // would appear, which nobody here uses.
-    readonly property var loc: Qt.locale(I18n.english ? "en_GB" : "es_ES")
+    readonly property var loc: Qt.locale(I18n.english ? "en_GB" : (I18n.lang === "pt" ? "pt_BR" : "es_ES"))
 
     // ═════════════════════════ notch state ══════════════════════════
     // The notch is the desktop's entry point: panels unfold from it.
