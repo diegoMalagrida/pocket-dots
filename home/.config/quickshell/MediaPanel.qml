@@ -12,6 +12,8 @@ Item {
     id: root
     readonly property color accent: ShellState.mediaAccent
 
+    property bool showLyrics: false
+
     // The whole background swallows the click so that a gap between controls
     // never reaches whatever action sits behind the panel.
     MouseArea { anchors.fill: parent }
@@ -29,6 +31,7 @@ Item {
         // ── circular cover art ─────────────────────────────────────────────
         Item {
             id: artStage
+            visible: !(root.showLyrics && Lyrics.hasLyrics)
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 166
             Layout.preferredHeight: 166
@@ -37,7 +40,7 @@ Item {
             // spinning wheel or competing with the visualiser below.
             Rectangle {
                 anchors.centerIn: parent
-                width: 166; height: 166; radius: 83
+                width: 166; height: 166; radius: 20
                 color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.10)
                 scale: ShellState.player && ShellState.player.isPlaying ? 1 : 0.94
                 opacity: ShellState.player && ShellState.player.isPlaying ? 1 : 0.45
@@ -48,7 +51,7 @@ Item {
 
             Rectangle {
                 anchors.centerIn: parent
-                width: 154; height: 154; radius: 77
+                width: 154; height: 154; radius: 20
                 color: Colors.surface1
                 border.width: 2
                 border.color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.72)
@@ -85,7 +88,7 @@ Item {
                 layer.enabled: true
                 layer.smooth: true
                 visible: false
-                Rectangle { anchors.fill: parent; radius: width / 2 }
+                Rectangle { anchors.fill: parent; radius: 16 }
             }
             MultiEffect {
                 anchors.fill: coverImage
@@ -111,6 +114,98 @@ Item {
                 font.family: Appearance.font
                 font.pixelSize: 48
                 Behavior on color { ColorAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: Lyrics.hasLyrics
+                cursorShape: Lyrics.hasLyrics ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: root.showLyrics = true
+            }
+        }
+        
+        // ── lyrics: takes the place of the cover art ──────────────────────
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 166
+            visible: root.showLyrics && Lyrics.hasLyrics
+
+            readonly property color fadeClear: Qt.rgba(Colors.bg.r, Colors.bg.g, Colors.bg.b, 1)
+
+            // Synced: the current line stays in the middle.
+            ListView {
+                anchors.fill: parent
+                visible: Lyrics.synced
+                clip: true
+                interactive: false
+                model: Lyrics.lines
+                currentIndex: Lyrics.current
+                highlightRangeMode: ListView.StrictlyEnforceRange
+                preferredHighlightBegin: height / 2 - 14
+                preferredHighlightEnd: height / 2 + 14
+                highlightMoveDuration: 300
+
+                delegate: Text {
+                    required property var modelData
+                    required property int index
+                    readonly property bool isCur: index === ListView.view.currentIndex
+                    width: ListView.view.width
+                    text: modelData.text || "♪"
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    color: isCur ? root.accent : Colors.label3
+                    font.family: Appearance.fontUI
+                    font.pixelSize: isCur ? Appearance.fsM : Appearance.fsS
+                    font.weight: isCur ? Font.DemiBold : Font.Normal
+                    Behavior on color { ColorAnimation { duration: Appearance.mIn } }
+                }
+            }
+
+            // Not synced: plain text you can scroll.
+            Flickable {
+                anchors.fill: parent
+                visible: !Lyrics.synced
+                clip: true
+                contentHeight: plainText.height
+                Text {
+                    id: plainText
+                    width: parent.width
+                    text: Lyrics.plain
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    color: Colors.label2
+                    font.family: Appearance.fontUI
+                    font.pixelSize: Appearance.fsS
+                }
+            }
+
+            // Fade at the top
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; top: parent.top }
+                height: 44
+                gradient: Gradient {
+                    orientation: Qt.Vertical
+                    GradientStop { position: 0.0; color: Colors.bg }
+                    GradientStop { position: 1.0; color: Qt.rgba(Colors.bg.r, Colors.bg.g, Colors.bg.b, 0) }
+                }
+            }
+
+            // Fade at the bottom
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                height: 44
+                gradient: Gradient {
+                    orientation: Qt.Vertical
+                    GradientStop { position: 0.0; color: Qt.rgba(Colors.bg.r, Colors.bg.g, Colors.bg.b, 0) }
+                    GradientStop { position: 1.0; color: Colors.bg }
+                }
+            }
+
+            // Click on the synced view to go back to the cover art.
+            MouseArea {
+                anchors.fill: parent
+                enabled: Lyrics.synced
+                onClicked: root.showLyrics = false
             }
         }
 

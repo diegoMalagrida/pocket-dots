@@ -161,8 +161,7 @@ Item {
     }
 
     function nombreDe(p) {
-        return I18n.english ? ShellState.pokeTitulo(p.nombre)
-                            : root.pokedexEs[p.num] || root.mayus(p.nombre);
+        return (I18n.english || I18n.italian) ? ShellState.pokeTitulo(p.nombre) : root.pokedexEs[p.num] || root.mayus(p.nombre);
     }
 
     // ── the types, to filter the pokedex ────────────────────────────────────
