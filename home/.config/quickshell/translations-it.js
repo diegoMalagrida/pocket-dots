@@ -627,22 +627,4 @@ var it = {
     "Élite": "Élite",
     "Alto Mando": "Superquattro",
     "Campeón": "Campione",
-
-    // pokemon types
-    "Normal": "Normale",
-    "Lucha": "Lotta",
-    "Volador": "Volante",
-    "Veneno": "Veleno",
-    "Bicho": "Coleottero",
-    "Fantasma": "Spettro",
-    "Acero": "Acciaio",
-    "Fuego": "Fuoco",
-    "Agua": "Acqua",
-    "Planta": "Erba",
-    "Eléctrico": "Elettro",
-    "Psíquico": "Psico",
-    "Hielo": "Ghiaccio",
-    "Dragón": "Drago",
-    "Siniestro": "Buio",
-    "Hada": "Folletto",
 };
