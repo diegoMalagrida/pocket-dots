@@ -53,12 +53,13 @@ from datetime import datetime
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -176,7 +177,7 @@ def olvidar_fallo() -> None:
 def ultima_linea(r) -> str:
     """The last thing the generator said, which is the only thing we can show."""
     texto = ((r.stderr or "") + (r.stdout or "")).strip() if r else ""
-    return texto.splitlines()[-1][:200] if texto else tr("sin mensaje", "no message")
+    return texto.splitlines()[-1][:200] if texto else tr("sin mensaje", "no message", "nessun messaggio")
 
 
 def nombre_de(num: int) -> str:
@@ -296,7 +297,8 @@ def main() -> int:
         r = correr(args, 240)
         if not r or r.returncode != 0:
             motivo = tr(f"no pude fabricar el prototipo {proto}: {ultima_linea(r)}",
-                        f"could not build the prototype {proto}: {ultima_linea(r)}")
+                        f"could not build the prototype {proto}: {ultima_linea(r)}",
+                        f"impossibile creare il prototipo {proto}: {ultima_linea(r)}")
             apuntar_fallo(proto, num, motivo)
             print(motivo, file=sys.stderr)
             return 1
@@ -329,7 +331,8 @@ def main() -> int:
         # silently (half-imported prototype, a daemon that does not wake up)
         # and the caller does not collect anything either.
         motivo = tr(f"no pude invocar a {proto}: {ultima_linea(r)}",
-                    f"could not summon {proto}: {ultima_linea(r)}")
+                    f"could not summon {proto}: {ultima_linea(r)}",
+                    f"impossibile evocare {proto}: {ultima_linea(r)}")
         apuntar_fallo(proto, num, motivo)
         print(motivo, file=sys.stderr)
         return 1

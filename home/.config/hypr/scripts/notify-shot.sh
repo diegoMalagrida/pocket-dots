@@ -25,7 +25,7 @@ img="${1:-}"
 # The body says it can be clicked: otherwise nobody discovers the action is
 # there. The full path does not fit (it splits the notification into three
 # lines), so only the file name.
-act=$(timeout 600 notify-send -a "$(tr_ Captura Screenshot)" -i "$img" -A "edit=$(tr_ 'Editar' 'Edit')" \
-        "$(tr_ 'Captura de pantalla' 'Screenshot')" "$(tr_ 'Copiada al portapapeles · pulsa para editar' 'Copied to the clipboard · click to edit')" 2>/dev/null) || exit 0
+act=$(timeout 600 notify-send -a "$(tr_ Captura Screenshot Cattura)" -i "$img" -A "edit=$(tr_ 'Editar' 'Edit' 'Modifica')" \
+        "$(tr_ 'Captura de pantalla' 'Screenshot' 'Cattura')" "$(tr_ 'Copiada al portapapeles · pulsa para editar' 'Copied to the clipboard · click to edit' 'Copiata negli appunti · fai clic per modificare')" 2>/dev/null) || exit 0
 
 [ "$act" = "edit" ] && exec "$HOME/.config/hypr/scripts/screenshot-edit.sh" "$img"

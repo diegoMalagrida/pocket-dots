@@ -31,9 +31,9 @@ sync_description() {
         read -r last_sync < "$stamp_file"
     fi
     if [[ "$last_sync" =~ ^[0-9]+$ ]] && (( last_sync > 0 )); then
-        printf '%s %s' "$(tr_ 'repos sincronizados a las' 'repos synced at')" "$(date --date="@$last_sync" '+%H:%M')"
+        printf '%s %s' "$(tr_ 'repos sincronizados a las' 'repos synced at' 'repo sincronizzate a')" "$(date --date="@$last_sync" '+%H:%M')"
     else
-        printf '%s' "$(tr_ 'repos aun no sincronizados' 'repos not synced yet')"
+        printf '%s' "$(tr_ 'repos aun no sincronizados' 'repos not synced yet' 'repo non sincronizzate')"
     fi
 }
 
@@ -68,7 +68,7 @@ run_check() {
 
 exec 9> "$lock_file"
 if ! flock -w 65 9; then
-    emit_json "?" "$(tr_ 'Otra consulta de actualizaciones sigue en curso' 'Another update check is still running')" "error"
+    emit_json "?" "$(tr_ 'Otra consulta de actualizaciones sigue en curso' 'Another update check is still running' 'Un`altra verifica di aggiornamenti è ancora in esecuzione')" "error"
     exit 0
 fi
 
@@ -78,8 +78,8 @@ case "${1:-}" in
         run_check
         case $check_status in
             0) printf '%s\n' "$updates" ;;
-            2) printf '%s\n' "$(tr_ 'Sin actualizaciones' 'No updates')" ;;
-            *) printf '%s\n' "$(tr_ 'No se pudieron consultar las actualizaciones' 'Could not check for updates')" ;;
+            2) printf '%s\n' "$(tr_ 'Sin actualizaciones' 'No updates' 'Nessun aggiornamento')" ;;
+            *) printf '%s\n' "$(tr_ 'No se pudieron consultar las actualizaciones' 'Could not check for updates' 'Impossibile verificare gli aggiornamenti')" ;;
         esac
         exit 0
         ;;
@@ -98,12 +98,12 @@ run_check
 case $check_status in
     0)
         count=$(awk 'NF { count++ } END { print count + 0 }' <<< "$updates")
-        emit_json "$count" "$count $(tr_ 'actualizaciones disponibles' 'updates available') · $(sync_description)" "updates"
+        emit_json "$count" "$count $(tr_ 'actualizaciones disponibles' 'updates available' 'aggiornamenti disponibili') · $(sync_description)" "updates"
         ;;
     2)
-        emit_json "0" "$(tr_ 'Sistema actualizado' 'System up to date') · $(sync_description)" "none"
+        emit_json "0" "$(tr_ 'Sistema actualizado' 'System up to date' 'Sistema aggiornato') · $(sync_description)" "none"
         ;;
     *)
-        emit_json "?" "$(tr_ "Fallo al consultar · detalles en" "Check failed · details in") $error_log" "error"
+        emit_json "?" "$(tr_ "Fallo al consultar · detalles en" "Check failed · details in" "Verifica fallita · dettagli in") $error_log" "error"
         ;;
 esac

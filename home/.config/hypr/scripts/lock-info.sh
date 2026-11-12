@@ -18,12 +18,21 @@ case "${1:-}" in
       # here, it is pinned.
       printf '%s · %d %s\n' "$(LC_ALL=C date +%A)" "$(date +%-d)" "$(LC_ALL=C date +%B)"
     else
-      days=(lunes martes miércoles jueves viernes sábado domingo)
-      months=(enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre)
-      day_index=$((10#$(date +%u) - 1))
-      month_index=$((10#$(date +%m) - 1))
-      day_name="${days[$day_index]}"
-      printf '%s · %d de %s\n' "${day_name^}" "$(date +%-d)" "${months[$month_index]}"
+      if [[ "$RICE_LANG" == it ]]; then
+        days=(Lunedì Martedì Mercoledì Giovedì Venerdì Sabato Domenica)
+        months=(Gennaio Febbraio Marzo Aprile Maggio Giugno Luglio Agosto Settembre Ottobre Novembre Dicembre)
+        day_index=$((10#$(date +%u) - 1))
+        month_index=$((10#$(date +%m) - 1))
+        day_name="${days[$day_index]}"
+        printf '%s · %d di %s\n' "${day_name^}" "$(date +%-d)" "${months[$month_index]}"
+      else
+        days=(lunes martes miércoles jueves viernes sábado domingo)
+        months=(enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre)
+        day_index=$((10#$(date +%u) - 1))
+        month_index=$((10#$(date +%m) - 1))
+        day_name="${days[$day_index]}"
+        printf '%s · %d de %s\n' "${day_name^}" "$(date +%-d)" "${months[$month_index]}"
+      fi
     fi
     ;;
 

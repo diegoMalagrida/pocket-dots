@@ -76,7 +76,7 @@ restore_snapshot() {
 }
 
 activate() {
-    [[ -r "$shader" ]] || { printf "$(tr_ 'No existe el shader: %s\n' 'Shader does not exist: %s\n')" "$shader" >&2; exit 1; }
+    [[ -r "$shader" ]] || { printf "$(tr_ 'No existe el shader: %s\n' 'Shader does not exist: %s\n' 'Lo shader non esiste: %s\n')" "$shader" >&2; exit 1; }
     is_active && { printf 'on\n'; return; }
 
     # A snapshot with no active shader is left over from an interrupted session.
@@ -146,7 +146,7 @@ case "$mode" in
         fi
         ;;
     *)
-        printf "$(tr_ 'Uso: %s {on|off|toggle|status|reapply}\n' 'Usage: %s {on|off|toggle|status|reapply}\n')" "${0##*/}" >&2
+        printf "$(tr_ 'Uso: %s {on|off|toggle|status|reapply}\n' 'Usage: %s {on|off|toggle|status|reapply}\n' 'Utilizzo: %s {on|off|toggle|status|reapply}\n')" "${0##*/}" >&2
         exit 2
         ;;
 esac

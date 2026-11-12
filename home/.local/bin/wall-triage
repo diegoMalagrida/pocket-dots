@@ -16,7 +16,7 @@ DIR="${1:-$HOME/Pictures/wallpapers}"
 TRASH="$DIR/.descartes"
 STATE="$HOME/.cache/wall-triage.state"
 
-[[ -d "$DIR" ]] || { echo "$(tr_ "no existe el directorio: $DIR" "Directory does not exist: $DIR")"; exit 1; }
+[[ -d "$DIR" ]] || { echo "$(tr_ "no existe el directorio: $DIR" "Directory does not exist: $DIR" "La directory non esiste: $DIR")"; exit 1; }
 
 LOG="$HOME/.cache/wall-triage.log"
 : > "$LOG"
@@ -46,13 +46,13 @@ elif motor_va timg; then
 elif motor_va chafa; then
   ENGINE=chafa
 else
-  echo "$(tr_ "no encuentro kitty, timg ni chafa para dibujar las imagenes." "Cannot find kitty, timg or chafa to display the images.")"
+  echo "$(tr_ "no encuentro kitty, timg ni chafa para dibujar las imagenes." "Cannot find kitty, timg or chafa to display the images." "Kitty non e' stato trovato, timg o chafa per disegnare le immagini.")"
   # If one of them is installed but does not start, say so: otherwise the
   # message above lies and sends you off to reinstall something already there.
   for m in timg chafa; do
     if command -v "$m" >/dev/null 2>&1 && ! "$m" --version >/dev/null 2>&1; then
-      echo "$(tr_ "  ojo: $m esta instalado pero no arranca (libreria rota tras una actualizacion?)." "  Warning: $m is installed but will not start (broken library after an update?).")"
-      echo "$(tr_ "       reconstruyelo con: yay -S --rebuild $m" "       Rebuild it with: yay -S --rebuild $m")"
+      echo "$(tr_ "  ojo: $m esta instalado pero no arranca (libreria rota tras una actualizacion?)." "  Warning: $m is installed but will not start (broken library after an update?)." "  Attenzione: $m è installato ma non si avvia (libreria danneggiata dopo un aggiornamento?).")"
+      echo "$(tr_ "       reconstruyelo con: yay -S --rebuild $m" "       Rebuild it with: yay -S --rebuild $m" "       Esegui una nuova build con: yay -S --rebuild $m")"
     fi
   done
   exit 1
@@ -74,8 +74,8 @@ draw() {  # draw <file> <cols> <rows>
   esac
 }
 if [[ ! -t 0 ]]; then
-  echo "$(tr_ "Esto necesita una terminal interactiva." "This requires an interactive terminal.")"
-  echo "$(tr_ "Abre una kitty y ejecuta:  wall-triage" "Open kitty and run:  wall-triage")"
+  echo "$(tr_ "Esto necesita una terminal interactiva." "This requires an interactive terminal." "Questa richiede un terminale interattivo.")"
+  echo "$(tr_ "Abre una kitty y ejecuta:  wall-triage" "Open kitty and run:  wall-triage" "Apri kitty ed esegui:  wall-triage")"
   exit 1
 fi
 
@@ -100,8 +100,8 @@ done
 total=${#FILES[@]}
 if (( total == 0 )); then
   cleanup
-  echo "$(tr_ "Nada nuevo que revisar en $DIR" "Nothing new to review in $DIR")"
-  echo "$(tr_ "${D}(borra $STATE si quieres repasarlos todos otra vez)${R}" "${D}(delete $STATE to review them all again)${R}")"
+  echo "$(tr_ "Nada nuevo que revisar en $DIR" "Nothing new to review in $DIR" "Nulla di nuovo da rivedere in $DIR")"
+  echo "$(tr_ "${D}(borra $STATE si quieres repasarlos todos otra vez)${R}" "${D}(delete $STATE to review them all again)${R}" "${D}(cancella $STATE per rivederli tutti)${R}")"
   exit 0
 fi
 
@@ -126,7 +126,7 @@ while (( i < total )); do
   draw "$f" "$cols" "$imgrows"
 
   printf '\e[%d;1H' $(( rows - 1 ))
-  printf "$(tr_ ' %sg%s guardar  %sd%s descartar  %su%s deshacer  %sq%s salir   %s│  %d guardados · %d descartados%s' ' %sg%s keep  %sd%s discard  %su%s undo  %sq%s quit   %s│  %d kept · %d discarded%s')" \
+  printf "$(tr_ ' %sg%s guardar  %sd%s descartar  %su%s deshacer  %sq%s salir   %s│  %d guardados · %d descartados%s' ' %sg%s keep  %sd%s discard  %su%s undo  %sq%s quit   %s│  %d kept · %d discarded%s' ' %sg%s conserva  %sd%s scarta  %su%s annulla  %sq%s esci   %s│  %d conservati · %d scartati%s')" \
     "$GRN" "$R" "$RED" "$R" "$YEL" "$R" "$D" "$R" "$D" "$kept" "$dropped" "$R"
 
   IFS= read -rsn1 key </dev/tty || break
@@ -172,14 +172,14 @@ done
 
 cleanup
 n_trash=$(find "$TRASH" -maxdepth 1 -type f | wc -l)
-echo "$(tr_ " ${B}Repasadas${R} $((kept + dropped)) de $total   ${GRN}$kept guardadas${R} · ${RED}$dropped descartadas${R}" " ${B}Reviewed${R} $((kept + dropped)) of $total   ${GRN}$kept kept${R} · ${RED}$dropped discarded${R}")"
+echo "$(tr_ " ${B}Repasadas${R} $((kept + dropped)) de $total   ${GRN}$kept guardadas${R} · ${RED}$dropped descartadas${R}" " ${B}Reviewed${R} $((kept + dropped)) of $total   ${GRN}$kept kept${R} · ${RED}$dropped discarded${R}" " ${B}Revisionati${R} $((kept + dropped)) di $total   ${GRN}$kept conservati${R} · ${RED}$dropped scartati${R}")"
 if (( i < total )); then
-  echo "$(tr_ " ${D}Quedan $(( total - i )) sin ver — vuelve a lanzar wall-triage y sigue donde ibas.${R}" " ${D}$(( total - i )) left to review — run wall-triage again to carry on.${R}")"
+  echo "$(tr_ " ${D}Quedan $(( total - i )) sin ver — vuelve a lanzar wall-triage y sigue donde ibas.${R}" " ${D}$(( total - i )) left to review — run wall-triage again to carry on.${R}" " ${D}$(( total - i )) rimanenti da rivedere — esegui di nuovo wall-triage per continuare.${R}")"
 fi
 if (( n_trash > 0 )); then
   echo
-  echo "$(tr_ " En ${B}$TRASH${R} hay $n_trash ficheros apartados:" " $n_trash files set aside in ${B}$TRASH${R}:")"
+  echo "$(tr_ " En ${B}$TRASH${R} hay $n_trash ficheros apartados:" " $n_trash files set aside in ${B}$TRASH${R}:" " In ${B}$TRASH${R} ci sono $n_trash file messi da parte:")"
   find "$TRASH" -maxdepth 1 -type f -printf '   %f\n' | sort
   echo
-  echo "$(tr_ " ${D}Ya no salen en el picker. Bórralos de esa carpeta cuando los hayas repasado.${R}" " ${D}They no longer appear in the picker. Delete them from that folder once reviewed.${R}")"
+  echo "$(tr_ " ${D}Ya no salen en el picker. Bórralos de esa carpeta cuando los hayas repasado.${R}" " ${D}They no longer appear in the picker. Delete them from that folder once reviewed.${R}" " ${D}Non compaiono più nel selettore. Eliminali da quella cartella una volta rivisti.${R}")"
 fi

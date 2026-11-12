@@ -28,11 +28,11 @@ if [ -r "$state_file" ]; then
       sleep 0.1
     done
     if kill -0 "$pid" 2>/dev/null; then
-      notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording')" "$(tr_ 'wf-recorder no terminó todavía' 'wf-recorder has not finished yet')"
+      notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'wf-recorder no terminó todavía' 'wf-recorder has not finished yet' 'wf-recorder non è ancora terminato')"
       exit 1
     fi
     rm -f "$state_file"
-    notify-send -t 2500 "󰑊 $(tr_ 'Grabación' 'Recording')" "$(tr_ 'Guardada en' 'Saved to') ${out/#"$HOME"/\~}"
+    notify-send -t 2500 "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'Guardada en' 'Saved to' 'Salvato in') ${out/#"$HOME"/\~}"
     exit 0
   fi
 
@@ -47,9 +47,9 @@ if [ -r "$state_file" ]; then
   # was left behind.
   rm -f "$state_file"
   if [ -n "$out" ] && [ -e "$out" ]; then
-    notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording')" "$(tr_ 'La grabación anterior se cortó sola; el vídeo a medias está en' 'The previous recording died on its own; the partial video is in') ${out/#"$HOME"/\~}"
+    notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'La grabación anterior se cortó sola; el vídeo a medias está en' 'The previous recording died on its own; the partial video is in' 'La registrazione precedente è morta da sola; il video parziale è in') ${out/#"$HOME"/\~}"
   else
-    notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording')" "$(tr_ 'La grabación anterior se cortó sola y no dejó vídeo' 'The previous recording died on its own and left no video')"
+    notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'La grabación anterior se cortó sola y no dejó vídeo' 'The previous recording died on its own and left no video' 'La registrazione precedente è morta da sola e non ha lasciato alcun video')"
   fi
   exit 1
 fi
@@ -68,7 +68,7 @@ if [ "${1:-}" = "--sonido" ] || [ "${1:-}" = "--audio" ]; then
   if [ -n "$sink" ]; then
     audio=(-a"${sink}.monitor")
   else
-    notify-send -t 2500 "󰑊 $(tr_ 'Grabacion' 'Recording')" "$(tr_ 'Sin sonido: no hay salida por defecto' 'No sound: no default output')"
+    notify-send -t 2500 "󰑊 $(tr_ 'Grabacion' 'Recording' 'Registrazione')" "$(tr_ 'Sin sonido: no hay salida por defecto' 'No sound: no default output' 'Nessun suono: nessun output predefinito')"
   fi
 fi
 
@@ -100,7 +100,7 @@ tomar_cerrojo() {
 }
 
 if ! tomar_cerrojo; then
-  notify-send -t 2000 "󰑊 $(tr_ 'Grabación' 'Recording')" "$(tr_ 'Ya estás eligiendo la zona a grabar' 'You are already picking the area to record')"
+  notify-send -t 2000 "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'Ya estás eligiendo la zona a grabar' 'You are already picking the area to record' 'Stai già scegliendo l’area da registrare')"
   exit 0
 fi
 # Released on exit. By then the state_file is already written, so the next
@@ -116,9 +116,9 @@ sleep 0.2
 
 if ! kill -0 "$pid" 2>/dev/null; then
   wait "$pid" 2>/dev/null || true
-  notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording')" "$(tr_ 'No se pudo iniciar wf-recorder' 'Could not start wf-recorder')"
+  notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'No se pudo iniciar wf-recorder' 'Could not start wf-recorder' 'Impossibile avviare wf-recorder')"
   exit 1
 fi
 
 printf '%s\n%s\n' "$pid" "$out" > "$state_file"
-notify-send -t 2000 "󰑊 $(tr_ 'Grabación' 'Recording')" "$(tr_ 'Grabando… (repite la tecla para parar)' 'Recording… (press the key again to stop)')${audio:+ · $(tr_ 'con sonido' 'with sound')}"
+notify-send -t 2000 "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'Grabando… (repite la tecla para parar)' 'Recording… (press the key again to stop)' 'Registrando… (premi di nuovo il tasto per fermare)')${audio:+ · $(tr_ 'con sonido' 'with sound' 'con suono')}"

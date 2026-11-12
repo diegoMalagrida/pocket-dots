@@ -22,12 +22,13 @@ import argparse, json, os, random, subprocess, sys, time
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -85,7 +86,8 @@ def elegir(nombres: list[str]) -> tuple[dict, dict]:
     eq = equipo()
     if len(eq) < 2:
         raise SystemExit(tr("hacen falta al menos dos en el equipo",
-                            "You need at least two Pokémon in the team"))
+                            "You need at least two Pokémon in the team", 
+                            "Hai bisogno di almeno due Pokémon nella squadra"))
     if not nombres:
         a = eq[0]
         b = random.choice(eq[1:])
@@ -109,7 +111,7 @@ def elegir(nombres: list[str]) -> tuple[dict, dict]:
             if n in mapa:
                 cand = [m for m in eq if m["num"] == mapa[n]]
         if not cand:
-            raise SystemExit(tr(f"'{n}' no esta en el equipo", f"'{n}' is not in the team"))
+            raise SystemExit(tr(f"'{n}' no esta en el equipo", f"'{n}' is not in the team", f"'{n}' non é nella squadra"))
         elegidos.append(cand[0])
     if len(elegidos) == 1:
         otros = [m for m in eq if m is not elegidos[0]]
@@ -137,7 +139,8 @@ def prototipo_de(miembro: dict) -> str:
     r = correr(args, 240)
     if not r or r.returncode != 0:
         raise SystemExit(tr(f"no pude fabricar el prototipo de #{num}",
-                            f"Could not build the prototype for #{num}"))
+                            f"Could not build the prototype for #{num}",
+                            f"Impossibile creare un prototipo per #{num}"))
     return etiqueta
 
 
@@ -194,7 +197,7 @@ def funcion(pa: str, pb: str) -> None:
         # left empty: the next read of the team picks it up, since it already
         # checks that someone is on screen before accepting itself.
         if not r or r.returncode != 0:
-            raise SystemExit(tr(f"no pude invocar a {quien}", f"Could not summon {quien}"))
+            raise SystemExit(tr(f"no pude invocar a {quien}", f"Could not summon {quien}", f"Impossibile evocare {quien}"))
     time.sleep(0.6)
 
     # The two actors on stage: first find them. With the stage freshly started,
@@ -222,7 +225,8 @@ def funcion(pa: str, pb: str) -> None:
             break
     if len(vivos) < 2:
         raise SystemExit(tr("no encontre a los dos luchadores en el escenario",
-                            "Could not find both fighters on stage"))
+                            "Could not find both fighters on stage",
+                            "Impossibile trovare entrambi gli sfidanti"))
 
     def fase(izq: str, der: str, espera: float):
         """The same command to both AT ONCE, and wait for them to carry it out.
@@ -252,16 +256,19 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("luchadores", nargs="*", help=tr("0, 1 o 2 nombres (mote o especie)",
-                                                    "0, 1 or 2 names (nickname or species)"))
+                                                    "0, 1 or 2 names (nickname or species)",
+                                                    "0, 1 o 2 nomi (soprannome o specie)"))
     p.add_argument("--quedarse", action="store_true",
                    help=tr("dejar a los dos en pantalla al acabar, sin restaurar",
-                           "leave both on screen afterwards, without restoring the leader"))
+                           "leave both on screen afterwards, without restoring the leader",
+                           "lascia entrambi a schermo, senza ripristinare il capo"))
     args = p.parse_args()
 
     a, b = elegir(args.luchadores)
     pa, pb = prototipo_de(a), prototipo_de(b)
     print(tr(f"{a.get('mote') or pa} contra {b.get('mote') or pb}",
-             f"{a.get('mote') or pa} against {b.get('mote') or pb}"))
+             f"{a.get('mote') or pa} against {b.get('mote') or pb}",
+             f"{a.get('mote') or pa} contro {b.get('mote') or pb}"))
 
     # The curtain goes up AFTER building (that is up to 240 s per critter and
     # there is still nothing on stage then) and comes down whatever happens,

@@ -77,7 +77,7 @@ def notch(*args):
         subprocess.run(["qs", "ipc", "call", "notch", *[str(a) for a in args]],
                        timeout=3, capture_output=True)
     except Exception as e:
-        log(tr("aviso al notch fallido:", "Could not notify the notch:"), e)
+        log(tr("aviso al notch fallido:", "Could not notify the notch:", "Impossibile notificare il notch"), e)
 
 
 class Rejected(dbus.DBusException):
@@ -107,12 +107,12 @@ class Pending:
         self.timer = GLib.timeout_add_seconds(timeout, self._expired)
 
     def _expired(self):
-        log(tr("nadie contestó: se rechaza", "No reply: rejecting"))
+        log(tr("nadie contestó: se rechaza", "No reply: rejecting", "Nessuna risposta: rifiuto"))
         err = self.err
         self.ok = self.err = self.timer = None
         notch("btclear")
         if err:
-            err(Rejected(tr("sin respuesta", "no reply")))
+            err(Rejected(tr("sin respuesta", "no reply", "nessuna risposta")))
         return False   # do not repeat
 
     def answer(self, accept):
@@ -123,7 +123,7 @@ class Pending:
         if accept:
             ok()
         else:
-            err(Rejected(tr("rechazado por el usuario", "rejected by the user")))
+            err(Rejected(tr("rechazado por el usuario", "rejected by the user", "rifiutato dall'utente")))
         return True
 
     def clear(self, notify=True):
@@ -150,9 +150,27 @@ def english() -> bool:
     except (OSError, ValueError, AttributeError):
         return False
 
+def italian() -> bool:
+    """The rice language, read when it is needed and not at start: this agent
+    lives for the whole session, and the language can change under it."""
+    try:
+        with open(os.path.expanduser("~/.config/quickshell-rice.json"),
+                  encoding="utf-8") as f:
+            return json.load(f).get("language") == "it"
+    except (OSError, ValueError, AttributeError):
+        return False
 
-def tr(es, en):
-    return en if english() else es
+def tr(es, en, it):
+    match english():
+        case True:
+            return en
+        case False:
+            match italian():
+                case True:
+                    return it
+                case False:
+                    return es
+    return es
 
 
 def device_name(path):
@@ -170,7 +188,7 @@ def device_name(path):
             except dbus.DBusException:
                 continue
     except Exception as e:
-        log(tr("no se pudo leer el nombre de", "Could not read the name of"), path, e)
+        log(tr("no se pudo leer el nombre de", "Could not read the name of", "Impossibile leggere il nome di"), path, e)
     return str(path).rsplit("/", 1)[-1]
 
 
@@ -183,14 +201,14 @@ class Agent(dbus.service.Object):
                          async_callbacks=("ok", "err"))
     def RequestConfirmation(self, device, passkey, ok, err):
         code = "%06u" % passkey
-        log(tr("confirmar", "confirm"), device, code)
+        log(tr("confirmar", "confirm", "confermare"), device, code)
         pending.arm(ok, err, AGENT_TIMEOUT)
         notch("btask", "confirm", device_name(device), code, -1)
 
     @dbus.service.method(AGENT_IFACE, in_signature="o", out_signature="",
                          async_callbacks=("ok", "err"))
     def RequestAuthorization(self, device, ok, err):
-        log(tr("autorizar", "authorise"), device)
+        log(tr("autorizar", "authorise", "autorizzare"), device)
         pending.arm(ok, err, AGENT_TIMEOUT)
         notch("btask", "authorize", device_name(device), "", -1)
 
@@ -205,12 +223,13 @@ class Agent(dbus.service.Object):
                                    "org.freedesktop.DBus.Properties")
             if bool(props.Get("org.bluez.Device1", "Trusted")):
                 log(tr("servicio autorizado solo (aparato de confianza)",
-                       "Service authorised automatically (trusted device)"), device)
+                       "Service authorised automatically (trusted device)",
+                       "Servizio autorizzato automaticamente (dispositivo autorizzato)"), device)
                 ok()
                 return
         except Exception as e:
-            log(tr("no se pudo leer Trusted:", "Could not read Trusted:"), e)
-        log(tr("autorizar servicio", "authorise service"), device, uuid)
+            log(tr("no se pudo leer Trusted:", "Could not read Trusted:", "Impossibile leggere Trusted:"), e)
+        log(tr("autorizar servicio", "authorise service", "autorizzare servizio"), device, uuid)
         pending.arm(ok, err, AGENT_TIMEOUT)
         notch("btask", "authorize", device_name(device), "", -1)
 
@@ -242,30 +261,30 @@ class Agent(dbus.service.Object):
         # device shows. That would need a focused text field, which is another
         # matter. It is rejected with a visible warning instead of failing
         # quietly, which is precisely the problem this agent exists to solve.
-        log(tr("RequestPasskey no soportado", "RequestPasskey is not supported"), device)
-        aviso = " — wants a code typed by hand" if english() else " — pide un código a mano"
+        log(tr("RequestPasskey no soportado", "RequestPasskey is not supported", "RequestPasskey non supportato"), device)
+        aviso = " — wants a code typed by hand" if english() else " — richiede un codice a mano" if italian() else " — pide un código a mano"
         notch("btask", "authorize", device_name(device) + aviso, "", -1)
         GLib.timeout_add_seconds(6, lambda: (notch("btclear"), False)[1])
-        raise Rejected(tr("este agente no pide códigos a mano", "This agent does not request codes manually"))
+        raise Rejected(tr("este agente no pide códigos a mano", "This agent does not request codes manually", "Questo agente non richiede codici manuali"))
 
     @dbus.service.method(AGENT_IFACE, in_signature="o", out_signature="s")
     def RequestPinCode(self, device):
-        log(tr("RequestPinCode no soportado", "RequestPinCode is not supported"), device)
-        aviso = " — wants a PIN typed by hand" if english() else " — pide un PIN a mano"
+        log(tr("RequestPinCode no soportado", "RequestPinCode is not supported", "RequestPinCode non supportato"), device)
+        aviso = " — wants a PIN typed by hand" if english() else " — richiede un PIN a mano" if italian() else " — pide un PIN a mano"
         notch("btask", "authorize", device_name(device) + aviso, "", -1)
         GLib.timeout_add_seconds(6, lambda: (notch("btclear"), False)[1])
-        raise Rejected(tr("este agente no pide PIN a mano", "This agent does not request PINs manually"))
+        raise Rejected(tr("este agente no pide PIN a mano", "This agent does not request PINs manually", "Questo agente non richiede PIN manuale"))
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
     @dbus.service.method(AGENT_IFACE, in_signature="", out_signature="")
     def Cancel(self):
-        log(tr("BlueZ canceló", "BlueZ cancelled"))
+        log(tr("BlueZ canceló", "BlueZ cancelled", "BlueZ e stato annullato"))
         pending.clear()
 
     @dbus.service.method(AGENT_IFACE, in_signature="", out_signature="")
     def Release(self):
-        log(tr("BlueZ soltó el agente", "BlueZ released the agent"))
+        log(tr("BlueZ soltó el agente", "BlueZ released the agent", "BlueZ ha rilasciato l'agente"))
         pending.clear()
 
 
@@ -274,7 +293,7 @@ class Replier(dbus.service.Object):
 
     @dbus.service.method(REPLY_IFACE, in_signature="b", out_signature="b")
     def Reply(self, accept):
-        log(tr("respuesta del usuario:", "User reply:"), bool(accept))
+        log(tr("respuesta del usuario:", "User reply:", "risposta dell'utente:"), bool(accept))
         return pending.answer(bool(accept))
 
     @dbus.service.method(REPLY_IFACE, in_signature="", out_signature="b")
@@ -308,9 +327,9 @@ def main():
         # and blueman does not autostart.
         manager.RequestDefaultAgent(AGENT_PATH)
     except dbus.DBusException as e:
-        log(tr("no se pudo ser el agente por defecto:", "Could not become the default agent:"), e)
+        log(tr("no se pudo ser el agente por defecto:", "Could not become the default agent:", "Impossibile impostare l'agente predefinito:"), e)
 
-    log(tr("agente registrado en", "Agent registered at"), AGENT_PATH, tr("con capacidad", "with capability"), CAPABILITY)
+    log(tr("agente registrado en", "Agent registered at", "agente registrato a"), AGENT_PATH, tr("con capacidad", "with capability", "con capacità"), CAPABILITY)
 
     loop = GLib.MainLoop()
 

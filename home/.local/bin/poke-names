@@ -31,12 +31,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -87,12 +88,13 @@ def main() -> int:
                 ya[int(num)] = nom
         if len(ya) >= TOPE:
             print(tr(f"ya estaba: {len(ya)} nombres en {DESTINO}",
-                     f"Already present: {len(ya)} names in {DESTINO}"))
+                     f"Already present: {len(ya)} names in {DESTINO}",
+                     f"Giá presente: {len(ya)} nomi in {DESTINO}"))
             return 0
 
     faltan = [n for n in range(1, TOPE + 1) if n not in ya]
     if not args.quiet:
-        print(tr(f"faltan {len(faltan)} nombres", f"{len(faltan)} names missing"), file=sys.stderr)
+        print(tr(f"faltan {len(faltan)} nombres", f"{len(faltan)} names missing", f"mancano {len(faltan)} nomi"), file=sys.stderr)
 
     hechos = 0
     with ThreadPoolExecutor(max_workers=HILOS) as pool:
@@ -107,7 +109,7 @@ def main() -> int:
     tmp = DESTINO.with_suffix(".tsv.tmp")
     tmp.write_text("".join(f"{n}\t{ya[n]}\n" for n in sorted(ya)))
     tmp.replace(DESTINO)
-    print(tr(f"{len(ya)} nombres en castellano -> {DESTINO}", f"{len(ya)} Spanish names -> {DESTINO}"))
+    print(tr(f"{len(ya)} nombres en castellano -> {DESTINO}", f"{len(ya)} Spanish names -> {DESTINO}", f"{len(ya)} Nome spagnolo -> {DESTINO}"))
     return 0
 
 

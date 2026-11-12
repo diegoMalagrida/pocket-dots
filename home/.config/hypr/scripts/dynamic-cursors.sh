@@ -80,14 +80,14 @@ compilar() {
 # Freshly cloned: packages/git-repos.txt brings the repo, but not the .so, which
 # has to be built against THIS machine's Hyprland version. It only happens once.
 if [ ! -f "$SO" ]; then
-    notify-send -u low "Shake to find" "$(tr_ 'Compilando dynamic-cursors por primera vez…' 'Building dynamic-cursors for the first time…')" 2>/dev/null || true
+    notify-send -u low "Shake to find" "$(tr_ 'Compilando dynamic-cursors por primera vez…' 'Building dynamic-cursors for the first time…' 'Compilando dynamic-cursors per la prima volta…')" 2>/dev/null || true
     compilar || true
 fi
 
 salida=$(cargar)
 case "$salida" in
 *"version mismatch"*)
-    notify-send -u low "Shake to find" "$(tr_ 'Recompilando dynamic-cursors para este Hyprland…' 'Rebuilding dynamic-cursors for this Hyprland…')" 2>/dev/null || true
+    notify-send -u low "Shake to find" "$(tr_ 'Recompilando dynamic-cursors para este Hyprland…' 'Rebuilding dynamic-cursors for this Hyprland…' 'Ricostruendo dynamic-cursors per questo Hyprland…')" 2>/dev/null || true
     compilar && salida=$(cargar)
     ;;
 esac
@@ -95,5 +95,5 @@ esac
 if cargado; then
     aplicar_config
 else
-    notify-send -u normal "Shake to find" "$(tr_ 'dynamic-cursors no pudo cargarse' 'dynamic-cursors could not load'): ${salida:0:120}" 2>/dev/null || true
+    notify-send -u normal "Shake to find" "$(tr_ 'dynamic-cursors no pudo cargarse' 'dynamic-cursors could not load' 'dynamic-cursors non può essere caricato'): ${salida:0:120}" 2>/dev/null || true
 fi

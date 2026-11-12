@@ -23,14 +23,14 @@ if [ "$rc" -eq 0 ] && [ -s "$file" ]; then
     # In the background: the notification sits waiting in case you press "Editar" (Edit).
     "$HOME/.config/hypr/scripts/notify-shot.sh" "$file" &
 else
-    rm -f "$file"   # do not leave a 0-byte PNG in Pictures
+    rm -f "$file"   # do not leave a 0-byte PNG in Pictures 
     # 2 is "you cancelled it": not a word, naturally. Any other code is a real
     # failure -the typical one is a full disk- and it used to be swallowed by
     # the same `else` as the cancellation, so you were left with no screenshot
     # and no idea why. This is what screenshot-full.sh already did.
     if [ "$rc" -ne 2 ]; then
-        notify-send -u critical -a "$(tr_ Captura Screenshot)" \
-            "$(tr_ 'Captura de pantalla' 'Screenshot')" \
-            "$(tr_ 'Error al capturar' 'Capture failed')"
+        notify-send -u critical -a "$(tr_ Captura Screenshot Cattura)" \
+            "$(tr_ 'Captura de pantalla' 'Screenshot' 'Cattura dello schermo')" \
+            "$(tr_ 'Error al capturar' 'Capture failed' 'Errore durante la cattura')"
     fi
 fi

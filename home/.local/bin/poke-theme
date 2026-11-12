@@ -44,12 +44,13 @@ import sys
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -188,7 +189,7 @@ def cmd_index(args) -> int:
                 tareas.append((clave, ruta))
 
     if not tareas:
-        print(tr(f"indice al dia: {len(ya)} sprites", f"Index up to date: {len(ya)} sprites"))
+        print(tr(f"indice al dia: {len(ya)} sprites", f"Index up to date: {len(ya)} sprites", f"Indice aggiornato: {len(ya)} sprite"))
         return 0
 
     nuevos: dict[str, list] = {}
@@ -216,7 +217,8 @@ def cmd_index(args) -> int:
             fh.write(f"{clave}\t{cuerpo}\n")
     tmp.replace(INDEX)
     print(tr(f"indexados {len(nuevos)} nuevos ({fallos} ilegibles), total {len(ya)} -> {INDEX}",
-             f"Indexed {len(nuevos)} new sprites ({fallos} unreadable), total {len(ya)} -> {INDEX}"))
+             f"Indexed {len(nuevos)} new sprites ({fallos} unreadable), total {len(ya)} -> {INDEX}",
+             f"Indicizzati {len(nuevos)} nuovi ({fallos} illeggibili), total {len(ya)} -> {INDEX}"))
     return 0
 
 
@@ -273,7 +275,8 @@ def ranking() -> dict[str, list[tuple[float, Path]]]:
     indice = leer_indice()
     if not indice:
         raise SystemExit(tr("no hay indice todavia: ejecuta 'poke-theme index'",
-                            "No index yet: run 'poke-theme index'"))
+                            "No index yet: run 'poke-theme index'",
+                            "Nessun indice ancora: esegui 'poke-theme index'"))
     objetivos, fondo, croma = objetivos_tema()
 
     fuera: dict[str, list[tuple[float, Path]]] = {"gif": [], "png": []}
@@ -397,7 +400,8 @@ def asegurar_nombres() -> dict[int, str]:
             datos = json.load(r)
     except Exception as e:
         print(tr(f"no pude bajar los nombres ({e}); usa el numero",
-                 f"Could not download the names ({e}); use the number"), file=sys.stderr)
+                 f"Could not download the names ({e}); use the number",
+                 f"Impossibile scaricare i nomi ({e}); usa il numero"), file=sys.stderr)
         return {}
 
     fuera = {}
@@ -420,7 +424,8 @@ def resolver(texto: str) -> tuple[int, str]:
     disponibles = {int(p.stem) for p in DIR_PNG.glob("*.png") if p.stem.isdigit()}
     if not disponibles:
         raise SystemExit(tr("no hay artwork en ~/.cache/pokeart: ejecuta 'poke-sprites'",
-                            "No artwork in ~/.cache/pokeart: run 'poke-sprites'"))
+                            "No artwork in ~/.cache/pokeart: run 'poke-sprites'",
+                            "Nessun artwork in ~/.cache/pokeart: esegui 'poke-sprites'"))
 
     nombres = asegurar_nombres()
     texto = texto.strip().lower()
@@ -433,12 +438,14 @@ def resolver(texto: str) -> tuple[int, str]:
         num = int(texto)
         if num not in disponibles:
             raise SystemExit(tr(f"no tengo el artwork de #{num} (prueba 'poke-sprites')",
-                                f"No artwork for #{num} (try 'poke-sprites')"))
+                                f"No artwork for #{num} (try 'poke-sprites')",
+                                f"Impossibile trovare l'artwork di #{num} (prova 'poke-sprites')"))
         return num, nombres.get(num, str(num))
 
     if not nombres:
         raise SystemExit(tr(f"sin lista de nombres no puedo resolver '{texto}': usa el numero",
-                            f"Cannot resolve '{texto}' without the name list: use the number"))
+                            f"Cannot resolve '{texto}' without the name list: use the number",
+                            f"Impossibile risolvere '{texto}' senza la lista dei nomi: usa il numero"))
 
     porn = {v: k for k, v in nombres.items() if k in disponibles}
     if texto in porn:
@@ -450,8 +457,9 @@ def resolver(texto: str) -> tuple[int, str]:
         return porn[candidatos[0]], candidatos[0]
     if candidatos:
         raise SystemExit(tr(f"'{texto}' es ambiguo: {', '.join(candidatos[:12])}",
-                            f"'{texto}' is ambiguous: {', '.join(candidatos[:12])}"))
-    raise SystemExit(tr(f"no conozco a '{texto}'", f"Unknown Pokémon '{texto}'"))
+                            f"'{texto}' is ambiguous: {', '.join(candidatos[:12])}",
+                            f"'{texto}' è ambiguo: {', '.join(candidatos[:12])}"))
+    raise SystemExit(tr(f"no conozco a '{texto}'", f"Unknown Pokémon '{texto}'", f"Pokémon sconosciuto '{texto}'"))
 
 
 def distancia_paletas(a, b) -> float:
@@ -505,7 +513,7 @@ def indice_wallpapers(quiet: bool = True) -> dict[Path, list]:
         except Exception:
             pal = []
         if not quiet:
-            print(tr(f"  indexado {ruta.name}", f"  Indexed {ruta.name}"), file=sys.stderr)
+            print(tr(f"  indexado {ruta.name}", f"  Indexed {ruta.name}", f"  Indicizzati {ruta.name}"), file=sys.stderr)
         if pal:
             fuera[ruta] = pal
             cache[clave] = (mt, pal)
@@ -553,17 +561,18 @@ def cmd_wear(args) -> int:
     if args.off:
         actual = leer_puesto()
         if not actual:
-            print(tr("no llevabas ningun pokemon puesto", "No Pokémon theme was active"))
+            print(tr("no llevabas ningun pokemon puesto", "No Pokémon theme was active", "Nessun tema Pokémon attivo"))
             return 0
         _, nombre, _, previo = actual
         if not previo.is_file():
             PUESTO.unlink(missing_ok=True)
             raise SystemExit(tr(f"el fondo de antes ya no esta ({previo}); elige uno a mano",
-                                f"The previous wallpaper is missing ({previo}); choose one manually"))
+                                f"The previous wallpaper is missing ({previo}); choose one manually",
+                                f"Il wallpaper precedente è mancante ({previo}); scegline uno manualmente"))
         # without --paleta-de: set-wallpaper.sh takes the colours from the
         # wallpaper again and clears the state by itself.
         subprocess.run([str(SET_WALLPAPER), str(previo)], check=False)
-        print(tr(f"fuera {nombre}; vuelves a {previo.name}", f"Removed {nombre}; restored {previo.name}"))
+        print(tr(f"fuera {nombre}; vuelves a {previo.name}", f"Removed {nombre}; restored {previo.name}", f"Rimosso {nombre}; ripristinato {previo.name}"))
         return 0
 
     num, nombre = resolver(args.pokemon)
@@ -584,41 +593,43 @@ def cmd_wear(args) -> int:
     art = DIR_PNG / f"{num}.png"
     pal_poke = paleta(art)
     if not pal_poke:
-        raise SystemExit(tr(f"no pude sacar la paleta de {art}", f"Could not extract the palette from {art}"))
+        raise SystemExit(tr(f"no pude sacar la paleta de {art}", f"Could not extract the palette from {art}", f"Impossibile estrarre la palette da {art}"))
 
     if args.fondo:
         fondo = Path(args.fondo).expanduser()
         if not fondo.is_file():
-            raise SystemExit(tr(f"no existe el fondo: {fondo}", f"Wallpaper does not exist: {fondo}"))
+            raise SystemExit(tr(f"no existe el fondo: {fondo}", f"Wallpaper does not exist: {fondo}", f"Il wallpaper non esiste: {fondo}"))
         distancia = None
     else:
         filas = fondos_ordenados(pal_poke)
         if not filas:
             raise SystemExit(tr(f"no hay fondos indexables en {DIR_WALLS}",
-                                f"No indexable wallpapers in {DIR_WALLS}"))
+                                f"No indexable wallpapers in {DIR_WALLS}",
+                                f"Nessun wallpaper indicizzabile in {DIR_WALLS}"))
         # A wallpaper NAMED after the pokémon beats the best colour match: if
         # you keep a Gyarados wallpaper, wearing Gyarados puts that one. Among
         # several, the closest in colour.
         suyos = [f for f in filas if nombre.lower() in f[1].stem.lower()]
         distancia, fondo = (suyos or filas)[0]
         if args.verbose and suyos:
-            print(tr(f"  con su nombre: {fondo.name}", f"  named after it: {fondo.name}"), file=sys.stderr)
+            print(tr(f"  con su nombre: {fondo.name}", f"  named after it: {fondo.name}", f"  denominato: {fondo.name}"), file=sys.stderr)
         if args.verbose:
             for d, r in filas[:5]:
                 print(f"  {d:6.2f}  {r.name}", file=sys.stderr)
 
     if args.dry_run:
         print(f"#{num} {nombre}  ->  {fondo.name}"
-              + (tr(f"  (distancia {distancia:.2f})", f"  (distance {distancia:.2f})") if distancia is not None else ""))
+              + (tr(f"  (distancia {distancia:.2f})", f"  (distance {distancia:.2f})", f"  (distanza {distancia:.2f})") if distancia is not None else ""))
         return 0
 
     if not os.access(SET_WALLPAPER, os.X_OK):
-        raise SystemExit(tr(f"no puedo ejecutar {SET_WALLPAPER}", f"Cannot execute {SET_WALLPAPER}"))
+        raise SystemExit(tr(f"no puedo ejecutar {SET_WALLPAPER}", f"Cannot execute {SET_WALLPAPER}", f"Impossibile eseguire {SET_WALLPAPER}"))
     r = subprocess.run([str(SET_WALLPAPER), str(fondo), "--paleta-de", str(art)],
                        check=False)
     if r.returncode != 0:
         raise SystemExit(tr(f"set-wallpaper.sh fallo ({r.returncode}); el tema no ha cambiado",
-                            f"set-wallpaper.sh failed ({r.returncode}); the theme has not changed"))
+                            f"set-wallpaper.sh failed ({r.returncode}); the theme has not changed",
+                            f"set-wallpaper.sh fallito ({r.returncode}); il tema non è cambiato"))
 
     # Written AFTER applying: if set-wallpaper fails, nobody should believe the
     # pokémon is being worn. And set-wallpaper deletes this file when it starts
@@ -629,7 +640,8 @@ def cmd_wear(args) -> int:
     tmp.write_text(f"{num}\t{nombre}\t{fondo}\t{previo}\n")
     tmp.replace(PUESTO)
     print(tr(f"puesto #{num} {nombre}  (fondo: {fondo.name})",
-             f"Applied #{num} {nombre}  (wallpaper: {fondo.name})"))
+             f"Applied #{num} {nombre}  (wallpaper: {fondo.name})",
+             f"Applicato #{num} {nombre}  (wallpaper: {fondo.name})"))
     return 0
 
 
@@ -647,56 +659,71 @@ def main() -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("index", help=tr("extrae la paleta de cada sprite (lento, 1 vez)",
-                                         "extract each sprite palette (slow, once only)"))
+                                         "extract each sprite palette (slow, once only)",
+                                         "estrarre la palette di ogni sprite (lento, una volta sola)"))
     pi.add_argument("--force", action="store_true", help=tr("reindexa todo desde cero",
-                                                            "rebuild the whole index from scratch"))
+                                                            "rebuild the whole index from scratch",
+                                                            "ricostruire l'intero indice da zero"))
     pi.add_argument("-q", "--quiet", action="store_true")
     pi.set_defaults(func=cmd_index)
 
     pr = sub.add_parser("rank", help=tr("ordena los sprites para el tema actual",
-                                        "rank sprites for the current theme"))
+                                        "rank sprites for the current theme",
+                                        "ordina gli sprite per il tema corrente"))
     pr.add_argument("-q", "--quiet", action="store_true")
     pr.set_defaults(func=cmd_rank)
 
-    pt = sub.add_parser("top", help=tr("enseña el ranking", "show the ranking"))
+    pt = sub.add_parser("top", help=tr("enseña el ranking", "show the ranking", "mostra il ranking"))
     pt.add_argument("-n", type=int, default=20)
     pt.add_argument("--tipo", choices=("gif", "png"), default="gif")
     pt.add_argument("--peores", action="store_true", help=tr("los que menos pegan",
-                                                             "the least matching sprites"))
+                                                             "the least matching sprites",
+                                                             "i meno corrispondenti sprite"))
     pt.set_defaults(func=cmd_top)
 
     pp = sub.add_parser("pick", help=tr("escupe un sprite sesgado por tema",
-                                        "choose a sprite weighted towards the theme"))
+                                        "choose a sprite weighted towards the theme",
+                                        "scegli un sprite pesato verso il tema"))
     pp.add_argument("tipo", nargs="?", choices=("gif", "png"), default="gif")
     pp.add_argument("--entre", type=int, default=40, help=tr("de cuantos mejores elegir",
-                                                             "how many of the best matches to choose from"))
+                                                             "how many of the best matches to choose from",
+                                                             "quanti dei migliori scegliere"))
     pp.set_defaults(func=cmd_pick)
 
     pw = sub.add_parser("wear", help=tr("se pone un pokemon: SU paleta pinta el sistema",
-                                        "apply a Pokémon theme: ITS palette colours the system"))
+                                        "apply a Pokémon theme: ITS palette colours the system",
+                                        "applica un tema Pokémon: LA sua palette colora il sistema"))
     pw.add_argument("pokemon", nargs="?", default="random", help=tr("nombre, numero o 'random'",
-                                                                    "name, number or 'random'"))
+                                                                    "name, number or 'random'",
+                                                                    "nome, numero o 'random'"))
     pw.add_argument("--fondo", help=tr("usa este fondo en vez del mas afin",
-                                       "use this wallpaper instead of the closest match"))
+                                       "use this wallpaper instead of the closest match",
+                                       "usa questo sfondo invece del più vicino"))
     pw.add_argument("--off", action="store_true", help=tr("quitarselo: el tema vuelve a salir del fondo",
-                                                          "remove it: derive the theme from the wallpaper again"))
+                                                          "remove it: derive the theme from the wallpaper again",
+                                                          "rimuoverlo: deriva il tema dallo sfondo di nuovo"))
     pw.add_argument("-n", "--dry-run", action="store_true", help=tr("dice que haria, sin tocar nada",
-                                                                    "show what would change without applying it"))
+                                                                    "show what would change without applying it",
+                                                                    "dice cosa farebbe, senza toccare nulla"))
     pw.add_argument("-v", "--verbose", action="store_true", help=tr("enseña los 5 fondos que mas pegan",
-                                                                    "show the 5 closest wallpaper matches"))
+                                                                    "show the 5 closest wallpaper matches",
+                                                                    "mostra i 5 sfondi più vicini"))
     pw.set_defaults(func=cmd_wear)
 
     pwn = sub.add_parser("worn", help=tr("que pokemon llevas puesto (sale 1 si ninguno)",
-                                         "show the current Pokémon theme (exit 1 if none)"))
+                                         "show the current Pokémon theme (exit 1 if none)",
+                                         "mostra il tema Pokémon corrente (esci 1 se nessuno)"))
     pwn.add_argument("--solo-nombre", action="store_true")
     pwn.set_defaults(func=cmd_worn)
 
-    for nombre, ayuda in (("on", tr("activa el sesgo por tema", "enable theme weighting")),
+    for nombre, ayuda in (("on", tr("activa el sesgo por tema", "enable theme weighting", "attiva il bias per tema")),
                           ("off", tr("vuelve al pokemon al azar de siempre",
-                                     "return to the usual random Pokémon")),
+                                     "return to the usual random Pokémon",
+                                     "torna al Pokémon casuale di sempre")),
                           ("toggle", tr("conmuta (lo que usa la pokeball del notch)",
-                                        "toggle (used by the notch Poké Ball)")),
-                          ("is-on", tr("imprime on/off", "print on/off"))):
+                                        "toggle (used by the notch Poké Ball)",
+                                        "commuta (usato dalla Poké Ball del notch)")),
+                          ("is-on", tr("imprime on/off", "print on/off", "stampa on/off"))):
         pe = sub.add_parser(nombre, help=ayuda)
         pe.set_defaults(func=cmd_estado)
 

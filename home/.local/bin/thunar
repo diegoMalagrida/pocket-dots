@@ -40,5 +40,7 @@ printf '%s' "$LOC" > "$ESTADO" 2>/dev/null || true
 
 if [ "$LOC" = en ]; then
 	exec env LANGUAGE=en "$REAL" "$@"
+if [ "$LOC" = it ]; then
+	exec env LANGUAGE=it "$REAL" "$@"
 fi
 exec env LANGUAGE=es "$REAL" "$@"

@@ -36,7 +36,9 @@ if [ -z "${RICE_LANG:-}" ]; then
     unset _rice_lang_conf _rice_lang_line _rice_lang_value
 fi
 
-# tr_ SPANISH ENGLISH
+# tr_ SPANISH ENGLISH ITALIAN
 tr_() {
-    if [ "$RICE_LANG" = en ]; then printf '%s' "$2"; else printf '%s' "$1"; fi
+    if [ "$RICE_LANG" = en ]; then printf '%s' "$2"
+    elif [ "$RICE_LANG" = it ]; then printf '%s' "${3:-$2}"
+    else printf '%s' "$1"; fi
 }

@@ -9,8 +9,8 @@
 . "$HOME/.config/hypr/scripts/lang.sh" 2>/dev/null || tr_() { printf '%s' "$1"; }
 if pgrep -x hyprsunset >/dev/null; then
     pkill -x hyprsunset
-    notify-send -t 1500 "󰌵 $(tr_ 'Luz nocturna' 'Night light')" "$(tr_ 'Desactivada' 'Off')"
+    notify-send -t 1500 "󰌵 $(tr_ 'Luz nocturna' 'Night light' 'Luce notturna')" "$(tr_ 'Desactivada' 'Off' 'Disattivata')"
 else
     hyprsunset -t 4000 >/dev/null 2>&1 &
-    notify-send -t 1500 "󰃝 $(tr_ 'Luz nocturna' 'Night light')" "$(tr_ 'Activada · 4000K' 'On · 4000K')"
+    notify-send -t 1500 "󰃝 $(tr_ 'Luz nocturna' 'Night light' 'Luce notturna')" "$(tr_ 'Activada · 4000K' 'On · 4000K' 'Attivata · 4000K')"
 fi

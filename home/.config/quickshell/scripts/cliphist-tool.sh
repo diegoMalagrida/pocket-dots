@@ -63,7 +63,7 @@ list() {
                 | magick - -thumbnail 200x200 "$thumb" 2>/dev/null
             [ -s "$thumb" ] || thumb="-"
 
-            label="$(tr_ Imagen Image)"
+            label="$(tr_ Imagen Image Immagine)"
             [[ $preview =~ ([0-9]+)x([0-9]+) ]] && label="$label  ${BASH_REMATCH[1]}×${BASH_REMATCH[2]}"
             [[ $preview =~ ([0-9.]+)[[:space:]]?([KMG]iB) ]] && label="$label  ·  ${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"
 
@@ -94,7 +94,7 @@ case "${1:-list}" in
         cliphist list | grep -m1 -P "^$2\t" | cliphist delete
         ;;
     *)
-        echo "$(tr_ "uso: cliphist-tool.sh list|copy <id>|delete <id>" "usage: cliphist-tool.sh list|copy <id>|delete <id>")" >&2
+        echo "$(tr_ "uso: cliphist-tool.sh list|copy <id>|delete <id>" "usage: cliphist-tool.sh list|copy <id>|delete <id>" "uso: cliphist-tool.sh list|copy <id>|delete <id>" )" >&2
         exit 2
         ;;
 esac

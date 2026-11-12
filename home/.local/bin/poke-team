@@ -47,12 +47,13 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -222,8 +223,10 @@ def resolver(texto: str) -> tuple[int, str]:
         return porn[cand[0]], cand[0]
     if cand:
         raise SystemExit(tr(f"'{texto}' es ambiguo: {', '.join(cand[:10])}",
-                            f"'{texto}' is ambiguous: {', '.join(cand[:10])}"))
-    raise SystemExit(tr(f"no conozco a '{texto}'", f"Unknown Pokémon '{texto}'"))
+                            f"'{texto}' is ambiguous: {', '.join(cand[:10])}",
+                            f"'{texto}' è ambiguo: {', '.join(cand[:10])}"))
+    raise SystemExit(tr(f"no conozco a '{texto}'", f"Unknown Pokémon '{texto}'",
+                        f"Pokémon sconosciuto '{texto}'"))
 
 
 # --- state -------------------------------------------------------------------
@@ -260,11 +263,14 @@ def rescatar() -> dict:
             pass
         print(tr(f"la partida estaba corrupta; restaurada la copia {copia.name} "
                  f"(la rota se guardo como {roto.name})",
-                 f"The save was corrupt; restored backup {copia.name} (the broken save was kept as {roto.name})"), file=sys.stderr)
+                 f"The save was corrupt; restored backup {copia.name} (the broken save was kept as {roto.name})",
+                 f"la partida era corrotta; ripristinata la copia {copia.name} "
+                 f"(la partita corrotta è stata salvata come {roto.name})"), file=sys.stderr)
         return d
     raise SystemExit(tr(f"la partida no se puede leer y no hay ninguna copia buena. "
                         f"El fichero roto esta en {roto}",
-                        f"The save cannot be read and there is no valid backup. The broken file is at {roto}"))
+                        f"The save cannot be read and there is no valid backup. The broken file is at {roto}",
+                        f"la partita non può essere letta e non c'è nessuna copia valida. Il file rotto è in {roto}"))
 
 
 def leer() -> dict:
@@ -544,26 +550,30 @@ def cmd_ver(args) -> int:
     mapa, evos = nombres(), evoluciones()
     if not d["equipo"]:
         print(tr("equipo vacio. Metelos con:  poke-team add <pokemon>",
-                 "Empty team. Add Pokémon with:  poke-team add <pokemon>"))
+                 "Empty team. Add Pokémon with:  poke-team add <pokemon>",
+                 "squadra vuota. Aggiungili con:  poke-team add <pokemon>"))
         return 0
     print(tr(f"equipo de {d['github'].get('login') or 'nadie'}"
              f"  ({d['github'].get('contadas', 0)} aportes contados"
              f" desde {d['github'].get('desde') or '?'})",
              f"Team of {d['github'].get('login') or 'nobody'}"
              f"  ({d['github'].get('contadas', 0)} contributions counted"
-             f" since {d['github'].get('desde') or '?'})"))
+             f" since {d['github'].get('desde') or '?'})",
+             f"squadra di {d['github'].get('login') or 'nessuno'}"
+             f"  ({d['github'].get('contadas', 0)} contributi conteggiati"
+             f" da {d['github'].get('desde') or '?'})"))
     total = sum(m["nivel"] for m in d["equipo"])
     aportes = int(d["github"].get("contadas", 0))
     ganadas = [n for a, n in MEDALLAS if aportes >= a]
     print(tr(f"  rango: {rango_de(total)}  (nivel total {total})"
              f"   medallas: {len(ganadas)}/8",
-             f"  Rank: {rango_de(total)}  (total level {total})   Badges: {len(ganadas)}/8")
-          + (f"  [{', '.join(ganadas)}]" if ganadas else ""))
+             f"  Rank: {rango_de(total)}  (total level {total})   Badges: {len(ganadas)}/8",
+             f"  Rango: {rango_de(total)}  (livello totale {total})   Medaglie: {len(ganadas)}/8"))
     for i, m in enumerate(d["equipo"]):
         a = adornar(m, mapa, evos)
         barra = int(a["progreso"] * 20)
         marca = "*" if i == 0 else " "
-        pend = tr("  <- puede evolucionar", "  <- can evolve") if a["puede_evolucionar"] else ""
+        pend = tr("  <- puede evolucionar", "  <- can evolve", "  <- può evolvere") if a["puede_evolucionar"] else ""
         estrella = "*" if m.get("shiny") else " "
         tipos = "/".join(x["es"] for x in a["tipos"]) or "?"
         print(tr(f" {marca}{i}.{estrella}{(m.get('mote') or a['especie_es']):14} niv {m['nivel']:>3}  "
@@ -571,12 +581,17 @@ def cmd_ver(args) -> int:
                  f"  {tipos:<18} {a['naturaleza']}{pend}",
                  f" {marca}{i}.{estrella}{(m.get('mote') or a['especie_es']):14} lv {m['nivel']:>3}  "
                  f"[{'#'*barra}{'.'*(20-barra)}] {m['xp']}/{a['umbral']}"
-                 f"  {tipos:<18} {a['naturaleza']}{pend}"))
+                 f"  {tipos:<18} {a['naturaleza']}{pend}",
+                 f" {marca}{i}.{estrella}{(m.get('mote') or a['especie_es']):14} lv {m['nivel']:>3}  "
+                 f"[{'#'*barra}{'.'*(20-barra)}] {m['xp']}/{a['umbral']}"
+                 f"  {tipos:<18} {a['naturaleza']}{pend}",
+                 ))
     if d["caja"]:
-        print(tr(f" caja ({len(d['caja'])}):", f" Box ({len(d['caja'])}):"))
+        print(tr(f" caja ({len(d['caja'])}):", f" Box ({len(d['caja'])}):", f" Box ({len(d['caja'])}):"))
         for i, m in enumerate(d["caja"]):
             a = adornar(m, mapa, evos)
             print(tr(f"   {i}. {(m.get('mote') or a['especie']):14} niv {m['nivel']:>3}",
+                     f"   {i}. {(m.get('mote') or a['especie']):14} lv {m['nivel']:>3}",
                      f"   {i}. {(m.get('mote') or a['especie']):14} lv {m['nivel']:>3}"))
     return 0
 
@@ -585,11 +600,13 @@ def cmd_add(args) -> int:
     d = leer()
     if len(d["equipo"]) >= TAMANO:
         raise SystemExit(tr(f"el equipo ya tiene {TAMANO}; saca a alguno con 'quitar'",
-                            f"The team already has {TAMANO}; remove one with 'quitar'"))
+                            f"The team already has {TAMANO}; remove one with 'quitar'",
+                            f"la squadra ha già {TAMANO}; rimuovi uno con 'quitar'"))
     num, especie = resolver(args.pokemon)
     if not (DIR_GIF / f"{num}.gif").exists() and not (DIR_PNG / f"{num}.png").exists():
         raise SystemExit(tr(f"no tengo sprite de #{num}; ejecuta 'poke-sprites'",
-                            f"No sprite for #{num}; run 'poke-sprites'"))
+                            f"No sprite for #{num}; run 'poke-sprites'",
+                            f"non ho lo sprite di #{num}; esegui 'poke-sprites'"))
     # The shiny roll, on joining and for ever: it survives evolutions because it
     # belongs to the INDIVIDUAL (the shiny field is not touched when num
     # changes). Rerolling by taking it out and back in is costly: it loses its
@@ -611,9 +628,10 @@ def cmd_add(args) -> int:
             d["github"]["contadas"] = aportes_desde(datos, d["github"]["desde"])
     guardar(d)
     puesto = len(d["equipo"]) - 1
-    extra = tr(f"  ¡¡VARIOCOLOR!! (1 entre {SHINY_UNO_DE})", f"  SHINY!! (1 in {SHINY_UNO_DE})") if shiny else ""
+    extra = tr(f"  ¡¡VARIOCOLOR!! (1 entre {SHINY_UNO_DE})", f"  SHINY!! (1 in {SHINY_UNO_DE})", f"  SHINY!! (1 di {SHINY_UNO_DE})") if shiny else ""
     print(tr(f"{args.mote or especie} entra al equipo (puesto {puesto}){extra}",
-             f"{args.mote or especie} joins the team (slot {puesto}){extra}"))
+             f"{args.mote or especie} joins the team (slot {puesto}){extra}",
+             f"{args.mote or especie} entra nella squadra (posto {puesto}){extra}"))
     # A shiny is 1 in 64 and deserves the notch's ceremony, so it also comes out
     # as a JSON EVENT -- just like 'evolucionar' does, which is the other moment
     # worth celebrating. It goes on a SECOND line instead of replacing the one
@@ -630,32 +648,34 @@ def cmd_add(args) -> int:
 def cmd_quitar(args) -> int:
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
     fuera = d["equipo"].pop(args.puesto)
     guardar(d)
     print(tr(f"fuera {fuera.get('mote') or nombres().get(fuera['num'], fuera['num'])}",
-             f"Removed {fuera.get('mote') or nombres().get(fuera['num'], fuera['num'])}"))
+             f"Removed {fuera.get('mote') or nombres().get(fuera['num'], fuera['num'])}",
+             f"Rimosso {fuera.get('mote') or nombres().get(fuera['num'], fuera['num'])}"))
     return 0
 
 
 def cmd_mote(args) -> int:
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
     d["equipo"][args.puesto]["mote"] = args.nombre
     guardar(d)
-    print(tr(f"ahora se llama {args.nombre}", f"Now called {args.nombre}"))
+    print(tr(f"ahora se llama {args.nombre}", f"Now called {args.nombre}", f"ora si chiama {args.nombre}"))
     return 0
 
 
 def cmd_lider(args) -> int:
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
     d["equipo"].insert(0, d["equipo"].pop(args.puesto))
     guardar(d)
     print(tr(f"{d['equipo'][0].get('mote') or nombres().get(d['equipo'][0]['num'])} va delante",
-             f"{d['equipo'][0].get('mote') or nombres().get(d['equipo'][0]['num'])} is the leader"))
+             f"{d['equipo'][0].get('mote') or nombres().get(d['equipo'][0]['num'])} is the leader",
+             f"{d['equipo'][0].get('mote') or nombres().get(d['equipo'][0]['num'])} è il capo"))
     return 0
 
 
@@ -670,7 +690,7 @@ def cmd_mover(args) -> int:
     d = leer()
     n = len(d["equipo"])
     if not (0 <= args.de < n):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
     # The destination is clamped to the range instead of failing: dropping below
     # the last row means "the last one", not that you made a mistake.
     destino = max(0, min(args.a, n - 1))
@@ -680,20 +700,22 @@ def cmd_mover(args) -> int:
     guardar(d)
     m = d["equipo"][destino]
     print(tr(f"{m.get('mote') or nombres().get(m['num'])} al puesto {destino}",
-             f"{m.get('mote') or nombres().get(m['num'])} to slot {destino}"))
+             f"{m.get('mote') or nombres().get(m['num'])} to slot {destino}",
+             f"{m.get('mote') or nombres().get(m['num'])} al posto {destino}"))
     return 0
 
 
 def cmd_evolucionar(args) -> int:
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
     m = d["equipo"][args.puesto]
     mapa, evos = nombres(), evoluciones()
     listas = [r for r in evos.get(m["num"], []) if m["nivel"] >= r["nivel"]]
     if not listas:
         raise SystemExit(tr(f"{mapa.get(m['num'], m['num'])} no puede evolucionar todavia",
-                            f"{mapa.get(m['num'], m['num'])} cannot evolve yet"))
+                            f"{mapa.get(m['num'], m['num'])} cannot evolve yet",
+                            f"{mapa.get(m['num'], m['num'])} non può evolvere ancora"))
     elegida = listas[0]
     if args.a:
         destino, _ = resolver(args.a)
@@ -701,12 +723,14 @@ def cmd_evolucionar(args) -> int:
         if not coincide:
             opciones = ", ".join(mapa.get(r["a"], str(r["a"])) for r in listas)
             raise SystemExit(tr(f"no evoluciona en eso. Puede: {opciones}",
-                                f"It cannot evolve into that. Options: {opciones}"))
+                                f"It cannot evolve into that. Options: {opciones}",
+                                f"non si evolve in quello. Può: {opciones}"))
         elegida = coincide[0]
     elif len(listas) > 1:
         opciones = ", ".join(mapa.get(r["a"], str(r["a"])) for r in listas)
         raise SystemExit(tr(f"hay que elegir: {opciones}  (usa 'evolucionar {args.puesto} a <cual>')",
-                            f"Choose one: {opciones}  (use 'evolucionar {args.puesto} a <which>')"))
+                            f"Choose one: {opciones}  (use 'evolucionar {args.puesto} a <which>')",
+                            f"devi scegliere: {opciones}  (usa 'evolucionar {args.puesto} a <which>')"))
     antes, antes_num = mapa.get(m["num"], ""), m["num"]
     m["num"] = elegida["a"]
     if m.get("shiny"):
@@ -791,13 +815,14 @@ def cmd_guardar(args) -> int:
     which is why guardar asks for no confirmation and quitar does."""
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
     m = d["equipo"].pop(args.puesto)
     d["caja"].append(m)
     guardar(d)
     print(tr(f"{m.get('mote') or nombres().get(m['num'], m['num'])} a la caja "
              f"(quedan {len(d['equipo'])} en el equipo)",
-             f"{m.get('mote') or nombres().get(m['num'], m['num'])} moved to the box ({len(d['equipo'])} left in the team)"))
+             f"{m.get('mote') or nombres().get(m['num'], m['num'])} moved to the box ({len(d['equipo'])} left in the team)",
+             f"{m.get('mote') or nombres().get(m['num'], m['num'])} messo nel box ({len(d['equipo'])} rimasti nella squadra)"))
     return 0
 
 
@@ -805,15 +830,17 @@ def cmd_sacar(args) -> int:
     """From the box to the team."""
     d = leer()
     if not (0 <= args.indice < len(d["caja"])):
-        raise SystemExit(tr("ese sitio de la caja esta vacio", "That box slot is empty"))
+        raise SystemExit(tr("ese sitio de la caja esta vacio", "That box slot is empty", "quello slot della cassetta è vuoto"))
     if len(d["equipo"]) >= TAMANO:
         raise SystemExit(tr(f"el equipo ya tiene {TAMANO}: guarda a alguno primero",
-                            f"The team already has {TAMANO}: store one first"))
+                            f"The team already has {TAMANO}: store one first",
+                            f"la squadra ha già {TAMANO}: salva qualcuno prima"))
     m = d["caja"].pop(args.indice)
     d["equipo"].append(m)
     guardar(d)
     print(tr(f"{m.get('mote') or nombres().get(m['num'], m['num'])} vuelve al equipo",
-             f"{m.get('mote') or nombres().get(m['num'], m['num'])} returns to the team"))
+             f"{m.get('mote') or nombres().get(m['num'], m['num'])} returns to the team",
+             f"{m.get('mote') or nombres().get(m['num'], m['num'])} torna alla squadra"))
     return 0
 
 
@@ -835,53 +862,62 @@ def main() -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("estado", help=tr("el equipo en JSON (lo lee el notch)",
-                                     "the team as JSON (read by the notch)")).set_defaults(func=cmd_estado)
-    sub.add_parser("ver", help=tr("el equipo, legible", "the team in a readable format")).set_defaults(func=cmd_ver)
+                                     "the team as JSON (read by the notch)",
+                                     "la squadra come JSON (letto dal notch)")).set_defaults(func=cmd_estado)
+    sub.add_parser("ver", help=tr("el equipo, legible", "the team in a readable format",
+                                  "la squadra, leggibile")).set_defaults(func=cmd_ver)
     sub.add_parser("sync", help=tr("mira github y reparte experiencia",
-                                   "check GitHub and distribute experience")).set_defaults(func=cmd_sync)
+                                   "check GitHub and distribute experience",
+                                   "controlla GitHub e distribuisci l'esperienza")).set_defaults(func=cmd_sync)
 
-    pa = sub.add_parser("add", help=tr("mete un pokemon en el equipo", "add a Pokémon to the team"))
+    pa = sub.add_parser("add", help=tr("mete un pokemon en el equipo", "add a Pokémon to the team",
+                                       "aggiungi un Pokémon alla squadra"))
     pa.add_argument("pokemon")
-    pa.add_argument("--mote", help=tr("como quieres llamarlo", "what to call it"))
+    pa.add_argument("--mote", help=tr("como quieres llamarlo", "what to call it", "come vuoi chiamarlo"))
     pa.add_argument("--nivel", type=int, default=1)
     pa.set_defaults(func=cmd_add)
 
-    pq = sub.add_parser("quitar", help=tr("saca a uno del equipo", "remove a Pokémon from the team"))
+    pq = sub.add_parser("quitar", help=tr("saca a uno del equipo", "remove a Pokémon from the team",
+                                          "rimuovi un Pokémon dalla squadra"))
     pq.add_argument("puesto", type=int)
     pq.set_defaults(func=cmd_quitar)
 
-    pm = sub.add_parser("mote", help=tr("le cambia el nombre", "change its name"))
+    pm = sub.add_parser("mote", help=tr("le cambia el nombre", "change its name", "cambia il suo nome"))
     pm.add_argument("puesto", type=int)
     pm.add_argument("nombre")
     pm.set_defaults(func=cmd_mote)
 
-    pl = sub.add_parser("lider", help=tr("lo pone el primero", "make it the leader"))
+    pl = sub.add_parser("lider", help=tr("lo pone el primero", "make it the leader", "lo rende il leader"))
     pl.add_argument("puesto", type=int)
     pl.set_defaults(func=cmd_lider)
 
     pv = sub.add_parser("mover", help=tr("cambia a uno de puesto (reordenar)",
-                                         "move a Pokémon to another slot (reorder)"))
+                                         "move a Pokémon to another slot (reorder)",
+                                         "muovi un Pokémon in un altro posto (riordinare)"))
     pv.add_argument("de", type=int)
     pv.add_argument("a", type=int)
     pv.set_defaults(func=cmd_mover)
 
-    pe = sub.add_parser("evolucionar", help=tr("fuerza una evolucion pendiente", "trigger a pending evolution"))
+    pe = sub.add_parser("evolucionar", help=tr("fuerza una evolucion pendiente", "trigger a pending evolution",
+                                               "attiva un'evoluzione in attesa"))
     pe.add_argument("puesto", type=int)
-    pe.add_argument("a", nargs="?", help=tr("en cual, si hay varias", "which evolution, if there are several"))
+    pe.add_argument("a", nargs="?", help=tr("en cual, si hay varias", "which evolution, if there are several", "in quale, se ce ne sono diverse"))
     pe.set_defaults(func=cmd_evolucionar)
 
-    pg = sub.add_parser("guardar", help=tr("del equipo a la caja", "move from the team to the box"))
+    pg = sub.add_parser("guardar", help=tr("del equipo a la caja", "move from the team to the box", "sposta dalla squadra al box"))
     pg.add_argument("puesto", type=int)
     pg.set_defaults(func=cmd_guardar)
 
-    ps = sub.add_parser("sacar", help=tr("de la caja al equipo", "move from the box to the team"))
+    ps = sub.add_parser("sacar", help=tr("de la caja al equipo", "move from the box to the team", "sposta dal box alla squadra"))
     ps.add_argument("indice", type=int)
     ps.set_defaults(func=cmd_sacar)
 
     for nombre, ayuda in (("repartir", tr("experiencia a partes iguales, como el objeto",
-                                          "share experience equally, like the item")),
+                                          "share experience equally, like the item",
+                                          "condividi l'esperienza equamente, come l'oggetto")),
                           ("pasear", tr("el lider pasea por el escritorio",
-                                        "the leader walks around the desktop"))):
+                                        "the leader walks around the desktop",
+                                        "il leader cammina intorno al desktop"))):
         pf = sub.add_parser(nombre, help=ayuda)
         pf.add_argument("accion", choices=("on", "off", "toggle"))
         pf.set_defaults(func=cmd_flag)

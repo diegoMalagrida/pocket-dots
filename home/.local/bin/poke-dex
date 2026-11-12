@@ -20,12 +20,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -99,7 +100,7 @@ def habilidades() -> None:
     try:
         lista = pide(f"{API}/ability?limit=1000").get("results", [])
     except Exception as e:
-        print(tr(f"  habilidades: {e}", f"  Abilities: {e}"), file=sys.stderr)
+        print(tr(f"  habilidades: {e}", f"  Abilities: {e}", f"  Abilitá: {e}"), file=sys.stderr)
         return
     fuera = {}
 
@@ -116,7 +117,7 @@ def habilidades() -> None:
     tmp = HABS.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(fuera, ensure_ascii=False))
     tmp.replace(HABS)
-    print(tr(f"habilidades: {len(fuera)}", f"Abilities: {len(fuera)}"))
+    print(tr(f"habilidades: {len(fuera)}", f"Abilities: {len(fuera)}", f"Abilitá: {len(fuera)}"))
 
 
 def main() -> int:
@@ -127,10 +128,10 @@ def main() -> int:
         return 2
     if args == ["--todo"]:
         nums = [n for n in range(1, 1026) if not (DEX / f"{n}.json").exists()]
-        print(tr(f"faltan {len(nums)} fichas", f"{len(nums)} entries missing"))
+        print(tr(f"faltan {len(nums)} fichas", f"{len(nums)} entries missing", f"mancano {len(nums)} voci"))
         with ThreadPoolExecutor(max_workers=8) as ex:
             hechos = sum(ex.map(ficha, nums))
-        print(tr(f"bajadas {hechos} de {len(nums)}", f"Downloaded {hechos} of {len(nums)}"))
+        print(tr(f"bajadas {hechos} de {len(nums)}", f"Downloaded {hechos} of {len(nums)}", f"Scaricati {hechos} di {len(nums)}"))
         habilidades()
         return 0
     ok = all(ficha(int(a)) for a in args if a.isdigit())

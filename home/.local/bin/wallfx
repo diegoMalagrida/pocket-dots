@@ -50,11 +50,20 @@ SD_RANGE = 16.0     # signed distance stored in +-16 map pixels around the outli
 WIDE = 48.0         # the wide outside distance (the glow), in map pixels
 
 
-def tr(es, en):
+def tr(es, en, it):
     """The rice's language layer, as in poke-theme."""
     try:
         with open(os.path.join(HOME, ".config", "quickshell-rice.json"), encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            language = json.load(f).get("language")
+            match language:
+                case "en":
+                    return en
+                case "es":
+                    return es
+                case "it":
+                    return it
+                case _:
+                    return es
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -503,9 +512,9 @@ def main(argv):
             import subprocess
             import threading
             aviso = threading.Timer(1.5, lambda: subprocess.run(
-                ["notify-send", "-t", "4000", "-a", tr("Fondo", "Wallpaper"),
-                 tr("Preparando el fondo nuevo", "Preparing the new wallpaper"),
-                 tr("Recortando su personaje para la transición…", "Cutting out its character for the transition…")],
+                ["notify-send", "-t", "4000", "-a", tr("Fondo", "Wallpaper", "Sfondo"),
+                 tr("Preparando el fondo nuevo", "Preparing the new wallpaper", "Preparando il nuovo sfondo"),
+                 tr("Recortando su personaje para la transición…", "Cutting out its character for the transition…", "Tagliando il suo personaggio per la transizione…")],
                 capture_output=True))
             aviso.start()
 
@@ -530,7 +539,7 @@ def main(argv):
         import subprocess
         uv = shutil.which("uv")
         if not uv:
-            print(tr("wallfx: hace falta uv (sudo pacman -S uv)", "wallfx: uv is needed (sudo pacman -S uv)"), file=sys.stderr)
+            print(tr("wallfx: hace falta uv (sudo pacman -S uv)", "wallfx: uv is needed (sudo pacman -S uv)", "wallfx: uv è necessario (sudo pacman -S uv)"), file=sys.stderr)
             return 1
         os.makedirs(VENV, exist_ok=True)
         subprocess.run([uv, "venv", "-q", os.path.join(VENV, "venv")], check=True)
@@ -539,9 +548,10 @@ def main(argv):
         subprocess.run([uv, "pip", "install", "-q", "--python", VENV_PY, "rembg", "onnxruntime-openvino",
                         "opencv-python-headless", "numpy", "pillow"], check=True)
         print(tr("listo. `wallfx warm` recorta tus fondos (la primera vez baja el modelo, ~210 MB)",
-                 "done. `wallfx warm` cuts out your wallpapers (the first run downloads the model, ~210 MB)"))
+                 "done. `wallfx warm` cuts out your wallpapers (the first run downloads the model, ~210 MB)",
+                 "fatto. `wallfx warm` taglia i tuoi sfondi (la prima volta scarica il modello, ~210 MB)"))
         return 0
-    print(tr(f"wallfx: no conozco «{cmd}»", f"wallfx: unknown command '{cmd}'"), file=sys.stderr)
+    print(tr(f"wallfx: no conozco «{cmd}»", f"wallfx: unknown command '{cmd}'", f"wallfx: comando sconosciuto '{cmd}'"), file=sys.stderr)
     return 2
 
 

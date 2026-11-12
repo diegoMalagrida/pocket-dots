@@ -3,23 +3,27 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
+    # The file is read ONCE. Calling json.load(f) twice on the same handle made
+    # the second call hit the end of the file and raise, so "it" always fell
+    # back to Spanish.
     try:
-        import json
-        from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            idioma = json.load(f).get("language")
     except (OSError, ValueError, AttributeError):
         return es
+    return en if idioma == "en" else it if idioma == "it" else es
 
 
 H = Path.home()
 PAL = H / ".cache" / "pokepalette"
 parser = argparse.ArgumentParser(description=tr("Pokédex adaptable para Super+O",
-                                                "Adaptive Pokédex for Super+O"))
+                                                "Adaptive Pokédex for Super+O",
+                                                "Pokédex adattivo per Super+O"))
 parser.add_argument("--pokemon", type=int)
 parser.add_argument("--render", help=tr("Vista previa sin terminal: ANCHOxALTO",
-                                        "Preview without a terminal: WIDTHxHEIGHT"))
+                                        "Preview without a terminal: WIDTHxHEIGHT",
+                                        "Anteprima senza terminale: LARGHEZZAxALTEZZA"))
 parser.add_argument("--output", default="/tmp/pokedex-preview.png")
 parser.add_argument("--timeout", type=float, default=18)
 parser.add_argument("--silent", action="store_true")
@@ -33,7 +37,8 @@ if not gif.exists():
     # Not every number has a sprite in the box (the team may carry one that is
     # missing). Say so and exit, instead of blowing up with a traceback.
     raise SystemExit(tr(f"pokemon-popup: no hay sprite para #{args.pokemon} en {gif.parent}",
-                        f"pokemon-popup: no sprite for #{args.pokemon} in {gif.parent}"))
+                        f"pokemon-popup: no sprite for #{args.pokemon} in {gif.parent}",
+                        f"pokemon-popup: nessuno sprite per #{args.pokemon} in {gif.parent}"))
 num = int(gif.stem)
 
 # Querying the team costs ~150 ms of external process: let it happen while the
@@ -52,8 +57,15 @@ try:
     lang = json.loads((H / ".config" / "quickshell-rice.json").read_text()).get("language", "es")
 except Exception:
     lang = "es"
-if lang not in ("es", "en"):
+if lang not in ("es", "en", "it"):
     lang = "es"
+
+
+def L(es, en, it):
+    """Picks the string for the language the shell speaks."""
+    return {"es": es, "en": en, "it": it}[lang]
+
+
 T = {"es": {"nv": "Nv", "faltan": "a {n} aportes de evolucionar",
             "equipo": "en tu equipo", "lider": "tu líder", "oculta": "oculta",
             "debil": "DÉBIL", "inmune": "INMUNE", "habs": "HABILIDAD", "total": "TOTAL",
@@ -67,7 +79,24 @@ T = {"es": {"nv": "Nv", "faltan": "a {n} aportes de evolucionar",
             "tamano": "SIZE",
             "cortas": ["HP", "ATK", "DEF", "SPE", "SPD", "SPA"],
             "regiones": ["Kanto", "Johto", "Hoenn", "Sinnoh", "Unova", "Kalos",
+                          "Alola", "Galar", "Paldea"]},
+     # The six short labels keep the order of the other two: HP, attack,
+     # defence, speed, special defence, special attack. They are kept to three
+     # letters because the stat bars leave only 46 px for the label.
+     "it": {"nv": "Lv", "faltan": "{n} contributi per evolversi",
+            "equipo": "nella tua squadra", "lider": "capo della squadra", "oculta": "nascosta",
+            "debil": "DEBOLEZZE", "inmune": "IMMUNITÀ", "habs": "ABILITÀ", "total": "TOTALE",
+            "tamano": "DIMENSIONI",
+            "cortas": ["PS", "ATT", "DIF", "VEL", "DIF. SP.", "ATT. SP."],
+            "regiones": ["Kanto", "Johto", "Hoenn", "Sinnoh", "Unima", "Kalos",
                           "Alola", "Galar", "Paldea"]}}[lang]
+
+# Type names in Italian. The ids are PokéAPI's, the same keys tipos.json uses.
+TIPOS_IT = {"normal": "Normale", "fire": "Fuoco", "water": "Acqua", "electric": "Elettro",
+            "grass": "Erba", "ice": "Ghiaccio", "fighting": "Lotta", "poison": "Veleno",
+            "ground": "Terra", "flying": "Volante", "psychic": "Psico", "bug": "Coleottero",
+            "rock": "Roccia", "ghost": "Spettro", "dragon": "Drago", "dark": "Buio",
+            "steel": "Acciaio", "fairy": "Folletto"}
 
 def carga(nombre, defecto):
     try:
@@ -88,7 +117,8 @@ nombres = {}
 try:
     # In English the PokéAPI ids ARE the names, once capitalised ("mr-mime" ->
     # "Mr-Mime"), the same rule as ShellState.pokeTitulo(); in Spanish, the file
-    # poke-names downloads.
+    # poke-names downloads. Italian uses the English ones too, which match the
+    # Italian names for nearly every pokémon.
     for l in (PAL / ("nombres-es.tsv" if lang == "es" else "nombres.tsv")).read_text().splitlines():
         a, _, b = l.partition("\t")
         if a.isdigit():
@@ -97,16 +127,17 @@ try:
 except Exception:
     pass
 
-# The nature comes from the save in Spanish. In English it goes through the
-# shell's own dictionary, read line by line the way tools/i18n-check.py reads
-# it, so the 25 names are not copied a second time here.
-dic_en = {}
-if lang == "en":
+# The nature comes from the save in Spanish. In English and Italian it goes
+# through the shell's own dictionary, read line by line the way
+# tools/i18n-check.py reads it, so the 25 names are not copied a second time
+# here. In Spanish it is shown as it is.
+dic_naturaleza = {}
+if lang in ("en", "it"):
     try:
-        for l in (H / ".config/quickshell/translations-en.js").read_text().splitlines():
+        for l in (H / f".config/quickshell/translations-{lang}.js").read_text().splitlines():
             m_ = re.match(r'^\s*"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,?\s*$', l)
             if m_:
-                dic_en[m_.group(1)] = m_.group(2)
+                dic_naturaleza[m_.group(1)] = m_.group(2)
     except OSError:
         pass
 
@@ -118,20 +149,34 @@ def rgb(hexcolor):
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
 def nombre_tipo(t):
-    return tipos.get("es", {}).get(t, t) if lang == "es" else t.capitalize()
+    if lang == "es":
+        return tipos.get("es", {}).get(t, t)
+    if lang == "it":
+        return TIPOS_IT.get(t, t.capitalize())
+    return t.capitalize()
 
 def color_tipo(t):
     return tipos.get("colores", {}).get(t, "#888888")
 
 def num_idioma(x):
     t = f"{x:.1f}".rstrip("0").rstrip(".")
-    return t.replace(".", ",") if lang == "es" else t
+    return t.replace(".", ",") if lang in ("es", "it") else t
 
 def region(n):
     for i, tope in enumerate([151, 251, 386, 493, 649, 721, 809, 905, 1025]):
         if n <= tope:
             return T["regiones"][i]
     return ""
+
+def por_idioma(tabla):
+    """A {lang: text} dictionary from the data files, with English as the fallback.
+
+    poke-dex and the ability list may only carry es and en: without the
+    fallback an Italian card would show the description and the ability names
+    empty, or as raw ids.
+    """
+    tabla = tabla or {}
+    return tabla.get(lang) or tabla.get("en") or ""
 
 mios = tipos.get("pokemon", {}).get(str(num), [])
 stats = dex.get("stats") or []
@@ -247,7 +292,7 @@ def equipo_info():
             quien = T["lider"] if eq and eq[0] is mio_ else T["equipo"]
             info = [mio_.get("mote") or nom(num), f"{T['nv']} {mio_['nivel']}", quien]
             if mio_.get("naturaleza"):
-                info.append(dic_en.get(mio_["naturaleza"], mio_["naturaleza"]))
+                info.append(dic_naturaleza.get(mio_["naturaleza"], mio_["naturaleza"]))
             paso = next((e for e in evos.get(num, []) if e.get("como") == "nivel"), None)
             if paso and paso.get("nivel") and mio_["nivel"] < paso["nivel"]:
                 falta = sum(40 + 20 * k for k in range(mio_["nivel"], paso["nivel"])) - mio_.get("xp", 0)
@@ -483,14 +528,14 @@ def compose(width, height, con_tamano=True):
     for linea in wrap(nom(num).upper(), hw, fuente_nombre):
         text(hx, y, linea, fuente_nombre, BLANCO)
         y += 46 if wide else 34
-    genero = (dex.get('genero') or {}).get(lang) or ''
+    genero = por_idioma(dex.get('genero'))
     medidas = f"{num_idioma(dex['m'])} m · {num_idioma(dex['kg'])} kg" if dex.get('m') else ''
     meta = ' · '.join(v for v in (genero, medidas) if v)
     if meta:
         y = parrafo(meta, hx, y + (12 if wide else 6), hw, F_SEC, GRIS, 18) + 8
     y = pills([(nombre_tipo(t), legible(rgb(color_tipo(t)))) for t in mios], hx, y, hw)
 
-    descripcion = (dex.get('texto') or {}).get(lang) or (dex.get('texto') or {}).get('en')
+    descripcion = por_idioma(dex.get('texto'))
     if descripcion and wide:
         # At full width the lines went past 90 characters and the eye lost its
         # place: the description is read at paragraph measure, not screen width.
@@ -651,7 +696,7 @@ def compose(width, height, con_tamano=True):
 
     def cuerpo_habs(x, yy, w):
         for hab in dex.get('habilidades') or []:
-            value = (habs_nombres.get(hab['clave']) or {}).get(lang) or hab['clave']
+            value = por_idioma(habs_nombres.get(hab['clave'])) or hab['clave']
             text(x, yy, value, F_FILA, BLANCO)
             if hab.get('oculta'):
                 text(x + ancho(value) + 8, yy + 1, T['oculta'], F_SEC, GRIS)
@@ -662,7 +707,7 @@ def compose(width, height, con_tamano=True):
     # than the one inside a section, or they read as one long list. Between one
     # band and the next, a hairline at 6 % like Card.qml's border.
     BANDA = 28
-    rotulo_stats = 'STATS' if lang == 'en' else 'ESTADÍSTICAS'
+    rotulo_stats = L('ESTADÍSTICAS', 'STATS', 'STATISTICHE')
     pilas = [(debiles, T['debil'], cuerpo_debiles),
              (inmunes, T['inmune'], cuerpo_inmunes),
              (dex.get('habilidades'), T['habs'], cuerpo_habs)]
@@ -765,7 +810,7 @@ def compose(width, height, con_tamano=True):
         # narrow mode the two titles fought over the same line.
         al_lado = bool(equipo) and wide
         ancho_evo = area * 0.62 if al_lado else area
-        y = seccion(left, arranque, ancho_evo, 'EVOLUCIÓN' if lang == 'es' else 'EVOLUTION',
+        y = seccion(left, arranque, ancho_evo, L('EVOLUCIÓN', 'EVOLUTION', 'EVOLUZIONE'),
                     cuerpo_evo)
         if al_lado:
             y = max(y, seccion(left + ancho_evo + GAP_L * 2, arranque,
@@ -832,8 +877,8 @@ def viewport(card, sprite, width, height, offset=0, preview=False):
         frame.alpha_composite(clipped)
     d = ImageDraw.Draw(frame)
     if footer:
-        hint = ('↑↓ desplazar · Esc cerrar' if lang == 'es' else '↑↓ scroll · Esc close') if overflow else \
-               ('Cualquier tecla para cerrar' if lang == 'es' else 'Press any key to close')
+        hint = L('↑↓ desplazar · Esc cerrar', '↑↓ scroll · Esc close', '↑↓ scorri · Esc chiudi') if overflow else \
+               L('Cualquier tecla para cerrar', 'Press any key to close', 'Premi un tasto per chiudere')
         # At 11 px Adwaita merged the spaces ("Pressany key"); one point more
         # and a touch of air between letters and the hint is a sentence again.
         paso_pie = [F_PIE.getlength(ch) + 0.4 for ch in hint]
