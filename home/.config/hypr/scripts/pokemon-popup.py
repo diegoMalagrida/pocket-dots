@@ -4,9 +4,6 @@ from pathlib import Path
 
 
 def tr(es, en, it):
-    # The file is read ONCE. Calling json.load(f) twice on the same handle made
-    # the second call hit the end of the file and raise, so "it" always fell
-    # back to Spanish.
     try:
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
             idioma = json.load(f).get("language")
@@ -90,13 +87,6 @@ T = {"es": {"nv": "Nv", "faltan": "a {n} aportes de evolucionar",
             "cortas": ["PS", "ATT", "DIF", "VEL", "DIF. SP.", "ATT. SP."],
             "regiones": ["Kanto", "Johto", "Hoenn", "Sinnoh", "Unima", "Kalos",
                           "Alola", "Galar", "Paldea"]}}[lang]
-
-# Type names in Italian. The ids are PokéAPI's, the same keys tipos.json uses.
-TIPOS_IT = {"normal": "Normale", "fire": "Fuoco", "water": "Acqua", "electric": "Elettro",
-            "grass": "Erba", "ice": "Ghiaccio", "fighting": "Lotta", "poison": "Veleno",
-            "ground": "Terra", "flying": "Volante", "psychic": "Psico", "bug": "Coleottero",
-            "rock": "Roccia", "ghost": "Spettro", "dragon": "Drago", "dark": "Buio",
-            "steel": "Acciaio", "fairy": "Folletto"}
 
 def carga(nombre, defecto):
     try:
