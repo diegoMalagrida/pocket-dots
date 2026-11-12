@@ -43,4 +43,5 @@ if [ "$LOC" = en ]; then
 if [ "$LOC" = it ]; then
 	exec env LANGUAGE=it "$REAL" "$@"
 fi
+fi
 exec env LANGUAGE=es "$REAL" "$@"
