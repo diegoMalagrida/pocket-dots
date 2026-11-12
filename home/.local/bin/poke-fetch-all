@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+# fetch all the necessary data for the pop up pokedex to appear properly and 
+# all the pokemon data to be loaded inside the notch
+
+~/.local/bin/poke-dex --todo
+~/.local/bin/poke-cries --todo
+~/.local/bin/poke-types --force
+~/.local/bin/poke-evolutions --force
+~/.local/bin/poke-sprites
