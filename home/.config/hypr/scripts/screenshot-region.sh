@@ -29,8 +29,8 @@ else
     # the same `else` as the cancellation, so you were left with no screenshot
     # and no idea why. This is what screenshot-full.sh already did.
     if [ "$rc" -ne 2 ]; then
-        notify-send -u critical -a "$(tr_ Captura Screenshot)" \
-            "$(tr_ 'Captura de pantalla' 'Screenshot')" \
-            "$(tr_ 'Error al capturar' 'Capture failed')"
+        notify-send -u critical -a "$(tr_ Captura Screenshot Cattura)" \
+            "$(tr_ 'Captura de pantalla' 'Screenshot' 'Cattura dello schermo')" \
+            "$(tr_ 'Error al capturar' 'Capture failed' 'Errore durante la cattura')"
     fi
 fi

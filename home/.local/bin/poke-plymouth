@@ -47,12 +47,13 @@ import time
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -91,7 +92,8 @@ def magick(*args: str, timeout: int = 120) -> str:
     r = subprocess.run(["magick", *args], capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or tr(f"magick {' '.join(args)} fallo",
-                                                  f"magick {' '.join(args)} failed"))
+                                                  f"magick {' '.join(args)} failed",
+                                                  f"magick {' '.join(args)} fallito"))
     return r.stdout
 
 
@@ -135,14 +137,15 @@ def sortear(dir_gif: Path, excluir: set[int], forzado: int | None) -> tuple[int,
     frame) and a frozen splash cannot be told apart from a hang."""
     disponibles = sorted(int(p.stem) for p in dir_gif.glob("*.gif") if p.stem.isdigit())
     if not disponibles:
-        morir(tr(f"no hay ningun gif en {dir_gif}", f"No GIFs in {dir_gif}"))
+        morir(tr(f"no hay ningun gif en {dir_gif}", f"No GIFs in {dir_gif}", f"Nessuna GIF in {dir_gif}"))
     if forzado is not None:
         if forzado not in disponibles:
-            morir(tr(f"no existe {dir_gif}/{forzado}.gif", f"{dir_gif}/{forzado}.gif does not exist"))
+            morir(tr(f"no existe {dir_gif}/{forzado}.gif", f"{dir_gif}/{forzado}.gif does not exist", f"{dir_gif}/{forzado}.gif non esiste"))
         datos = inspeccionar(dir_gif / f"{forzado}.gif")
         if datos is None:
             morir(tr(f"{forzado}.gif esta roto o es estatico: no sirve para animar",
-                     f"{forzado}.gif is broken or static: it cannot be animated"))
+                     f"{forzado}.gif is broken or static: it cannot be animated",
+                     f"{forzado}.gif è rotta o statica: non si può animare"))
         return (forzado, *datos)
 
     baraja = [n for n in disponibles if n not in excluir] or disponibles
@@ -152,7 +155,8 @@ def sortear(dir_gif: Path, excluir: set[int], forzado: int | None) -> tuple[int,
         if datos is not None:
             return (numero, *datos)
     morir(tr("60 sorteos seguidos y ningun gif valido; mira ~/.cache/pokeanim",
-             "60 consecutive draws without a valid GIF; check ~/.cache/pokeanim"))
+             "60 consecutive draws without a valid GIF; check ~/.cache/pokeanim",
+             "60 estrazioni di fila senza una GIF valida; controlla ~/.cache/pokeanim"))
     raise AssertionError
 
 
@@ -297,7 +301,8 @@ def texto_plymouth(numero: int, nombre: str) -> str:
         "[Plymouth Theme]\n"
         "Name=Pokemon\n"
         + tr("Description=Un pokemon distinto en cada arranque\n",
-             "Description=A different Pokémon on each boot\n")
+             "Description=A different Pokémon on each boot\n",
+             "Description=Un Pokémon diverso ad ogni avvio\n")
         + "ModuleName=script\n"
         "\n"
         "[script]\n"
@@ -325,7 +330,8 @@ def generar(destino: Path, dir_gif: Path, tabla: dict[int, str], forzado: int | 
     if len(fotogramas) < MIN_FOTOGRAMAS:
         shutil.rmtree(tmp, ignore_errors=True)
         morir(tr(f"{numero}.gif solo dio {len(fotogramas)} fotogramas",
-                 f"{numero}.gif produced only {len(fotogramas)} frames"))
+                 f"{numero}.gif produced only {len(fotogramas)} frames",
+                 f"{numero}.gif ha prodotto solo {len(fotogramas)} frame"))
     # The delays come from the whole gif and the frames from coalesce: if they
     # do not match, the rhythm would be a lie.
     retardos = retardos[:len(fotogramas)]
@@ -338,7 +344,8 @@ def generar(destino: Path, dir_gif: Path, tabla: dict[int, str], forzado: int | 
     if len(distintas) != 1:
         shutil.rmtree(tmp, ignore_errors=True)
         morir(tr(f"los fotogramas de {numero}.gif no miden todos igual: {distintas}",
-                 f"The frames of {numero}.gif have different dimensions: {distintas}"))
+                 f"The frames of {numero}.gif have different dimensions: {distintas}",
+                 f"I frame di {numero}.gif hanno dimensioni diverse: {distintas}"))
     aw, ah = (int(x) for x in distintas.pop().split())
 
     punto(tmp)
@@ -378,7 +385,8 @@ def instalar(dir_gif: Path, tabla: dict[int, str], forzado: int | None, altura: 
     """Root mode: generates into the free buffer and moves the link in one go."""
     if RAIZ == Path("/") and os.geteuid() != 0:
         morir(tr("--instalar necesita root (lo llama poke-plymouth-reroll.service)",
-                 "--instalar requires root (called by poke-plymouth-reroll.service)"))
+                 "--instalar requires root (called by poke-plymouth-reroll.service)",
+                 "--instalar richiede i permessi di root (chiamato da poke-plymouth-reroll.service)"))
     DIR_BUFFERS.mkdir(parents=True, exist_ok=True)
     RUTA_TEMA.parent.mkdir(parents=True, exist_ok=True)
 
@@ -405,26 +413,32 @@ def instalar(dir_gif: Path, tabla: dict[int, str], forzado: int | None, altura: 
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=tr("Fabrica un tema de Plymouth con un pokemon gen5 animado.",
-                       "Build a Plymouth theme with an animated gen5 Pokémon."))
+                       "Build a Plymouth theme with an animated gen5 Pokémon.",
+                       "Crea un tema Plymouth con un Pokémon animato della gen5."))
     ap.add_argument("bicho", nargs="?", help=tr("numero o nombre; si no, se sortea",
-                                                "number or name; otherwise, choose at random"))
+                                                "number or name; otherwise, choose at random",
+                                                "numero o nome; altrimenti, a caso"))
     ap.add_argument("--instalar", action="store_true",
                     help=tr("(root) publica el tema en /usr/share y mueve el enlace",
-                            "(root) publish the theme in /usr/share and update the link"))
+                            "(root) publish the theme in /usr/share and update the link",
+                            "(root) pubblica il tema in /usr/share e aggiorna il link"))
     ap.add_argument("--destino", type=Path, default=STAGING / "tema",
                     help=tr(f"donde dejar el tema (por defecto {STAGING / 'tema'})",
-                            f"where to save the theme (default: {STAGING / 'tema'})"))
-    ap.add_argument("--gifs", type=Path, default=None, help=tr("directorio de gif gen5", "gen5 GIF directory"))
-    ap.add_argument("--nombres", type=Path, default=None, help=tr("tsv numero->nombre", "number->name TSV"))
+                            f"where to save the theme (default: {STAGING / 'tema'})",
+                            f"dove salvare il tema (default: {STAGING / 'tema'})"))
+    ap.add_argument("--gifs", type=Path, default=None, help=tr("directorio de gif gen5", "gen5 GIF directory", "directory GIF gen5"))
+    ap.add_argument("--nombres", type=Path, default=None, help=tr("tsv numero->nombre", "number->name TSV", "tsv numero->nome"))
     ap.add_argument("--altura", type=int, default=ALTURA_OBJETIVO,
                     help=tr(f"alto del bicho en pantalla (por defecto {ALTURA_OBJETIVO})",
-                            f"Pokémon height on screen (default: {ALTURA_OBJETIVO})"))
+                            f"Pokémon height on screen (default: {ALTURA_OBJETIVO})",
+                            f"altezza del Pokémon a schermo (default: {ALTURA_OBJETIVO})"))
     ap.add_argument("--semilla", type=int, default=None, help=tr("para repetir un sorteo",
-                                                                 "seed to repeat a random draw"))
+                                                                 "seed to repeat a random draw",
+                                                                 "seme per ripetere un'estrazione"))
     args = ap.parse_args()
 
     if not shutil.which("magick"):
-        morir(tr("hace falta imagemagick (magick)", "ImageMagick (magick) is required"))
+        morir(tr("hace falta imagemagick (magick)", "ImageMagick (magick) is required", "serve ImageMagick (magick)"))
 
     dir_gif = args.gifs or (Path(os.environ["POKE_GIFS"]) if os.environ.get("POKE_GIFS") else None)
     if dir_gif is None:
@@ -433,7 +447,7 @@ def main() -> None:
         casero = Path.home() / ".cache" / "pokeanim"
         dir_gif = casero if casero.is_dir() else GIFS_FALLBACK
     if not dir_gif.is_dir():
-        morir(tr(f"no existe el directorio de gif: {dir_gif}", f"GIF directory does not exist: {dir_gif}"))
+        morir(tr(f"no existe el directorio de gif: {dir_gif}", f"GIF directory does not exist: {dir_gif}", f"la directory delle GIF non esiste: {dir_gif}"))
 
     tsv = args.nombres
     if tsv is None:
@@ -450,7 +464,8 @@ def main() -> None:
             forzado = inverso.get(args.bicho.lower())
             if forzado is None:
                 morir(tr(f"no conozco a '{args.bicho}' (mira {tsv})",
-                         f"Unknown Pokémon '{args.bicho}' (check {tsv})"))
+                         f"Unknown Pokémon '{args.bicho}' (check {tsv})",
+                         f"Pokémon sconosciuto '{args.bicho}' (controlla {tsv})"))
 
     random.seed(args.semilla if args.semilla is not None else time.time_ns())
 
@@ -466,8 +481,11 @@ def main() -> None:
              f"ciclo {info['ciclo']:.2f} s, {info['peso'] // 1024} KiB",
              f"Pokémon {info['numero']} ({info['nombre']}): {info['fotogramas']} frames "
              f"from {info['origen']} to {info['tamano']} (x{info['factor']}, nearest), "
-             f"cycle {info['ciclo']:.2f} s, {info['peso'] // 1024} KiB"))
-    print(tr(f"tema en {info['ruta']}", f"Theme in {info['ruta']}"))
+             f"cycle {info['ciclo']:.2f} s, {info['peso'] // 1024} KiB",
+             f"Pokémon {info['numero']} ({info['nombre']}): {info['fotogramas']} frame "
+             f"da {info['origen']} a {info['tamano']} (x{info['factor']}, nearest), "
+             f"ciclo {info['ciclo']:.2f} s, {info['peso'] // 1024} KiB"))
+    print(tr(f"tema en {info['ruta']}", f"Theme in {info['ruta']}", f"Tema in {info['ruta']}"))
     if "enlace" in info:
         print(info["enlace"])
 

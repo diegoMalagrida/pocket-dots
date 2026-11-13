@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# =============================================================================
+# poke-fetch-all — downloads every piece of pokémon data the desktop reads, in
+# one go, instead of launching each script by hand.
+#
+# None of it is in the repo: it comes from PokeAPI and lives in ~/.cache. Each
+# script below fills its own part and skips what is already there, so running
+# this again only fetches what is missing:
+#
+#   poke-sprites      the animated sprites and the official art (~270 MB)
+#   poke-names        the Spanish names (the English ones are the PokeAPI ids)
+#   poke-types        each pokémon's types, with their names in Spanish and
+#                     Italian. --force because it is cheap (18 requests) and an
+#                     older tipos.json has no Italian names
+#   poke-evolutions   who evolves into whom, and at what level
+#   poke-dex          the Super+O pokédex entries and the ability names
+#   poke-cries        the cries
+#
+# One failing does not stop the rest: they are independent. At the end it says
+# which ones failed, and its exit code is 1 if any did. Needs the network.
+# =============================================================================
+set -u
+
+. "$HOME/.config/hypr/scripts/lang.sh" 2>/dev/null || tr_() { printf '%s' "$1"; }
+
+bin="$HOME/.local/bin"
+fallos=()
+
+paso() {
+    printf '\n== %s\n' "$*"
+    "$bin/$1" "${@:2}" || fallos+=("$1")
+}
+
+paso poke-sprites
+paso poke-names
+paso poke-types --force
+paso poke-evolutions
+paso poke-dex --todo
+paso poke-cries --todo
+
+if [ ${#fallos[@]} -gt 0 ]; then
+    printf '\npoke-fetch-all: %s %s\n' "$(tr_ 'fallaron:' 'failed:' 'non riusciti:')" "${fallos[*]}" >&2
+    exit 1
+fi
+printf '\npoke-fetch-all: %s\n' "$(tr_ 'hecho' 'done' 'fatto')"

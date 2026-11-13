@@ -21,9 +21,9 @@ trap 'rm -f "$tmp"' EXIT
 "$HOME/.config/hypr/scripts/capture-region.sh" > "$tmp"
 rc=$?
 if [ "$rc" -ne 0 ] || [ ! -s "$tmp" ]; then
-    [ "$rc" -ne 2 ] && notify-send -u critical -a "$(tr_ Captura Screenshot)" \
-        "$(tr_ 'Anotar captura' 'Annotate screenshot')" \
-        "$(tr_ 'Error al capturar' 'Capture failed')"
+    [ "$rc" -ne 2 ] && notify-send -u critical -a "$(tr_ Captura Screenshot Cattura)" \
+        "$(tr_ 'Anotar captura' 'Annotate screenshot' 'Annota cattura')" \
+        "$(tr_ 'Error al capturar' 'Capture failed' 'Errore durante la cattura')"
     exit 0
 fi
 

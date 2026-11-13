@@ -31,37 +31,37 @@ zeta = d / (2*math.sqrt(k))
 # settling time to 2 %, an approximation valid near critical damping
 ts   = (5.83 if abs(zeta-1) < .15 else 4/zeta) / w0
 print(f'  stiffness={k:<6} dampening={d:<6} zeta={zeta:.2f}  ~{ts*1000:.0f} ms  '
-      f'{\"$(tr_ 'REBOTA' 'BOUNCES')\" if zeta < 0.98 else \"$(tr_ 'sin rebote' 'no bounce')\"}  $nota')
+      f'{\"$(tr_ 'REBOTA' 'BOUNCES' 'RIMBALZA')\" if zeta < 0.98 else \"$(tr_ 'sin rebote' 'no bounce' 'senza rimbalzo')\"}  $nota')
 "
 }
 
 case "${1:-todas}" in
-  config)   aplicar 130 23   "$(tr_ "<- lo que hay en hyprland.lua" "<- current values in hyprland.lua")" ;;
-  forma)    aplicar 180 26.8 "$(tr_ "<- justo en el escalon FORMA (440 ms)" "<- exactly at the FORMA step (440 ms)")" ;;
-  seco)     aplicar 250 31.6 "$(tr_ "<- mas nervioso" "<- snappier")" ;;
-  nervioso) aplicar 340 36.9 "$(tr_ "<- casi instantaneo" "<- almost instant")" ;;
-  vivo)     aplicar 180 21   "$(tr_ "<- zeta 0.78, se pasa un pelin (rompe la ley 5 a proposito)" "<- zeta 0.78, slight overshoot (deliberately breaks law 5)")" ;;
+  config)   aplicar 130 23   "$(tr_ "<- lo que hay en hyprland.lua" "<- current values in hyprland.lua" "<- i valori correnti in hyprland.lua")" ;;
+  forma)    aplicar 180 26.8 "$(tr_ "<- justo en el escalon FORMA (440 ms)" "<- exactly at the FORMA step (440 ms)" "<- esattamente al passo FORMA (440 ms)")" ;;
+  seco)     aplicar 250 31.6 "$(tr_ "<- mas nervioso" "<- snappier" "<- più nervoso")" ;;
+  nervioso) aplicar 340 36.9 "$(tr_ "<- casi instantaneo" "<- almost instant" "<- quasi istantaneo")" ;;
+  vivo)     aplicar 180 21   "$(tr_ "<- zeta 0.78, se pasa un pelin (rompe la ley 5 a proposito)" "<- zeta 0.78, slight overshoot (deliberately breaks law 5)" "<- zeta 0.78, supera di poco il bersaglio (rompe di proposito la legge 5)")" ;;
 
   reset)
     hyprctl reload >/dev/null
-    echo "$(tr_ "  Recargado desde hyprland.lua." "  Reloaded from hyprland.lua.")"
+    echo "$(tr_ "  Recargado desde hyprland.lua." "  Reloaded from hyprland.lua." "  Ricaricato da hyprland.lua.")"
     ;;
 
   todas)
     echo
-    echo "$(tr_ "  Cada uno se queda 12 s. Dale a super+flechitas -- y sobre todo" "  Each stays for 12 s. Press Super+arrow keys -- especially")"
-    echo "$(tr_ "  ENCADENA dos o tres seguidas, que es donde se nota el muelle." "  CHAIN two or three presses to feel the spring.")"
+    echo "$(tr_ "  Cada uno se queda 12 s. Dale a super+flechitas -- y sobre todo" "  Each stays for 12 s. Press Super+arrow keys -- especially" "  Ognuno resta 12 s. Premi Super+frecce -- e soprattutto")"
+    echo "$(tr_ "  ENCADENA dos o tres seguidas, que es donde se nota el muelle." "  CHAIN two or three presses to feel the spring." "  CONCATENA due o tre pressioni, è lì che si sente la molla.")"
     echo
     for p in config forma seco nervioso vivo; do "$0" "$p"; sleep 12; done
     echo
-    echo "$(tr_ "  Fin. Recargando..." "  Done. Reloading...")"; hyprctl reload >/dev/null
+    echo "$(tr_ "  Fin. Recargando..." "  Done. Reloading..." "  Fine. Ricaricando...")"; hyprctl reload >/dev/null
     ;;
 
   [0-9]*)
-    [ $# -eq 2 ] || { echo "$(tr_ "uso: $0 <stiffness> <dampening>" "usage: $0 <stiffness> <dampening>")"; exit 1; }
-    aplicar "$1" "$2" "$(tr_ "<- a mano" "<- manual values")"
+    [ $# -eq 2 ] || { echo "$(tr_ "uso: $0 <stiffness> <dampening>" "usage: $0 <stiffness> <dampening>" "uso: $0 <stiffness> <dampening>")"; exit 1; }
+    aplicar "$1" "$2" "$(tr_ "<- a mano" "<- manual values" "<- valori manuali")"
     ;;
 
   *) echo "presets: config | forma | seco | nervioso | vivo | reset | todas"
-     echo "$(tr_ "o a mano: $0 <stiffness> <dampening>" "or manually: $0 <stiffness> <dampening>")"; exit 1 ;;
+     echo "$(tr_ "o a mano: $0 <stiffness> <dampening>" "or manually: $0 <stiffness> <dampening>" "o a mano: $0 <stiffness> <dampening>")"; exit 1 ;;
 esac

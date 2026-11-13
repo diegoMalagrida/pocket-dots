@@ -22,19 +22,23 @@ import QtQuick
 // translations-en.js.
 import "translations-en.js" as Dict
 import "translations-pt.js" as DictPt
+import "translations-it.js" as DictIt
+import "pokemon-types.js" as PokeTypes
 
 Singleton {
     id: root
 
     readonly property string lang: Config.language
     readonly property bool english: lang === "en"
+    readonly property bool italian: lang === "it"
 
     // Each label is in its own language on purpose: someone with the shell in a
     // language they do not understand has to be able to find theirs in the list.
     readonly property var languages: [
         { code: "es", label: "Español" },
         { code: "en", label: "English" },
-        { code: "pt", label: "Português" }
+        { code: "pt", label: "Português" },
+        { code: "it", label: "Italiano" }
     ]
 
     function labelFor(code) {
@@ -51,6 +55,13 @@ Singleton {
 
     readonly property var labels: root.languages.map(function (l) { return l.label; })
 
+    // A pokémon type's name in the shell's language, from its PokeAPI id, or ""
+    // when this language has no table (see pokemon-types.js).
+    function pokeType(id) {
+        var t = PokeTypes.names[root.lang];
+        return t && t[id] ? t[id] : "";
+    }
+
     // tr("Apagar")                       -> "Shut down"
     // tr("Quedan {0} minutos", 5)        -> "5 minutes left"
     //
@@ -58,7 +69,7 @@ Singleton {
     // sentence split into pieces ("Quedan " + n + " minutos") cannot be
     // translated, because in another language the pieces go in another order.
     function tr(s, a0, a1, a2) {
-        var dict = root.english ? Dict.en : (root.lang === "pt" ? DictPt.pt : null);
+        var dict = root.english ? Dict.en : (root.lang === "pt" ? DictPt.pt : (root.lang === "it" ? DictIt.it : null));
         var out = dict && dict[s] !== undefined ? dict[s] : s;
         if (a0 !== undefined) out = out.split("{0}").join(a0);
         if (a1 !== undefined) out = out.split("{1}").join(a1);

@@ -41,12 +41,13 @@ import argparse, atexit, json, re, shutil, subprocess, sys, tempfile, zipfile
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -513,18 +514,18 @@ PISAN = {
 
 # One table cannot contradict another: if a number is in two places, the
 # critter comes out with two different behaviours depending on who asks.
-assert not (SALTAN & REPTAN), tr("un pokemon no puede saltar y reptar", "A Pokémon cannot both jump and crawl")
+assert not (SALTAN & REPTAN), tr("un pokemon no puede saltar y reptar", "A Pokémon cannot both jump and crawl", "Un Pokémon non può sia saltare sia strisciare")
 assert not (LEVITAN & REPTAN), tr("un pokemon no puede levitar y reptar",
-                                  "A Pokémon cannot both levitate and crawl")
+                                  "A Pokémon cannot both levitate and crawl", "Un Pokémon non può sia levitare sia strisciare")
 assert not (LEVITAN & SALTAN), tr("un pokemon no puede levitar y saltar",
-                                  "A Pokémon cannot both levitate and jump")
+                                  "A Pokémon cannot both levitate and jump", "Un Pokémon non può sia levitare sia saltare")
 # And this is the one that matters now that there are two tables for two
 # decisions: if a number were in LEVITAN and in PISAN at once, it would be given
 # flight for having no legs and the walking cycle for having them.
 assert not (LEVITAN & PISAN), tr("un pokemon no puede levitar y pisar",
-                                 "A Pokémon cannot both levitate and walk")
-assert not (SALTAN & PISAN), tr("un pokemon no puede saltar y pisar", "A Pokémon cannot both jump and walk")
-assert not (REPTAN & PISAN), tr("un pokemon no puede reptar y pisar", "A Pokémon cannot both crawl and walk")
+                                 "A Pokémon cannot both levitate and walk", "Un Pokémon non può sia levitare sia camminare")
+assert not (SALTAN & PISAN), tr("un pokemon no puede saltar y pisar", "A Pokémon cannot both jump and walk", "Un Pokémon non può sia saltare sia camminare")
+assert not (REPTAN & PISAN), tr("un pokemon no puede reptar y pisar", "A Pokémon cannot both crawl and walk", "Un Pokémon non può sia strisciare sia camminare")
 
 # The phases of the moving cycle, in the same format as the POSE table:
 # (dx, dy, escalaX, escalaY, inclinacion). Four phases per cycle.
@@ -707,8 +708,9 @@ def resolver(txt: str) -> tuple[int, str]:
         return porn[cand[0]], cand[0]
     if cand:
         raise SystemExit(tr(f"'{txt}' es ambiguo: {', '.join(cand[:10])}",
-                            f"'{txt}' is ambiguous: {', '.join(cand[:10])}"))
-    raise SystemExit(tr(f"no conozco a '{txt}'", f"Unknown Pokémon '{txt}'"))
+                            f"'{txt}' is ambiguous: {', '.join(cand[:10])}",
+                            f"'{txt}' è ambiguo: {', '.join(cand[:10])}"))
+    raise SystemExit(tr(f"no conozco a '{txt}'", f"Unknown Pokémon '{txt}'", f"Pokémon sconosciuto '{txt}'"))
 
 
 def vuela_este(num: int) -> bool:
@@ -914,7 +916,9 @@ def apartarse_del_filo(x: str, margen: int) -> str:
         print(tr(f"   aviso: no encuentro las dos ramas de rebote ({x.count(aguja)});"
                  " el bicho podra quedarse medio fuera al lanzarlo contra un lateral",
                  f"   Warning: could not find both bounce branches ({x.count(aguja)}); "
-                 "the Pokémon may stay partly off screen when thrown against an edge"),
+                 "the Pokémon may stay partly off screen when thrown against an edge",
+                 f"   Avviso: non trovo entrambi i rami di rimbalzo ({x.count(aguja)}); "
+                 "il Pokémon potrebbe rimanere parzialmente fuori schermo quando lanciato contro un bordo"),
               file=sys.stderr)
         return x
     return x.replace(aguja, aguja + "\n\t\t\t\t\t" + paso)
@@ -1581,9 +1585,11 @@ def asegurar_plantilla() -> None:
                 PLANTILLA.joinpath(f"{f}.xml").write_bytes(r.read())
         except Exception as e:
             raise SystemExit(tr(f"no pude bajar la plantilla de comportamiento ({e})",
-                                f"Could not download the behaviour template ({e})"))
+                                f"Could not download the behaviour template ({e})",
+                                f"Impossibile scaricare il modello di comportamento ({e})"))
     print(tr(f"plantilla de comportamiento descargada en {PLANTILLA}",
-             f"Behaviour template downloaded to {PLANTILLA}"), file=sys.stderr)
+             f"Behaviour template downloaded to {PLANTILLA}",
+             f"Modello di comportamento scaricato in {PLANTILLA}"), file=sys.stderr)
 
 
 # ── FLIGHT ────────────────────────────────────────────────────────────────────
@@ -1800,36 +1806,44 @@ def xml_vuelo_conducta(x: str, frecuencia: int) -> str:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("pokemon", help=tr("nombre o numero", "name or number"))
+    p.add_argument("pokemon", help=tr("nombre o numero", "name or number", "nome o numero"))
     p.add_argument("--escala", type=float, default=0, help=tr("aumento, admite medios (0 = el que pida su talla)",
-                                                              "scale, including half steps (0 = based on its size)"))
+                                                              "scale, including half steps (0 = based on its size)",
+                                                              "ingrandimento, anche a mezzi passi (0 = secondo la sua taglia)"))
     p.add_argument("--nombre", help=tr("como llamarlo (por defecto, el del pokemon)",
-                                       "what to call it (defaults to the Pokémon name)"))
+                                       "what to call it (defaults to the Pokémon name)",
+                                       "come chiamarlo (di default, il nome del Pokémon)"))
     p.add_argument("--gif", help=tr("usa este gif en vez del de la cache (p.ej. el variocolor)",
-                                    "use this GIF instead of the cached one (e.g. a shiny)"))
+                                    "use this GIF instead of the cached one (e.g. a shiny)",
+                                    "usa questo GIF invece di quello nella cache (es. uno shiny)"))
     p.add_argument("--trepar", action="store_true",
                    help=tr("deja que trepe tambien por el TECHO (las paredes ya van de serie: ver PAREDES)",
-                           "also allow climbing on the CEILING (walls are enabled by default: see PAREDES)"))
+                           "also allow climbing on the CEILING (walls are enabled by default: see PAREDES)",
+                           "lascia che si arrampichi anche sul SOFFITTO (le pareti sono già attive: vedi PAREDES)"))
     p.add_argument("--probar", action="store_true",
                    help=tr("fabrica y convierte pero NO importa: para pasar el pokedex entero",
-                           "build and convert but DO NOT import: for processing the whole Pokédex"))
+                           "build and convert but DO NOT import: for processing the whole Pokédex",
+                           "crea e converte ma NON importa: per passare tutto il Pokédex"))
     p.add_argument("--vuela", action="store_true", help=tr("que vuele aunque no le toque",
-                                                           "make it fly even if it normally would not"))
+                                                           "make it fly even if it normally would not",
+                                                           "fallo volare anche se di solito non vola"))
     p.add_argument("--no-vuela", action="store_true", help=tr("que no vuele aunque le toque",
-                                                              "prevent it from flying even if it normally would"))
+                                                              "prevent it from flying even if it normally would",
+                                                              "non farlo volare anche se di solito vola"))
     args = p.parse_args()
 
     asegurar_plantilla()
 
     if args.escala < 0:
-        raise SystemExit(tr("la escala es un aumento: tiene que ser 0 o mas", "The scale must be 0 or greater"))
+        raise SystemExit(tr("la escala es un aumento: tiene que ser 0 o mas", "The scale must be 0 or greater", "La scala deve essere 0 o maggiore"))
     num, nombre = resolver(args.pokemon)
     vuela = args.vuela or (vuela_este(num) and not args.no_vuela)
     modo = locomocion(num, vuela)
     gif = Path(args.gif).expanduser() if args.gif else DIR_GIF / f"{num}.gif"
     if not gif.exists():
         raise SystemExit(tr(f"no tengo el sprite animado de #{num} ({gif}); prueba 'poke-sprites'",
-                            f"No animated sprite for #{num} ({gif}); try 'poke-sprites'"))
+                            f"No animated sprite for #{num} ({gif}); try 'poke-sprites'",
+                            f"Non ho lo sprite animato di #{num} ({gif}); prova 'poke-sprites'"))
 
     from PIL import Image
     fs = frames(gif)
@@ -2092,7 +2106,7 @@ def main() -> int:
         caja = b if caja is None else (min(caja[0], b[0]), min(caja[1], b[1]),
                                        max(caja[2], b[2]), max(caja[3], b[3]))
     if caja is None:
-        raise SystemExit(tr("las poses han salido vacias", "The generated poses are empty"))
+        raise SystemExit(tr("las poses han salido vacias", "The generated poses are empty", "Le pose generate sono vuote"))
     # While at it, note where EACH drawing starts inside the common canvas: it
     # is the anchor of the wall poses (see reanclar_por_borde).
     izquierdas = {}
@@ -2334,7 +2348,8 @@ def main() -> int:
                                input="A\n", capture_output=True, text=True)
             if "Converted" not in (r.stdout + r.stderr):
                 print(tr(f"CONVERSION FALLIDA: {(r.stderr or r.stdout)[-300:]}",
-                         f"CONVERSION FAILED: {(r.stderr or r.stdout)[-300:]}"), file=sys.stderr)
+                         f"CONVERSION FAILED: {(r.stderr or r.stdout)[-300:]}",
+                         f"CONVERSIONE FALLITA: {(r.stderr or r.stdout)[-300:]}"), file=sys.stderr)
                 return 2
             # The real .wlshm is checked, not the XML: what matters is what
             # reaches the engine, and in between there is a converter that
@@ -2383,7 +2398,7 @@ def main() -> int:
                        input="A\n", capture_output=True, text=True)
     if "Converted" not in (r.stdout + r.stderr):
         print(r.stdout[-500:], r.stderr[-500:], file=sys.stderr)
-        raise SystemExit(tr("no se pudo convertir", "Conversion failed"))
+        raise SystemExit(tr("no se pudo convertir", "Conversion failed", "Conversione fallita"))
     # IMPORT WITHOUT TALKING TO THE DAEMON, which is the only thing that does
     # not crash.
     #
@@ -2413,7 +2428,8 @@ def main() -> int:
     datos = fuente.read_bytes()
     if datos[:4] != b"WLPK":
         raise SystemExit(tr(f"{fuente.name} no parece un prototipo: falta la marca WLPK",
-                            f"{fuente.name} does not look like a prototype: the WLPK marker is missing"))
+                            f"{fuente.name} does not look like a prototype: the WLPK marker is missing",
+                            f"{fuente.name} non sembra essere un prototipo: manca il timbro WLPK"))
     # It is extracted alongside and renamed: if the tar blows up halfway, the
     # prototype that already worked stays whole in its place.
     nuevo = destino.parent / f".{destino.name}.nuevo"
@@ -2438,9 +2454,9 @@ def main() -> int:
         vivo = subprocess.run(["systemctl", "--user", "is-active", "wl_shimeji.service"],
                               capture_output=True, text=True, timeout=5)
         if (vivo.stdout or "").strip() == "active":
-            print(tr(f"   {etiqueta} esta guardado, pero el overlay sigue con la "
-                     f"version anterior en memoria: se vera al proximo arranque.",
-                     f"   {etiqueta} is saved, but the overlay still has the previous version in memory: it will appear on the next start."),
+            print(tr(f"   {etiqueta} esta guardado, pero el overlay sigue con la version anterior en memoria: se vera al proximo arranque.",
+                     f"   {etiqueta} is saved, but the overlay still has the previous version in memory: it will appear on the next start.",
+                     f"   {etiqueta} è stato salvato, ma l'overlay ha ancora la vecchia versione in memoria: comparirà al prossimo avvio."),
                   file=sys.stderr)
     except (OSError, subprocess.SubprocessError):
         pass
@@ -2457,14 +2473,16 @@ def main() -> int:
     tmp.replace(REGISTRO)
 
     if len(ciclo) == 1:
-        print(tr(f"   aviso: el sprite de #{num} no anima -- un solo fotograma-, asi "
-                 f"que este se queda quieto de verdad. No es cosa del generador.",
-                 f"   Warning: sprite #{num} has only one frame, so this Pokémon will stay still. This comes from the sprite itself."),
+        print(tr(f"   aviso: el sprite de #{num} no anima -- un solo fotograma-, asi que este se queda quieto de verdad. No es cosa del generador.",
+                 f"   Warning: sprite #{num} has only one frame, so this Pokémon will stay still. This comes from the sprite itself.",
+                 f"   Attenzione: lo sprite #{num} ha solo un frame, quindi questo Pokémon resterà fermo. Questo dipende dallo sprite."),
               file=sys.stderr)
     print(tr(f"{etiqueta} listo  (#{num}, {len(fs)} fotogramas, sprite {w}x{h} a {escala}x)",
-             f"{etiqueta} ready  (#{num}, {len(fs)} frames, sprite {w}x{h} at {escala}x)"))
+             f"{etiqueta} ready  (#{num}, {len(fs)} frames, sprite {w}x{h} at {escala}x)",
+             f"{etiqueta} pronto  (#{num}, {len(fs)} frames, sprite {w}x{h} a {escala}x)"))
     print(tr(f"   sacalo con:  shimejictl summon {etiqueta}",
-             f"   Summon it with:  shimejictl summon {etiqueta}"))
+             f"   Summon it with:  shimejictl summon {etiqueta}",
+             f"   Evocalo con:  shimejictl summon {etiqueta}"))
     return 0
 
 

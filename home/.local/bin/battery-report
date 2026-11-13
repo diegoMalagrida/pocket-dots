@@ -11,12 +11,13 @@ import sys
 import time
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -63,7 +64,8 @@ def main():
     seconds = int(sys.argv[1]) if len(sys.argv) > 1 else 30
     if not 5 <= seconds <= 300:
         raise SystemExit(tr('El intervalo debe estar entre 5 y 300 segundos.',
-                            'The interval must be between 5 and 300 seconds.'))
+                            'The interval must be between 5 and 300 seconds.',
+                            "L'intervallo deve essere tra 5 e 300 secondi."))
     start = time.monotonic()
     before = processes()
     samples = [battery()]
@@ -86,9 +88,11 @@ def main():
     print(json.dumps({'seconds': round(elapsed, 1), 'battery': samples[-1],
                       'discharge_watts_mean': round(average, 2) if average else None,
                       'note': tr('Desenchufa durante todo el intervalo para medir descarga.',
-                                 'Keep the charger unplugged throughout the interval to measure discharge.') if not continuous
+                                 'Keep the charger unplugged throughout the interval to measure discharge.',
+                                 "Tieni il caricatore scollegato per tutto l'intervallo per misurare la scarica.") if not continuous
                               else tr('Consumo con esta carga de trabajo; no es una prueba de reposo.',
-                                      'Power use under this workload; this is not an idle test.'),
+                                      'Power use under this workload; this is not an idle test.',
+                                      'Consumo con questo carico di lavoro; non è un test a riposo.'),
                       'top_cpu': sorted(consumers, key=lambda p: p['cpu_percent'], reverse=True)[:10]},
                      ensure_ascii=False, indent=2))
 

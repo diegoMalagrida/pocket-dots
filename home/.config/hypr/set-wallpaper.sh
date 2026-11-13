@@ -19,27 +19,27 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --paleta-de)
       PALETA="${2:-}"
-      [ -z "$PALETA" ] && { echo "$(tr_ "--paleta-de necesita una imagen" "--paleta-de requires an image")"; exit 1; }
+      [ -z "$PALETA" ] && { echo "$(tr_ "--paleta-de necesita una imagen" "--paleta-de requires an image" "--paleta-de richiede un'immagine")"; exit 1; }
       shift 2
       ;;
     -h|--help)
-      echo "$(tr_ "uso: set-wallpaper.sh <imagen> [--paleta-de <imagen>]" "usage: set-wallpaper.sh <image> [--paleta-de <image>]")"; exit 0
+      echo "$(tr_ "uso: set-wallpaper.sh <imagen> [--paleta-de <imagen>]" "usage: set-wallpaper.sh <image> [--paleta-de <image>]" "uso: set-wallpaper.sh <immagine> [--paleta-de <immagine>]")"; exit 0
       ;;
     *)
-      [ -z "$IMG" ] && IMG="$1" || { echo "$(tr_ "argumento de sobra: $1" "Unexpected argument: $1")"; exit 1; }
+      [ -z "$IMG" ] && IMG="$1" || { echo "$(tr_ "argumento de sobra: $1" "Unexpected argument: $1" "argomento di troppo: $1")"; exit 1; }
       shift
       ;;
   esac
 done
 
-[ -z "$IMG" ] && { echo "$(tr_ "uso: set-wallpaper.sh <imagen> [--paleta-de <imagen>]" "usage: set-wallpaper.sh <image> [--paleta-de <image>]")"; exit 1; }
-[ -f "$IMG" ] || { echo "$(tr_ "no existe: $IMG" "Does not exist: $IMG")"; exit 1; }
+[ -z "$IMG" ] && { echo "$(tr_ "uso: set-wallpaper.sh <imagen> [--paleta-de <imagen>]" "usage: set-wallpaper.sh <image> [--paleta-de <image>]" "uso: set-wallpaper.sh <immagine> [--paleta-de <immagine>]")"; exit 1; }
+[ -f "$IMG" ] || { echo "$(tr_ "no existe: $IMG" "Does not exist: $IMG" "non esiste: $IMG")"; exit 1; }
 IMG="$(realpath -- "$IMG")" || exit 1
 
 # Where the COLOURS come from. Without --paleta-de it is the wallpaper itself,
 # i.e. the usual behaviour, byte for byte.
 if [ -n "$PALETA" ]; then
-  [ -f "$PALETA" ] || { echo "$(tr_ "no existe la imagen de paleta: $PALETA" "Palette image does not exist: $PALETA")"; exit 1; }
+  [ -f "$PALETA" ] || { echo "$(tr_ "no existe la imagen de paleta: $PALETA" "Palette image does not exist: $PALETA" "l'immagine della palette non esiste: $PALETA")"; exit 1; }
   PALETA="$(realpath -- "$PALETA")" || exit 1
 else
   PALETA="$IMG"
@@ -71,7 +71,7 @@ eleccion=""
 # --saturate 0.5: raises the palette's saturation for more vivid colours (0.4 gentle, 0.6 strong, remove it for the original)
 # $PALETA is $IMG unless --paleta-de was passed (pokémon mode).
 if ! wal -i "$PALETA" --saturate 0.5 -n -q -s -t; then
-  notify-send -u critical "$(tr_ "Tema dinámico" "Dynamic theme")" "$(tr_ "Pywal no pudo generar la paleta" "Pywal could not generate the palette")" 2>/dev/null || true
+  notify-send -u critical "$(tr_ "Tema dinámico" "Dynamic theme" "Tema dinamico")" "$(tr_ "Pywal no pudo generar la paleta" "Pywal could not generate the palette" "Pywal non è riuscito a generare la palette")" 2>/dev/null || true
   exit 1
 fi
 

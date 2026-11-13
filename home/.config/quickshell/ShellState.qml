@@ -30,7 +30,9 @@ Singleton {
     // en_GB puts the day before the month (3/9/2026) and the time in 24 h, just
     // like Spanish. With en_US the date would flip round (9/3/2026) and "PM"
     // would appear, which nobody here uses.
-    readonly property var loc: Qt.locale(I18n.english ? "en_GB" : (I18n.lang === "pt" ? "pt_BR" : "es_ES"))
+    readonly property var loc: Qt.locale(I18n.english ? "en_GB"
+        : I18n.lang === "pt" ? "pt_BR"
+        : I18n.lang === "it" ? "it_IT" : "es_ES")
 
     // ═════════════════════════ notch state ══════════════════════════
     // The notch is the desktop's entry point: panels unfold from it.
@@ -2002,11 +2004,15 @@ Singleton {
         return String(slug || "").split("-")
             .map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join("-");
     }
+    // Italian uses the English species names, which are the official ones there
+    // too. Types are another matter: they come from I18n.pokeType(), by id, and
+    // not from I18n.tr(es), because the Spanish type names clash with the
+    // badges' ("Roca" is both the Rock type and the Boulder Badge).
     function pokeEspecie(slug, es) {
-        return I18n.english || !es ? root.pokeTitulo(slug) : es;
+        return I18n.english || I18n.italian || !es ? root.pokeTitulo(slug) : es;
     }
     function pokeTipo(id, es) {
-        return I18n.english || !es ? root.pokeTitulo(id) : es;
+        return I18n.english || !es ? root.pokeTitulo(id) : (I18n.pokeType(id) || es);
     }
 
     Process {

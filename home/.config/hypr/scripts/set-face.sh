@@ -47,13 +47,13 @@ trap limpiar EXIT
 case "${1:-}" in
     --quitar)
         sudo rm -f "$DEST"
-        echo "$(tr_ "retrato quitado; el bloqueo vuelve a ensenar el candado" "Portrait removed; the lock screen shows the padlock again")"
+        echo "$(tr_ "retrato quitado; el bloqueo vuelve a ensenar el candado" "Portrait removed; the lock screen shows the padlock again" "Ritratto rimosso; lo schermo di blocco mostra di nuovo il lucchetto")"
         exit 0
         ;;
     --camara)
         tmp=$(mktemp -d)
-        [ -e "$CAM" ] || die "$(tr_ "no hay camara en $CAM" "No camera at $CAM")"
-        echo "$(tr_ "mirando a la camara… (se tiran los primeros fotogramas para que ajuste la luz)" "Capturing from the camera… (discarding the first frames while exposure adjusts)")"
+        [ -e "$CAM" ] || die "$(tr_ "no hay camara en $CAM" "No camera at $CAM" "Nessuna telecamera a $CAM")"
+        echo "$(tr_ "mirando a la camara… (se tiran los primeros fotogramas para que ajuste la luz)" "Capturing from the camera… (discarding the first frames while exposure adjusts)" "Catturando dalla telecamera… (scartando le prime immagini mentre l'esposizione si regola)")"
         # -input_format mjpeg is not optional: with the default raw format this
         # camera delivers black frames and the photo comes out as a black
         # square, without a single error.
@@ -63,11 +63,11 @@ case "${1:-}" in
         src=$(ls "$tmp"/shot*.png | tail -1)
         ;;
     "")
-        die "$(tr_ "uso: set-face.sh <imagen> | --camara | --quitar" "usage: set-face.sh <image> | --camara | --quitar")"
+        die "$(tr_ "uso: set-face.sh <imagen> | --camara | --quitar" "usage: set-face.sh <image> | --camara | --quitar" "uso: set-face.sh <immagine> | --camara | --quitar")"
         ;;
     *)
         src=$1
-        [ -f "$src" ] || die "$(tr_ "no existe: $src" "Does not exist: $src")"
+        [ -f "$src" ] || die "$(tr_ "no existe: $src" "Does not exist: $src" "L'immagine non esiste: $src")"
         ;;
 esac
 
@@ -79,5 +79,5 @@ magick "$src" -auto-orient \
     -strip "$out"
 
 sudo install -Dm644 -o root -g root "$out" "$DEST"
-echo "$(tr_ "retrato puesto en $DEST" "Portrait saved to $DEST")"
-echo "$(tr_ "el bloqueo lo coge al vuelo; el login, en el proximo arranque" "The lock screen picks it up immediately; the login screen on the next boot")"
+echo "$(tr_ "retrato puesto en $DEST" "Portrait saved to $DEST" "Ritratto salvato in $DEST")"
+echo "$(tr_ "el bloqueo lo coge al vuelo; el login, en el proximo arranque" "The lock screen picks it up immediately; the login screen on the next boot" "Lo schermo di blocco lo prende immediatamente; lo schermo di login al prossimo avvio")"

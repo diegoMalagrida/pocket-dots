@@ -14,5 +14,5 @@ col=$(hyprpicker -a -f hex) || exit 0
 # checkerboard, because the generic icon is not in the icon theme.
 swatch="${XDG_RUNTIME_DIR:-/tmp}/colorpicker-swatch.png"
 magick -size 64x64 "xc:$col" "$swatch" 2>/dev/null || swatch=""
-notify-send -t 2000 -a "$(tr_ Cuentagotas 'Colour picker')" ${swatch:+-i "$swatch"} \
-    "󰃉 $(tr_ 'Color copiado' 'Colour copied')" "$col"
+notify-send -t 2000 -a "$(tr_ Cuentagotas 'Colour picker' 'Selettore di colore')" ${swatch:+-i "$swatch"} \
+    "󰃉 $(tr_ 'Color copiado' 'Colour copied' 'Colore copiato')" "$col"

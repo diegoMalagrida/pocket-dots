@@ -37,6 +37,9 @@ Item {
     // If the key is missing, Spanish, which is what there always was.
     readonly property string uiLang:    config.language || "es"
     readonly property bool english:     uiLang === "en"
+    readonly property bool italian:     uiLang === "it"
+    // The three lines of the field, as in hyprlock's language.*.conf.
+    function t(es, en, it) { return root.english ? en : root.italian ? it : es; }
     readonly property color surface:    Qt.rgba(0, 0, 0, 0.941)   // rgba(000000f0)
     readonly property color surfaceAlt: "#181818"
     readonly property color outline:    Qt.rgba(1, 1, 1, 0.094)   // rgba(ffffff18)
@@ -494,9 +497,9 @@ Item {
                 color: root.checking ? root.okColor
                      : root.failed ? root.failColor
                      : Qt.rgba(1, 1, 1, 0.55)         // placeholder alpha 55 %
-                text: root.checking ? (root.english ? "Checking…" : "Comprobando…")
-                    : root.failed ? (root.english ? "No match · attempt " : "No coincide · intento ") + root.attempts
-                    : password.text.length === 0 ? (root.english ? "Enter your password" : "Escribe tu contraseña")
+                text: root.checking ? root.t("Comprobando…", "Checking…", "Controllo…")
+                    : root.failed ? root.t("No coincide · intento ", "No match · attempt ", "Password errata · tentativo ") + root.attempts
+                    : password.text.length === 0 ? root.t("Escribe tu contraseña", "Enter your password", "Immetti la tua password")
                     : ""
             }
 
@@ -654,6 +657,13 @@ Item {
         if (root.english)
             return d.toLocaleDateString(Qt.locale("en_GB"), "dddd") + " · " +
                    d.toLocaleDateString(Qt.locale("en_GB"), "d MMMM");
+        // Italian, from the it_IT locale for the same reason, and with the
+        // day capitalised by hand: Qt writes it in lower case ("giovedì").
+        if (root.italian) {
+            var giorno = d.toLocaleDateString(Qt.locale("it_IT"), "dddd");
+            return giorno.charAt(0).toUpperCase() + giorno.slice(1) + " · " +
+                   d.toLocaleDateString(Qt.locale("it_IT"), "d MMMM");
+        }
         var days = ["Domingo", "Lunes", "Martes", "Miércoles",
                     "Jueves", "Viernes", "Sábado"];
         var months = ["enero", "febrero", "marzo", "abril", "mayo", "junio",

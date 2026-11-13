@@ -12,6 +12,16 @@ Item {
     id: root
     readonly property color accent: ShellState.mediaAccent
 
+    // Tapping the cover swaps it for the lyrics (Lyrics.qml), and they are
+    // only fetched then. With nothing playing there is nothing to look up.
+    property bool showLyrics: false
+    readonly property bool lyricsShown: showLyrics && Lyrics.title !== ""
+    // A new track while the lyrics are showing: look its lyrics up too.
+    Connections {
+        target: Lyrics
+        function onKeyChanged() { if (root.showLyrics) Lyrics.request(); }
+    }
+
     // The whole background swallows the click so that a gap between controls
     // never reaches whatever action sits behind the panel.
     MouseArea { anchors.fill: parent }
@@ -29,6 +39,7 @@ Item {
         // ── circular cover art ─────────────────────────────────────────────
         Item {
             id: artStage
+            visible: !root.lyricsShown
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 166
             Layout.preferredHeight: 166
@@ -111,6 +122,112 @@ Item {
                 font.family: Appearance.font
                 font.pixelSize: 48
                 Behavior on color { ColorAnimation { duration: Appearance.mIn; easing.type: Easing.OutCubic } }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: Lyrics.title !== ""
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: {
+                    root.showLyrics = true;
+                    Lyrics.request(true);
+                }
+            }
+        }
+
+        // ── lyrics: they take the cover art's place ────────────────────────
+        // Same height as the cover, so nothing below moves when they swap.
+        // A tap anywhere on them goes back to the cover.
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 166
+            visible: root.lyricsShown
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.showLyrics = false
+            }
+
+            // Synced: the line being sung stays in the middle. Not interactive,
+            // so a tap goes through to the MouseArea underneath.
+            ListView {
+                id: lyricsList
+                anchors.fill: parent
+                visible: Lyrics.synced
+                clip: true
+                interactive: false
+                model: Lyrics.lines
+                currentIndex: Lyrics.current
+                highlightRangeMode: ListView.StrictlyEnforceRange
+                preferredHighlightBegin: height / 2 - 14
+                preferredHighlightEnd: height / 2 + 14
+                // The whole column moves: SHAPE, not a scroll at its own pace.
+                highlightMoveDuration: Appearance.mShape
+                highlightMoveVelocity: -1
+
+                delegate: Text {
+                    required property var modelData
+                    required property int index
+                    readonly property bool isCur: index === ListView.view.currentIndex
+                    width: ListView.view.width
+                    text: modelData.text || "♪"
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    color: isCur ? root.accent : Colors.label3
+                    font.family: Appearance.fontUI
+                    font.pixelSize: isCur ? Appearance.fsM : Appearance.fsS
+                    font.weight: isCur ? Font.DemiBold : Font.Normal
+                    Behavior on color { ColorAnimation { duration: Appearance.mIn } }
+                }
+            }
+
+            // Not synced: plain text you can scroll. The Flickable takes the
+            // presses, so the tap that goes back lives inside it.
+            Flickable {
+                id: plainFlick
+                anchors.fill: parent
+                visible: !Lyrics.synced && Lyrics.plain !== ""
+                clip: true
+                contentHeight: plainText.height
+                MouseArea {
+                    width: plainFlick.width
+                    height: Math.max(plainFlick.height, plainText.height)
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.showLyrics = false
+                }
+                Text {
+                    id: plainText
+                    width: plainFlick.width
+                    text: Lyrics.plain
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                    color: Colors.label2
+                    font.family: Appearance.fontUI
+                    font.pixelSize: Appearance.fsS
+                }
+            }
+
+            // While it searches, or when there is nothing to show.
+            Text {
+                anchors.centerIn: parent
+                width: parent.width
+                visible: !Lyrics.hasLyrics
+                text: Lyrics.failed ? I18n.tr("No se pudo cargar la letra")
+                    : Lyrics.known ? I18n.tr("No hay letra para esta canción")
+                    : I18n.tr("Buscando la letra…")
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                color: Colors.label3
+                font.family: Appearance.fontUI
+                font.pixelSize: Appearance.fsS
+            }
+
+            // The edges fade into the notch, whatever colour it is painted.
+            ScrollFade {
+                lista: lyricsList.visible ? lyricsList : (plainFlick.visible ? plainFlick : null)
+                tinta: Colors.notchTint(Config.notchColor)
+                alto: 44
             }
         }
 

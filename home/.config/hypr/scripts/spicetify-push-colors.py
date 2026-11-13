@@ -22,12 +22,19 @@
 import base64, json, os, re, socket, struct, sys, urllib.request
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            language = json.load(f).get("language")
+            match language:
+                case "en":
+                    return en
+                case "it":
+                    return it
+                case _:
+                    return es
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -62,10 +69,10 @@ def leer_seccion(ruta, seccion):
     try:
         texto = open(ruta).read()
     except OSError as e:
-        morir(tr("no puedo leer %s: %s", "Cannot read %s: %s") % (ruta, e))
+        morir(tr("no puedo leer %s: %s", "Cannot read %s: %s", "Impossibile leggere %s: %s") % (ruta, e))
     m = re.search(r"^\[%s\][^\[]*" % re.escape(seccion), texto, re.M)
     if not m:
-        morir(tr("no hay seccion [%s] en %s", "No section [%s] in %s") % (seccion, ruta))
+        morir(tr("no hay seccion [%s] en %s", "No section [%s] in %s", "Nessuna sezione [%s] in %s") % (seccion, ruta))
     colores = {}
     for linea in m.group(0).splitlines()[1:]:
         linea = linea.strip()
@@ -76,7 +83,7 @@ def leer_seccion(ruta, seccion):
         if re.fullmatch(r"[0-9A-F]{6}", v):
             colores[k.strip()] = v
     if not colores:
-        morir(tr("la seccion [%s] no tiene colores validos", "Section [%s] has no valid colours") % seccion)
+        morir(tr("la seccion [%s] no tiene colores validos", "Section [%s] has no valid colours", "La sezione [%s] non ha colori validi") % seccion)
     return colores
 
 
@@ -87,7 +94,7 @@ def leer_seccion(ruta, seccion):
 class WS:
     def __init__(self, url, origin, timeout=4):
         if not url.startswith("ws://"):
-            raise ValueError(tr("url no ws://: %s", "URL does not use ws://: %s") % url)
+            raise ValueError(tr("url no ws://: %s", "URL does not use ws://: %s", "URL non utilizza ws://: %s") % url)
         hostport, _, path = url[5:].partition("/")
         host, _, puerto = hostport.partition(":")
         self.s = socket.create_connection((host, int(puerto or 80)), timeout=timeout)
@@ -111,19 +118,20 @@ class WS:
             trozo = self.s.recv(4096)
             if not trozo:
                 raise RuntimeError(tr("el servidor cerro durante el handshake",
-                                      "The server closed the connection during the handshake"))
+                                      "The server closed the connection during the handshake",
+                                      "Il server ha chiuso la connessione durante l'handshake"))
             buf += trozo
         cabeceras, _, resto = buf.partition(b"\r\n\r\n")
         primera = cabeceras.split(b"\r\n")[0].decode(errors="replace")
         if "101" not in primera:
-            raise RuntimeError(tr("handshake rechazado: %s", "Handshake rejected: %s") % primera)
+            raise RuntimeError(tr("handshake rechazado: %s", "Handshake rejected: %s", "Handshake rifiutato: %s") % primera)
         self.buf = resto
 
     def _leer(self, n):
         while len(self.buf) < n:
             trozo = self.s.recv(65536)
             if not trozo:
-                raise RuntimeError(tr("conexion cerrada", "Connection closed"))
+                raise RuntimeError(tr("conexion cerrada", "Connection closed", "Connessione chiusa"))
             self.buf += trozo
         out, self.buf = self.buf[:n], self.buf[n:]
         return out
@@ -159,7 +167,7 @@ class WS:
                 self.enviar("")
                 continue
             if opcode == 0x8:
-                raise RuntimeError(tr("el servidor cerro la conexion", "The server closed the connection"))
+                raise RuntimeError(tr("el servidor cerro la conexion", "The server closed the connection", "Il server ha chiuso la connessione"))
             if opcode in (0x1, 0x2):
                 return carga.decode(errors="replace")
 
@@ -178,11 +186,13 @@ def objetivo(puerto):
     except Exception as e:
         morir(tr("no hay puerto de depuracion en %d (%s). Spotify cerrado, o lanzado "
                  "sin --remote-debugging-port",
-                 "No debugging port at %d (%s). Spotify is closed or was started without --remote-debugging-port") % (puerto, e), 2)
+                 "No debugging port at %d (%s). Spotify is closed or was started without --remote-debugging-port",
+                 "Nessuna porta di debug su %d (%s). Spotify è chiuso o è stato avviato senza --remote-debugging-port") % (puerto, e), 2)
     paginas = [t for t in objetivos if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
     if not paginas:
         morir(tr("el puerto responde pero no hay ninguna pagina abierta",
-                 "The port responds but no pages are open"), 3)
+                 "The port responds but no pages are open",
+                 "La porta risponde ma non ci sono pagine aperte"), 3)
     # the main UI is xpui; if we cannot find it, the first page will do
     for t in paginas:
         if "xpui" in (t.get("url") or ""):
@@ -243,7 +253,7 @@ def main():
             if msg.get("id") == 1:
                 break
         else:
-            morir(tr("sin respuesta del evaluate", "No response from evaluate"), 4)
+            morir(tr("sin respuesta del evaluate", "No response from evaluate", "Nessuna risposta da evaluate"), 4)
     finally:
         ws.cerrar()
 
@@ -252,7 +262,7 @@ def main():
     res = msg.get("result", {})
     if res.get("exceptionDetails"):
         morir("excepcion en Spotify: %s" % res["exceptionDetails"].get("text"), 6)
-    print(tr("aplicados %s colores en caliente", "Applied %s colours live") % res.get("result", {}).get("value"))
+    print(tr("aplicados %s colores en caliente", "Applied %s colours live", "Applicati %s colori in tempo reale") % res.get("result", {}).get("value"))
 
 
 if __name__ == "__main__":

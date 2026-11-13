@@ -37,12 +37,13 @@ import sys
 from datetime import date
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -500,7 +501,7 @@ def main():
         with open(CACHE, encoding="utf-8") as f:
             wal = json.load(f)
     except (OSError, ValueError) as e:
-        print(tr(f"qt-pywal: no se pudo leer {CACHE}: {e}", f"qt-pywal: could not read {CACHE}: {e}"), file=sys.stderr)
+        print(tr(f"qt-pywal: no se pudo leer {CACHE}: {e}", f"qt-pywal: could not read {CACHE}: {e}", f"qt-pywal: impossibile leggere {CACHE}: {e}"), file=sys.stderr)
         return 1
 
     p = construir(wal)

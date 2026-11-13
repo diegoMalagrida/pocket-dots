@@ -32,12 +32,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -107,14 +108,16 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--force", action="store_true", help=tr("rehace el fichero entero",
-                                                           "rebuild the whole file"))
+                                                           "rebuild the whole file",
+                                                           "ricrea l'intero file"))
     p.add_argument("-q", "--quiet", action="store_true")
     args = p.parse_args()
 
     if DESTINO.exists() and not args.force:
         ya = json.loads(DESTINO.read_text())
         print(tr(f"ya estaba: {len(ya)} evoluciones en {DESTINO}",
-                 f"Already present: {len(ya)} evolutions in {DESTINO}"))
+                 f"Already present: {len(ya)} evolutions in {DESTINO}",
+                 f"Già presente: {len(ya)} evoluzioni in {DESTINO}"))
         return 0
 
     por_nombre = leer_nombres()
@@ -150,7 +153,10 @@ def main() -> int:
              f"{fallos} cadenas ilegibles -> {DESTINO}",
              f"{len(fuera)} Pokémon evolve, {ramas} branches in total "
              f"({por_nivel} by level, {ramas - por_nivel} by other means); "
-             f"{fallos} unreadable chains -> {DESTINO}"))
+             f"{fallos} unreadable chains -> {DESTINO}",
+             f"{len(fuera)} Pokémon si evolvono, {ramas} rami in totale "
+             f"({por_nivel} per livello, {ramas - por_nivel} in altri modi); "
+             f"{fallos} catene illeggibili -> {DESTINO}"))
     return 0
 
 

@@ -23,7 +23,7 @@ if [ -z "$LOC" ] && [ -r "$RICE" ]; then
 	LOC=$(jq -r '.language // "es"' "$RICE" 2>/dev/null) || LOC=es
 fi
 case "$LOC" in
-	en) ;;
+	en|it) ;;
 	*) LOC=es ;;
 esac
 
@@ -33,6 +33,12 @@ if [ "$LOC" = en ]; then
 	N_CODE="Open in VS Code";          D_CODE="Opens the folder or the file in VS Code"
 	N_FONDO="Set as wallpaper";        D_FONDO="Changes the wallpaper and re-themes the whole desktop with this image"
 	N_RUTA="Copy path";                D_RUTA="Puts the full path in the clipboard"
+elif [ "$LOC" = it ]; then
+	N_TERM="Apri il terminale qui";    D_TERM="Apre kitty in questa cartella"
+	N_YAZI="Apri in yazi";             D_YAZI="Lo stesso posto, nel file manager da terminale"
+	N_CODE="Apri in VS Code";          D_CODE="Apre la cartella o il file in VS Code"
+	N_FONDO="Imposta come sfondo";     D_FONDO="Cambia lo sfondo e ri-applica il tema a tutto il desktop con questa immagine"
+	N_RUTA="Copia il percorso";        D_RUTA="Mette il percorso completo negli appunti"
 else
 	N_TERM="Abrir terminal aquí";      D_TERM="Abre kitty en esta carpeta"
 	N_YAZI="Abrir en yazi";            D_YAZI="El mismo sitio, en el explorador de terminal"

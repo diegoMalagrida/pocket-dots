@@ -13,12 +13,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -52,7 +53,8 @@ def main() -> int:
     with ThreadPoolExecutor(max_workers=8) as ex:
         hechos = sum(ex.map(uno, pendientes))
     print(tr(f"gritos: {hechos} bajados, {len(list(DIR.glob('*.ogg')))} en total",
-             f"Cries: {hechos} downloaded, {len(list(DIR.glob('*.ogg')))} in total"))
+             f"Cries: {hechos} downloaded, {len(list(DIR.glob('*.ogg')))} in total",
+             f"Versi: {hechos} scaricati, {len(list(DIR.glob('*.ogg')))} in totale"))
     return 0
 
 if __name__ == "__main__":

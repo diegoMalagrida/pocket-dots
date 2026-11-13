@@ -52,7 +52,7 @@ case "$action" in
         exec nm-connection-editor --create --type=802-11-wireless
         ;;
     *)
-        printf "$(tr_ 'Uso: %s {edit|create} SSID\n' 'Usage: %s {edit|create} SSID\n')" "${0##*/}" >&2
+        printf "$(tr_ 'Uso: %s {edit|create} SSID\n' 'Usage: %s {edit|create} SSID\n' 'Uso: %s {edit|create} SSID\n')" "${0##*/}" >&2
         exit 2
         ;;
 esac

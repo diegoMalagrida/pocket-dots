@@ -769,11 +769,19 @@ color inválido ni un proceso externo de paleta.
 Ojo también con `font.capitalization: Font.Capitalize`: capitaliza TODAS las
 palabras y en español deja "Martes, 4 De Agosto". Usa `ShellState.capitalize()`.
 
-## El idioma (castellano e inglés)
+## El idioma (castellano, inglés, portugués e italiano)
 
-El shell habla castellano e inglés. La capa son tres ficheros: `I18n.qml` (el
-singleton con `I18n.tr(...)`), `translations-en.js` (el diccionario inglés, unas
-600 entradas) y `tools/i18n-check.py` (el repaso).
+El shell habla castellano e inglés, y también portugués e italiano, con
+diccionarios que aportó gente que los habla. La capa es `I18n.qml` (el
+singleton con `I18n.tr(...)`), un diccionario por idioma (`translations-en.js`,
+`-pt.js`, `-it.js`, unas 600 entradas cada uno) y `tools/i18n-check.py` (el
+repaso).
+
+El italiano llega más allá del shell: el bloqueo (`language.it.conf`), el login,
+Thunar y los mensajes de los scripts también lo hablan. En los scripts de shell
+es un tercer argumento de `tr_ ES EN IT` (`scripts/lang.sh`; sin él sale el
+inglés) y en los de Python, de `tr(es, en, it)`. El portugués solo cubre el
+shell: el resto del escritorio se queda en castellano.
 
 **El castellano es el código.** Las cadenas siguen escritas en español dentro de
 cada `.qml`, envueltas en `I18n.tr(...)`, y **la clave del diccionario es esa
@@ -818,22 +826,22 @@ diffea mejor. No lo devuelvas a QML.
 
 ### Elegir idioma
 
-`Config.language` vale `"es"` (por defecto) o `"en"`, y se guarda en
-`~/.config/quickshell-rice.json` con el resto de los ajustes. Se elige de tres
-maneras:
+`Config.language` vale `"es"` (por defecto), `"en"`, `"pt"` o `"it"`, y se
+guarda en `~/.config/quickshell-rice.json` con el resto de los ajustes. Se
+elige de tres maneras:
 
 - al instalar, con `./install.sh --lang en` (sin la opción, el instalador
-  pregunta, y propone el de tu locale: castellano con `es_*`, inglés con
-  cualquier otro);
+  pregunta, y propone el de tu locale: castellano con `es_*`, italiano con
+  `it_*`, inglés con cualquier otro);
 - en caliente, en **Ajustes › Apariencia › Idioma del shell** — el cambio es
   inmediato y no toca el idioma del sistema ni el de las aplicaciones, solo el
   del shell;
 - a mano, escribiendo `"language": "en"` en el JSON.
 
-`ShellState.loc` sigue a `Config.language` (`es_ES` / `en_GB`), así que las
-fechas y los números del shell cambian de formato con él. `Config.reset()` no
-toca `language` a propósito: restablecer los valores de fábrica no debería
-dejarte el escritorio en un idioma que no lees.
+`ShellState.loc` sigue a `Config.language` (`es_ES` / `en_GB` / `pt_BR` /
+`it_IT`), así que las fechas y los números del shell cambian de formato con él.
+`Config.reset()` no toca `language` a propósito: restablecer los valores de
+fábrica no debería dejarte el escritorio en un idioma que no lees.
 
 ### Añadir un idioma
 
@@ -843,15 +851,17 @@ dejarte el escritorio en un idioma que no lees.
 2. Copia `translations-en.js` en `translations-XX.js` (mismo `.pragma library`,
    las mismas claves castellanas) y traduce los valores.
 3. Impórtalo en `I18n.qml` al lado del otro
-   (`import "translations-fr.js" as DictFr`) y haz que `tr()` lo mire. Hoy la
-   línea es binaria (`root.english && Dict.en[s]`); con tres idiomas se resuelve
-   eligiendo el diccionario por código y dejando el castellano como respaldo
-   cuando no hay entrada.
+   (`import "translations-fr.js" as DictFr`) y añádelo donde `tr()` elige el
+   diccionario por código; el castellano queda de respaldo cuando no hay entrada.
 4. Si el idioma escribe las fechas de otra manera, traduce también las claves de
    formato (`d 'de' MMMM`, `d 'de' MMMM 'de' yyyy`) y añade su locale a
    `ShellState.loc`.
-5. Pásale `tools/i18n-check.py` y añade el código nuevo a `install.sh`
-   (`--lang`), que hoy solo acepta `es` y `en`.
+5. Pásale `tools/i18n-check.py --lang XX` y añade el código nuevo a
+   `install.sh` (`--lang`), que hoy acepta `es`, `en`, `it` y `pt`.
+6. Si los nombres de los tipos pokémon no son los ids ingleses, añade su tabla
+   a `pokemon-types.js`: no pueden ir en el diccionario, porque los nombres
+   castellanos chocan con los de las medallas («Roca» es el tipo y la Medalla
+   Roca).
 
 ### Los atajos de Hyprland
 

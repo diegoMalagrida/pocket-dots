@@ -41,6 +41,8 @@ A_PROPOSITO = {
         "same as above",
     ("I18n.qml", "Português"):
         "same as above",
+    ("I18n.qml", "Italiano"):
+        "same as above",
     ("SettingsWindow.qml", "Ajustes"):
         "the window title matched by the hyprland.lua window rule "
         "(title = ^(Ajustes)$) and SettingsWindow focus: translating it leaves the "

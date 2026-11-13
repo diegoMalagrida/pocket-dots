@@ -11,8 +11,10 @@ for ever.
     poke-dex 6 129           downloads those (to test without waiting)
     poke-dex --todo          all 1025, in parallel (a few minutes)
 
-Each entry stores Spanish AND English for whatever has a translation, because
-the rice switches language live and the pokédex has to switch with it.
+Each entry stores Spanish, English AND Italian for whatever has a translation,
+because the rice switches language live and the pokédex has to switch with it.
+What PokeAPI has no text for in a language is left out, and the popup falls
+back to English there.
 """
 from __future__ import annotations
 import json, sys, urllib.request
@@ -20,12 +22,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
-def tr(es, en):
+def tr(es, en, it):
     try:
         import json
         from pathlib import Path
         with (Path.home() / ".config/quickshell-rice.json").open(encoding="utf-8") as f:
-            return en if json.load(f).get("language") == "en" else es
+            lang = json.load(f).get("language")
+        return en if lang == "en" else (it if lang == "it" else es)
     except (OSError, ValueError, AttributeError):
         return es
 
@@ -33,6 +36,8 @@ def tr(es, en):
 DEX = Path.home() / ".cache" / "pokepalette" / "dex"
 HABS = Path.home() / ".cache" / "pokepalette" / "habilidades.json"
 API = "https://pokeapi.co/api/v2"
+# The languages the shell speaks that PokeAPI also has texts for.
+IDIOMAS = ("es", "en", "it")
 
 ORDEN_STATS = ["hp", "attack", "defense", "special-attack", "special-defense", "speed"]
 
@@ -70,7 +75,7 @@ def ficha(num: int) -> bool:
     # the description: the LAST one in each language, which is usually the one
     # from the most recent game and the best written
     textos = {}
-    for idioma in ("es", "en"):
+    for idioma in IDIOMAS:
         candidatos = [e["flavor_text"] for e in s.get("flavor_text_entries", [])
                       if e.get("language", {}).get("name") == idioma]
         if candidatos:
@@ -78,7 +83,7 @@ def ficha(num: int) -> bool:
 
     d = {
         "num": num,
-        "genero": {i: en_idioma(s.get("genera", []), "genus", i) for i in ("es", "en")},
+        "genero": {i: en_idioma(s.get("genera", []), "genus", i) for i in IDIOMAS},
         "texto": textos,
         "m": round(p.get("height", 0) / 10, 1),
         "kg": round(p.get("weight", 0) / 10, 1),
@@ -99,7 +104,7 @@ def habilidades() -> None:
     try:
         lista = pide(f"{API}/ability?limit=1000").get("results", [])
     except Exception as e:
-        print(tr(f"  habilidades: {e}", f"  Abilities: {e}"), file=sys.stderr)
+        print(tr(f"  habilidades: {e}", f"  Abilities: {e}", f"  Abilità: {e}"), file=sys.stderr)
         return
     fuera = {}
 
@@ -107,7 +112,7 @@ def habilidades() -> None:
         try:
             a = pide(entrada["url"])
             fuera[entrada["name"]] = {i: en_idioma(a.get("names", []), "name", i)
-                                      for i in ("es", "en")}
+                                      for i in IDIOMAS}
         except Exception:
             pass
 
@@ -116,7 +121,7 @@ def habilidades() -> None:
     tmp = HABS.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(fuera, ensure_ascii=False))
     tmp.replace(HABS)
-    print(tr(f"habilidades: {len(fuera)}", f"Abilities: {len(fuera)}"))
+    print(tr(f"habilidades: {len(fuera)}", f"Abilities: {len(fuera)}", f"Abilità: {len(fuera)}"))
 
 
 def main() -> int:
@@ -127,10 +132,10 @@ def main() -> int:
         return 2
     if args == ["--todo"]:
         nums = [n for n in range(1, 1026) if not (DEX / f"{n}.json").exists()]
-        print(tr(f"faltan {len(nums)} fichas", f"{len(nums)} entries missing"))
+        print(tr(f"faltan {len(nums)} fichas", f"{len(nums)} entries missing", f"mancano {len(nums)} voci"))
         with ThreadPoolExecutor(max_workers=8) as ex:
             hechos = sum(ex.map(ficha, nums))
-        print(tr(f"bajadas {hechos} de {len(nums)}", f"Downloaded {hechos} of {len(nums)}"))
+        print(tr(f"bajadas {hechos} de {len(nums)}", f"Downloaded {hechos} of {len(nums)}", f"Scaricate {hechos} di {len(nums)}"))
         habilidades()
         return 0
     ok = all(ficha(int(a)) for a in args if a.isdigit())

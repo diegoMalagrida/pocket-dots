@@ -25,7 +25,7 @@ fallos=0
 poner() { # poner <type> <property> <value>
 	local tipo="$1" prop="$2" valor="$3"
 	if ! xfconf-query -c thunar -p "$prop" -n -t "$tipo" -s "$valor" 2>/dev/null; then
-		echo "$(tr_ "  no se pudo poner $prop=$valor ($tipo)" "  Could not set $prop=$valor ($tipo)")" >&2
+		echo "$(tr_ "  no se pudo poner $prop=$valor ($tipo)" "  Could not set $prop=$valor ($tipo)" "  Non è stato possibile impostare $prop=$valor ($tipo)")" >&2
 		fallos=$((fallos + 1))
 	fi
 }
@@ -115,7 +115,7 @@ poner string /misc-transfer-use-partial       THUNAR_USE_PARTIAL_MODE_REMOTE
 poner string /misc-transfer-verify-file       THUNAR_VERIFY_FILE_MODE_REMOTE
 
 if [ "$fallos" -gt 0 ]; then
-	echo "$(tr_ "thunar-settings: $fallos ajuste(s) no se pudieron aplicar" "thunar-settings: could not apply $fallos setting(s)")" >&2
+	echo "$(tr_ "thunar-settings: $fallos ajuste(s) no se pudieron aplicar" "thunar-settings: could not apply $fallos setting(s)" "thunar-settings: impossibile applicare $fallos impostazione(i)")" >&2
 	exit 1
 fi
-echo "$(tr_ "thunar-settings: aplicado" "thunar-settings: applied")"
+echo "$(tr_ "thunar-settings: aplicado" "thunar-settings: applied" "thunar-settings: applicato")"

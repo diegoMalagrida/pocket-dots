@@ -21,14 +21,14 @@ trap 'rm -f "$img"' EXIT
 rc=$?
 if [ "$rc" -ne 0 ] || [ ! -s "$img" ]; then
     [ "$rc" -ne 2 ] && notify-send -u critical "OCR" \
-        "$(tr_ 'Error al capturar' 'Capture failed')"
+        "$(tr_ 'Error al capturar' 'Capture failed' 'Errore di cattura')"
     exit 0
 fi
 
 txt=$(tesseract "$img" - -l spa+eng 2>/dev/null)
 if [ -n "${txt// /}" ]; then
     printf '%s' "$txt" | wl-copy
-    notify-send -t 2500 "OCR" "$(tr_ 'Texto copiado al portapapeles' 'Text copied to the clipboard')"
+    notify-send -t 2500 "OCR" "$(tr_ 'Texto copiado al portapapeles' 'Text copied to the clipboard' 'Testo copiato negli appunti')"
 else
-    notify-send -t 2000 "OCR" "$(tr_ 'No se detectó texto' 'No text found')"
+    notify-send -t 2000 "OCR" "$(tr_ 'No se detectó texto' 'No text found' 'Nessun testo trovato')"
 fi
