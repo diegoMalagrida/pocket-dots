@@ -72,8 +72,8 @@ STAGING = Path.home() / ".local" / "share" / "poke-plymouth"
 
 # diego's gifs. Since the service runs as root (and there ~ is /root) the path
 # has to be something you can give it by hand.
-GIFS_FALLBACK = Path("/home/Gabriele/.cache/pokeanim")
-NOMBRES_FALLBACK = Path("/home/Gabriele/.cache/pokepalette/nombres.tsv")
+GIFS_FALLBACK = Path("/home/diego/.cache/pokeanim")
+NOMBRES_FALLBACK = Path("/home/diego/.cache/pokepalette/nombres.tsv")
 
 ALTURA_OBJETIVO = 300   # how many pixels tall the critter ends up once upscaled
 FACTOR_MAX = 10
@@ -137,7 +137,7 @@ def sortear(dir_gif: Path, excluir: set[int], forzado: int | None) -> tuple[int,
     frame) and a frozen splash cannot be told apart from a hang."""
     disponibles = sorted(int(p.stem) for p in dir_gif.glob("*.gif") if p.stem.isdigit())
     if not disponibles:
-        morir(tr(f"no hay ningun gif en {dir_gif}", f"No GIFs in {dir_gif}", f"Nessuna GIFs in {dir_gif}"))
+        morir(tr(f"no hay ningun gif en {dir_gif}", f"No GIFs in {dir_gif}", f"Nessuna GIF in {dir_gif}"))
     if forzado is not None:
         if forzado not in disponibles:
             morir(tr(f"no existe {dir_gif}/{forzado}.gif", f"{dir_gif}/{forzado}.gif does not exist", f"{dir_gif}/{forzado}.gif non esiste"))
@@ -145,7 +145,7 @@ def sortear(dir_gif: Path, excluir: set[int], forzado: int | None) -> tuple[int,
         if datos is None:
             morir(tr(f"{forzado}.gif esta roto o es estatico: no sirve para animar",
                      f"{forzado}.gif is broken or static: it cannot be animated",
-                     f"{forzado}.gif é rotta o statica: non puó essere animata"))
+                     f"{forzado}.gif è rotta o statica: non si può animare"))
         return (forzado, *datos)
 
     baraja = [n for n in disponibles if n not in excluir] or disponibles
@@ -156,7 +156,7 @@ def sortear(dir_gif: Path, excluir: set[int], forzado: int | None) -> tuple[int,
             return (numero, *datos)
     morir(tr("60 sorteos seguidos y ningun gif valido; mira ~/.cache/pokeanim",
              "60 consecutive draws without a valid GIF; check ~/.cache/pokeanim",
-             "60 render consecutivi senza una GIF valida; controlla ~/.cache/pokeanim"))
+             "60 estrazioni di fila senza una GIF valida; controlla ~/.cache/pokeanim"))
     raise AssertionError
 
 
@@ -331,7 +331,7 @@ def generar(destino: Path, dir_gif: Path, tabla: dict[int, str], forzado: int | 
         shutil.rmtree(tmp, ignore_errors=True)
         morir(tr(f"{numero}.gif solo dio {len(fotogramas)} fotogramas",
                  f"{numero}.gif produced only {len(fotogramas)} frames",
-                 f"{numero}.gif ha prodotto {len(fotogramas)} frame"))
+                 f"{numero}.gif ha prodotto solo {len(fotogramas)} frame"))
     # The delays come from the whole gif and the frames from coalesce: if they
     # do not match, the rhythm would be a lie.
     retardos = retardos[:len(fotogramas)]
@@ -345,7 +345,7 @@ def generar(destino: Path, dir_gif: Path, tabla: dict[int, str], forzado: int | 
         shutil.rmtree(tmp, ignore_errors=True)
         morir(tr(f"los fotogramas de {numero}.gif no miden todos igual: {distintas}",
                  f"The frames of {numero}.gif have different dimensions: {distintas}",
-                 f"I frame di {numero}.gif ha dimensioni diverse: {distintas}"))
+                 f"I frame di {numero}.gif hanno dimensioni diverse: {distintas}"))
     aw, ah = (int(x) for x in distintas.pop().split())
 
     punto(tmp)
@@ -414,10 +414,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description=tr("Fabrica un tema de Plymouth con un pokemon gen5 animado.",
                        "Build a Plymouth theme with an animated gen5 Pokémon.",
-                       "Costruisce un tema Plymouth con i Pokémon animati della gen5."))
+                       "Crea un tema Plymouth con un Pokémon animato della gen5."))
     ap.add_argument("bicho", nargs="?", help=tr("numero o nombre; si no, se sortea",
                                                 "number or name; otherwise, choose at random",
-                                                "numero o nome; altrimenti, lo sceglie randomicamente"))
+                                                "numero o nome; altrimenti, a caso"))
     ap.add_argument("--instalar", action="store_true",
                     help=tr("(root) publica el tema en /usr/share y mueve el enlace",
                             "(root) publish the theme in /usr/share and update the link",
@@ -434,11 +434,11 @@ def main() -> None:
                             f"altezza del Pokémon a schermo (default: {ALTURA_OBJETIVO})"))
     ap.add_argument("--semilla", type=int, default=None, help=tr("para repetir un sorteo",
                                                                  "seed to repeat a random draw",
-                                                                 "seme per ripetere la stessa generazione di immagini"))
+                                                                 "seme per ripetere un'estrazione"))
     args = ap.parse_args()
 
     if not shutil.which("magick"):
-        morir(tr("hace falta imagemagick (magick)", "ImageMagick (magick) is required", "é necessario ImageMagick (magick)"))
+        morir(tr("hace falta imagemagick (magick)", "ImageMagick (magick) is required", "serve ImageMagick (magick)"))
 
     dir_gif = args.gifs or (Path(os.environ["POKE_GIFS"]) if os.environ.get("POKE_GIFS") else None)
     if dir_gif is None:
@@ -465,7 +465,7 @@ def main() -> None:
             if forzado is None:
                 morir(tr(f"no conozco a '{args.bicho}' (mira {tsv})",
                          f"Unknown Pokémon '{args.bicho}' (check {tsv})",
-                         f"Pokémon Sconosciuto '{args.bicho}' (controlla {tsv})"))
+                         f"Pokémon sconosciuto '{args.bicho}' (controlla {tsv})"))
 
     random.seed(args.semilla if args.semilla is not None else time.time_ns())
 
@@ -484,7 +484,7 @@ def main() -> None:
              f"cycle {info['ciclo']:.2f} s, {info['peso'] // 1024} KiB",
              f"Pokémon {info['numero']} ({info['nombre']}): {info['fotogramas']} frame "
              f"da {info['origen']} a {info['tamano']} (x{info['factor']}, nearest), "
-             f"cicla {info['ciclo']:.2f} s, {info['peso'] // 1024} KiB"))
+             f"ciclo {info['ciclo']:.2f} s, {info['peso'] // 1024} KiB"))
     print(tr(f"tema en {info['ruta']}", f"Theme in {info['ruta']}", f"Tema in {info['ruta']}"))
     if "enlace" in info:
         print(info["enlace"])

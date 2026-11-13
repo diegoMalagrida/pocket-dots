@@ -118,7 +118,7 @@ Needs **Arch** and **Hyprland 0.56+** — the live config is `hyprland.lua`, not
 | | |
 |---|---|
 | `./install.sh -n` | print the whole plan, change nothing |
-| `./install.sh --lang en` | pick the language; without it, it follows your locale (Spanish for `es_*`, English otherwise) |
+| `./install.sh --lang en` | pick the language; without it, it follows your locale (Spanish for `es_*`, Italian for `it_*`, English otherwise) |
 | `./install.sh --copy` | copy the configs instead of symlinking them to the repo |
 | `./install.sh restore` | undo it (it lists the backups first; `restore <backup>` picks one) |
 | `./diagnose` | what is missing or will not start |

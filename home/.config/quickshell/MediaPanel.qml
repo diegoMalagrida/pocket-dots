@@ -12,7 +12,15 @@ Item {
     id: root
     readonly property color accent: ShellState.mediaAccent
 
+    // Tapping the cover swaps it for the lyrics (Lyrics.qml), and they are
+    // only fetched then. With nothing playing there is nothing to look up.
     property bool showLyrics: false
+    readonly property bool lyricsShown: showLyrics && Lyrics.title !== ""
+    // A new track while the lyrics are showing: look its lyrics up too.
+    Connections {
+        target: Lyrics
+        function onKeyChanged() { if (root.showLyrics) Lyrics.request(); }
+    }
 
     // The whole background swallows the click so that a gap between controls
     // never reaches whatever action sits behind the panel.
@@ -31,7 +39,7 @@ Item {
         // ── circular cover art ─────────────────────────────────────────────
         Item {
             id: artStage
-            visible: !(root.showLyrics && Lyrics.hasLyrics)
+            visible: !root.lyricsShown
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 166
             Layout.preferredHeight: 166
@@ -40,7 +48,7 @@ Item {
             // spinning wheel or competing with the visualiser below.
             Rectangle {
                 anchors.centerIn: parent
-                width: 166; height: 166; radius: 20
+                width: 166; height: 166; radius: 83
                 color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.10)
                 scale: ShellState.player && ShellState.player.isPlaying ? 1 : 0.94
                 opacity: ShellState.player && ShellState.player.isPlaying ? 1 : 0.45
@@ -51,7 +59,7 @@ Item {
 
             Rectangle {
                 anchors.centerIn: parent
-                width: 154; height: 154; radius: 20
+                width: 154; height: 154; radius: 77
                 color: Colors.surface1
                 border.width: 2
                 border.color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.72)
@@ -88,7 +96,7 @@ Item {
                 layer.enabled: true
                 layer.smooth: true
                 visible: false
-                Rectangle { anchors.fill: parent; radius: 16 }
+                Rectangle { anchors.fill: parent; radius: width / 2 }
             }
             MultiEffect {
                 anchors.fill: coverImage
@@ -118,22 +126,33 @@ Item {
 
             MouseArea {
                 anchors.fill: parent
-                enabled: Lyrics.hasLyrics
-                cursorShape: Lyrics.hasLyrics ? Qt.PointingHandCursor : Qt.ArrowCursor
-                onClicked: root.showLyrics = true
+                enabled: Lyrics.title !== ""
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: {
+                    root.showLyrics = true;
+                    Lyrics.request(true);
+                }
             }
         }
-        
-        // ── lyrics: takes the place of the cover art ──────────────────────
+
+        // ── lyrics: they take the cover art's place ────────────────────────
+        // Same height as the cover, so nothing below moves when they swap.
+        // A tap anywhere on them goes back to the cover.
         Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 166
-            visible: root.showLyrics && Lyrics.hasLyrics
+            visible: root.lyricsShown
 
-            readonly property color fadeClear: Qt.rgba(Colors.bg.r, Colors.bg.g, Colors.bg.b, 1)
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.showLyrics = false
+            }
 
-            // Synced: the current line stays in the middle.
+            // Synced: the line being sung stays in the middle. Not interactive,
+            // so a tap goes through to the MouseArea underneath.
             ListView {
+                id: lyricsList
                 anchors.fill: parent
                 visible: Lyrics.synced
                 clip: true
@@ -143,7 +162,9 @@ Item {
                 highlightRangeMode: ListView.StrictlyEnforceRange
                 preferredHighlightBegin: height / 2 - 14
                 preferredHighlightEnd: height / 2 + 14
-                highlightMoveDuration: 300
+                // The whole column moves: SHAPE, not a scroll at its own pace.
+                highlightMoveDuration: Appearance.mShape
+                highlightMoveVelocity: -1
 
                 delegate: Text {
                     required property var modelData
@@ -161,15 +182,23 @@ Item {
                 }
             }
 
-            // Not synced: plain text you can scroll.
+            // Not synced: plain text you can scroll. The Flickable takes the
+            // presses, so the tap that goes back lives inside it.
             Flickable {
+                id: plainFlick
                 anchors.fill: parent
-                visible: !Lyrics.synced
+                visible: !Lyrics.synced && Lyrics.plain !== ""
                 clip: true
                 contentHeight: plainText.height
+                MouseArea {
+                    width: plainFlick.width
+                    height: Math.max(plainFlick.height, plainText.height)
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.showLyrics = false
+                }
                 Text {
                     id: plainText
-                    width: parent.width
+                    width: plainFlick.width
                     text: Lyrics.plain
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
@@ -179,33 +208,26 @@ Item {
                 }
             }
 
-            // Fade at the top
-            Rectangle {
-                anchors { left: parent.left; right: parent.right; top: parent.top }
-                height: 44
-                gradient: Gradient {
-                    orientation: Qt.Vertical
-                    GradientStop { position: 0.0; color: Colors.bg }
-                    GradientStop { position: 1.0; color: Qt.rgba(Colors.bg.r, Colors.bg.g, Colors.bg.b, 0) }
-                }
+            // While it searches, or when there is nothing to show.
+            Text {
+                anchors.centerIn: parent
+                width: parent.width
+                visible: !Lyrics.hasLyrics
+                text: Lyrics.failed ? I18n.tr("No se pudo cargar la letra")
+                    : Lyrics.known ? I18n.tr("No hay letra para esta canción")
+                    : I18n.tr("Buscando la letra…")
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                color: Colors.label3
+                font.family: Appearance.fontUI
+                font.pixelSize: Appearance.fsS
             }
 
-            // Fade at the bottom
-            Rectangle {
-                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                height: 44
-                gradient: Gradient {
-                    orientation: Qt.Vertical
-                    GradientStop { position: 0.0; color: Qt.rgba(Colors.bg.r, Colors.bg.g, Colors.bg.b, 0) }
-                    GradientStop { position: 1.0; color: Colors.bg }
-                }
-            }
-
-            // Click on the synced view to go back to the cover art.
-            MouseArea {
-                anchors.fill: parent
-                enabled: Lyrics.synced
-                onClicked: root.showLyrics = false
+            // The edges fade into the notch, whatever colour it is painted.
+            ScrollFade {
+                lista: lyricsList.visible ? lyricsList : (plainFlick.visible ? plainFlick : null)
+                tinta: Colors.notchTint(Config.notchColor)
+                alto: 44
             }
         }
 

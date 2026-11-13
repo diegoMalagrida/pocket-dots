@@ -777,11 +777,19 @@ Careful too with `font.capitalization: Font.Capitalize`: it capitalises EVERY
 word and in Spanish it leaves "Martes, 4 De Agosto". Use
 `ShellState.capitalize()`.
 
-## The language (Spanish and English)
+## The language (Spanish, English, Portuguese and Italian)
 
-The shell speaks Spanish and English. The layer is three files: `I18n.qml` (the
-singleton with `I18n.tr(...)`), `translations-en.js` (the English dictionary,
-about 600 entries) and `tools/i18n-check.py` (the review).
+The shell speaks Spanish and English, and also Portuguese and Italian, whose
+dictionaries were contributed by people who speak them. The layer is
+`I18n.qml` (the singleton with `I18n.tr(...)`), one dictionary per language
+(`translations-en.js`, `-pt.js`, `-it.js`, about 600 entries each) and
+`tools/i18n-check.py` (the review).
+
+Italian goes further than the shell: the lock screen (`language.it.conf`), the
+login, Thunar and the scripts' messages speak it too. In the shell scripts
+that is a third argument to `tr_ ES EN IT` (`scripts/lang.sh`; without it the
+English one is used) and in the Python ones to `tr(es, en, it)`. Portuguese
+only covers the shell: the rest of the desktop stays in Spanish.
 
 **Spanish is the code.** The strings are still written in Spanish inside each
 `.qml`, wrapped in `I18n.tr(...)`, and **the dictionary key is that same Spanish
@@ -829,22 +837,22 @@ back to QML.
 
 ### Choosing the language
 
-`Config.language` is `"es"` (the default) or `"en"`, and it is saved in
-`~/.config/quickshell-rice.json` along with the rest of the settings. It is
-chosen in three ways:
+`Config.language` is `"es"` (the default), `"en"`, `"pt"` or `"it"`, and it is
+saved in `~/.config/quickshell-rice.json` along with the rest of the settings.
+It is chosen in three ways:
 
 - when installing, with `./install.sh --lang en` (without the option the
-  installer asks, and offers your locale's: Spanish for `es_*`, English for
-  anything else);
+  installer asks, and offers your locale's: Spanish for `es_*`, Italian for
+  `it_*`, English for anything else);
 - live, in **Settings › Appearance › Shell language** — the change is immediate
   and it touches neither the language of the system nor that of the
   applications, only the shell;
 - by hand, writing `"language": "en"` into the JSON.
 
-`ShellState.loc` follows `Config.language` (`es_ES` / `en_GB`), so the dates and
-the numbers of the shell change format with it. `Config.reset()` deliberately
-does not touch `language`: restoring the factory values should not leave your
-desktop in a language you cannot read.
+`ShellState.loc` follows `Config.language` (`es_ES` / `en_GB` / `pt_BR` /
+`it_IT`), so the dates and the numbers of the shell change format with it.
+`Config.reset()` deliberately does not touch `language`: restoring the factory
+values should not leave your desktop in a language you cannot read.
 
 ### Adding a language
 
@@ -855,15 +863,17 @@ desktop in a language you cannot read.
 2. Copy `translations-en.js` into `translations-XX.js` (same `.pragma library`,
    same Spanish keys) and translate the values.
 3. Import it in `I18n.qml` next to the other one
-   (`import "translations-fr.js" as DictFr`) and make `tr()` look at it. Today
-   the line is binary (`root.english && Dict.en[s]`); with three languages it is
-   solved by picking the dictionary by code and leaving Spanish as the fallback
-   when there is no entry.
+   (`import "translations-fr.js" as DictFr`) and add it where `tr()` picks the
+   dictionary by code; Spanish stays as the fallback when there is no entry.
 4. If the language writes dates in another way, translate the format keys too
    (`d 'de' MMMM`, `d 'de' MMMM 'de' yyyy`) and add its locale to
    `ShellState.loc`.
-5. Run `tools/i18n-check.py` over it and add the new code to `install.sh`
-   (`--lang`), which today only accepts `es` and `en`.
+5. Run `tools/i18n-check.py --lang XX` over it and add the new code to
+   `install.sh` (`--lang`), which today accepts `es`, `en`, `it` and `pt`.
+6. If the pokémon type names are not the English ids, add their table to
+   `pokemon-types.js`: they cannot go in the dictionary, because the Spanish
+   names clash with the badges' ("Roca" is the Rock type and the Boulder
+   Badge).
 
 ### The Hyprland shortcuts
 

@@ -84,7 +84,7 @@ T = {"es": {"nv": "Nv", "faltan": "a {n} aportes de evolucionar",
             "equipo": "nella tua squadra", "lider": "capo della squadra", "oculta": "nascosta",
             "debil": "DEBOLEZZE", "inmune": "IMMUNITÀ", "habs": "ABILITÀ", "total": "TOTALE",
             "tamano": "DIMENSIONI",
-            "cortas": ["PS", "ATT", "DIF", "VEL", "DIF. SP.", "ATT. SP."],
+            "cortas": ["PS", "ATT", "DIF", "VEL", "DSP", "ASP"],
             "regiones": ["Kanto", "Johto", "Hoenn", "Sinnoh", "Unima", "Kalos",
                           "Alola", "Galar", "Paldea"]}}[lang]
 
@@ -142,7 +142,9 @@ def nombre_tipo(t):
     if lang == "es":
         return tipos.get("es", {}).get(t, t)
     if lang == "it":
-        return TIPOS_IT.get(t, t.capitalize())
+        # poke-types writes the Italian names next to the Spanish ones; an
+        # older tipos.json without them falls back to the English id.
+        return tipos.get("it", {}).get(t, t.capitalize())
     return t.capitalize()
 
 def color_tipo(t):

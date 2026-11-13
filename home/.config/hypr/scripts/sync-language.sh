@@ -47,7 +47,7 @@ LANG_RICE="$(jq -r '.language // "es"' "$RICE_JSON" 2>/dev/null)"
 RICE_LANG="$LANG_RICE"
 case "$LANG_RICE" in
     es|en|it) ;;
-    *) decir "$(tr_ "idioma no reconocido en el JSON: '$LANG_RICE' (me quedo en es)" "Unrecognised language in the JSON: '$LANG_RICE' (using es)" "lingua non riconosciuta nel JSON: '$LANG_RICE' (utilizzando es)")"; LANG_RICE=es ;;
+    *) decir "$(tr_ "idioma no reconocido en el JSON: '$LANG_RICE' (me quedo en es)" "Unrecognised language in the JSON: '$LANG_RICE' (using es)" "lingua non riconosciuta nel JSON: '$LANG_RICE' (resto su es)")"; LANG_RICE=es ;;
 esac
 
 ORIGEN="$HYPR_DIR/language.$LANG_RICE.conf"
@@ -86,7 +86,7 @@ if [ -r "$SDDM_THEME" ]; then
         # Visible notification only if there is a graphical session and notify-send is available.
         if [ "$QUIET" = "1" ] && command -v notify-send >/dev/null 2>&1; then
             case "$LANG_RICE" in
-                en) notify-send -a "Rice" "Login language" "The login screen is still in Spanish. Run sync-language.sh to see how to change it." ;;
+                en) notify-send -a "Rice" "Login language" "The login screen is still in another language. Run sync-language.sh to see how to change it." ;;
                 it) notify-send -a "Rice" "Lingua del login" "La schermata di login è ancora in un’altra lingua. Esegui sync-language.sh per vedere come cambiarla." ;;
                 *)  notify-send -a "Rice" "Idioma del login" "La pantalla de login sigue en otro idioma. Ejecuta sync-language.sh para ver como cambiarla." ;;
             esac

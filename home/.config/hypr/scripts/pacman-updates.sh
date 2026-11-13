@@ -31,9 +31,9 @@ sync_description() {
         read -r last_sync < "$stamp_file"
     fi
     if [[ "$last_sync" =~ ^[0-9]+$ ]] && (( last_sync > 0 )); then
-        printf '%s %s' "$(tr_ 'repos sincronizados a las' 'repos synced at' 'repo sincronizzate a')" "$(date --date="@$last_sync" '+%H:%M')"
+        printf '%s %s' "$(tr_ 'repos sincronizados a las' 'repos synced at' 'repo sincronizzati alle')" "$(date --date="@$last_sync" '+%H:%M')"
     else
-        printf '%s' "$(tr_ 'repos aun no sincronizados' 'repos not synced yet' 'repo non sincronizzate')"
+        printf '%s' "$(tr_ 'repos aun no sincronizados' 'repos not synced yet' 'repo non ancora sincronizzati')"
     fi
 }
 
@@ -68,7 +68,7 @@ run_check() {
 
 exec 9> "$lock_file"
 if ! flock -w 65 9; then
-    emit_json "?" "$(tr_ 'Otra consulta de actualizaciones sigue en curso' 'Another update check is still running' 'Un`altra verifica di aggiornamenti è ancora in esecuzione')" "error"
+    emit_json "?" "$(tr_ 'Otra consulta de actualizaciones sigue en curso' 'Another update check is still running' 'Un’altra verifica degli aggiornamenti è ancora in corso')" "error"
     exit 0
 fi
 

@@ -31,8 +31,8 @@ Singleton {
     // like Spanish. With en_US the date would flip round (9/3/2026) and "PM"
     // would appear, which nobody here uses.
     readonly property var loc: Qt.locale(I18n.english ? "en_GB"
-    : (I18n.lang === "pt" ? "pt_BR"
-    : (I18n.lang === "it" ? "it_IT" : "es_ES")))
+        : I18n.lang === "pt" ? "pt_BR"
+        : I18n.lang === "it" ? "it_IT" : "es_ES")
 
     // ═════════════════════════ notch state ══════════════════════════
     // The notch is the desktop's entry point: panels unfold from it.
@@ -63,7 +63,7 @@ Singleton {
     // from the SAME hyprland.conf that SettingsShortcuts.qml already reads.
     // Another view was not needed: a door into the existing one was.
     //
-    // It goes through a signal and not a property here because what decides 
+    // It goes through a signal and not a property here because what decides
     // which section is shown is the Settings window; ShellState only knows
     // whether it is open or closed.
     signal settingsSection(string id)
@@ -623,8 +623,6 @@ Singleton {
     }
 
     function recordarTema(): void {
-        if (!ultimoFile.path)
-            return;
         const p = root.player;
         if (!p || !p.trackTitle)
             return;
@@ -2006,17 +2004,15 @@ Singleton {
         return String(slug || "").split("-")
             .map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join("-");
     }
+    // Italian uses the English species names, which are the official ones there
+    // too. Types are another matter: they come from I18n.pokeType(), by id, and
+    // not from I18n.tr(es), because the Spanish type names clash with the
+    // badges' ("Roca" is both the Rock type and the Boulder Badge).
     function pokeEspecie(slug, es) {
-        if (I18n.english || I18n.italian || !es) {
-            return root.pokeTitulo(slug);
-        }
-        return es;
+        return I18n.english || I18n.italian || !es ? root.pokeTitulo(slug) : es;
     }
-
     function pokeTipo(id, es) {
-        if (I18n.english || !es)
-            return root.pokeTitulo(id);
-        return I18n.tr(es);
+        return I18n.english || !es ? root.pokeTitulo(id) : (I18n.pokeType(id) || es);
     }
 
     Process {

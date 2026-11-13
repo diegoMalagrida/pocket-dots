@@ -89,7 +89,7 @@ def main() -> int:
         if len(ya) >= TOPE:
             print(tr(f"ya estaba: {len(ya)} nombres en {DESTINO}",
                      f"Already present: {len(ya)} names in {DESTINO}",
-                     f"Giá presente: {len(ya)} nomi in {DESTINO}"))
+                     f"Già presente: {len(ya)} nomi in {DESTINO}"))
             return 0
 
     faltan = [n for n in range(1, TOPE + 1) if n not in ya]
@@ -109,7 +109,7 @@ def main() -> int:
     tmp = DESTINO.with_suffix(".tsv.tmp")
     tmp.write_text("".join(f"{n}\t{ya[n]}\n" for n in sorted(ya)))
     tmp.replace(DESTINO)
-    print(tr(f"{len(ya)} nombres en castellano -> {DESTINO}", f"{len(ya)} Spanish names -> {DESTINO}", f"{len(ya)} Nome spagnolo -> {DESTINO}"))
+    print(tr(f"{len(ya)} nombres en castellano -> {DESTINO}", f"{len(ya)} Spanish names -> {DESTINO}", f"{len(ya)} nomi in spagnolo -> {DESTINO}"))
     return 0
 
 

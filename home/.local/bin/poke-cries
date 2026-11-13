@@ -54,7 +54,7 @@ def main() -> int:
         hechos = sum(ex.map(uno, pendientes))
     print(tr(f"gritos: {hechos} bajados, {len(list(DIR.glob('*.ogg')))} en total",
              f"Cries: {hechos} downloaded, {len(list(DIR.glob('*.ogg')))} in total",
-             f"Versi: scaricati {hechos} , {len(list(DIR.glob('*.ogg')))} in totale"))
+             f"Versi: {hechos} scaricati, {len(list(DIR.glob('*.ogg')))} in totale"))
     return 0
 
 if __name__ == "__main__":

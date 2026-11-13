@@ -187,7 +187,7 @@ def objetivo(puerto):
         morir(tr("no hay puerto de depuracion en %d (%s). Spotify cerrado, o lanzado "
                  "sin --remote-debugging-port",
                  "No debugging port at %d (%s). Spotify is closed or was started without --remote-debugging-port",
-                 "Nessun porta di debug a %d (%s). Spotify è chiuso o è stato avviato senza --remote-debugging-port") % (puerto, e), 2)
+                 "Nessuna porta di debug su %d (%s). Spotify è chiuso o è stato avviato senza --remote-debugging-port") % (puerto, e), 2)
     paginas = [t for t in objetivos if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
     if not paginas:
         morir(tr("el puerto responde pero no hay ninguna pagina abierta",
@@ -253,7 +253,7 @@ def main():
             if msg.get("id") == 1:
                 break
         else:
-            morir(tr("sin respuesta del evaluate", "No response from evaluate", "Nessuna risposta dal evaluate"), 4)
+            morir(tr("sin respuesta del evaluate", "No response from evaluate", "Nessuna risposta da evaluate"), 4)
     finally:
         ws.cerrar()
 

@@ -13,7 +13,7 @@ set -uo pipefail
 
 img="${1:-}"
 if [ ! -s "$img" ]; then
-    notify-send -u critical -a "$(tr_ Captura Screenshot Cattura)" "$(tr_ 'Editar captura' 'Edit screenshot' 'Modifica cattura')" "$(tr_ 'No encuentro esa imagen' 'I cannot find that image' 'Impossibile trovare l`immagine')"
+    notify-send -u critical -a "$(tr_ Captura Screenshot Cattura)" "$(tr_ 'Editar captura' 'Edit screenshot' 'Modifica cattura')" "$(tr_ 'No encuentro esa imagen' 'I cannot find that image' 'Non trovo quell’immagine')"
     exit 1
 fi
 

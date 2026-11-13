@@ -514,18 +514,18 @@ PISAN = {
 
 # One table cannot contradict another: if a number is in two places, the
 # critter comes out with two different behaviours depending on who asks.
-assert not (SALTAN & REPTAN), tr("un pokemon no puede saltar y reptar", "A Pokémon cannot both jump and crawl", "Un Pokémon non può ne saltare ne strisciare")
+assert not (SALTAN & REPTAN), tr("un pokemon no puede saltar y reptar", "A Pokémon cannot both jump and crawl", "Un Pokémon non può sia saltare sia strisciare")
 assert not (LEVITAN & REPTAN), tr("un pokemon no puede levitar y reptar",
-                                  "A Pokémon cannot both levitate and crawl", "Un Pokémon non può ne levitare ne strisciare")
+                                  "A Pokémon cannot both levitate and crawl", "Un Pokémon non può sia levitare sia strisciare")
 assert not (LEVITAN & SALTAN), tr("un pokemon no puede levitar y saltar",
-                                  "A Pokémon cannot both levitate and jump", "Un Pokémon non può ne levitare ne saltare")
+                                  "A Pokémon cannot both levitate and jump", "Un Pokémon non può sia levitare sia saltare")
 # And this is the one that matters now that there are two tables for two
 # decisions: if a number were in LEVITAN and in PISAN at once, it would be given
 # flight for having no legs and the walking cycle for having them.
 assert not (LEVITAN & PISAN), tr("un pokemon no puede levitar y pisar",
-                                 "A Pokémon cannot both levitate and walk", "Un Pokémon non può ne levitare ne camminare")
-assert not (SALTAN & PISAN), tr("un pokemon no puede saltar y pisar", "A Pokémon cannot both jump and walk", "Un Pokémon non può ne saltare ne camminare")
-assert not (REPTAN & PISAN), tr("un pokemon no puede reptar y pisar", "A Pokémon cannot both crawl and walk", "Un Pokémon non può ne strisciare ne camminare")
+                                 "A Pokémon cannot both levitate and walk", "Un Pokémon non può sia levitare sia camminare")
+assert not (SALTAN & PISAN), tr("un pokemon no puede saltar y pisar", "A Pokémon cannot both jump and walk", "Un Pokémon non può sia saltare sia camminare")
+assert not (REPTAN & PISAN), tr("un pokemon no puede reptar y pisar", "A Pokémon cannot both crawl and walk", "Un Pokémon non può sia strisciare sia camminare")
 
 # The phases of the moving cycle, in the same format as the POSE table:
 # (dx, dy, escalaX, escalaY, inclinacion). Four phases per cycle.
@@ -917,7 +917,7 @@ def apartarse_del_filo(x: str, margen: int) -> str:
                  " el bicho podra quedarse medio fuera al lanzarlo contra un lateral",
                  f"   Warning: could not find both bounce branches ({x.count(aguja)}); "
                  "the Pokémon may stay partly off screen when thrown against an edge",
-                 f"   Avviso: non trovo entrambe le rampe di rimbalzo ({x.count(aguja)}); "
+                 f"   Avviso: non trovo entrambi i rami di rimbalzo ({x.count(aguja)}); "
                  "il Pokémon potrebbe rimanere parzialmente fuori schermo quando lanciato contro un bordo"),
               file=sys.stderr)
         return x
@@ -1585,7 +1585,7 @@ def asegurar_plantilla() -> None:
                 PLANTILLA.joinpath(f"{f}.xml").write_bytes(r.read())
         except Exception as e:
             raise SystemExit(tr(f"no pude bajar la plantilla de comportamiento ({e})",
-                                f"Could not download the behaviour template ({e})", 
+                                f"Could not download the behaviour template ({e})",
                                 f"Impossibile scaricare il modello di comportamento ({e})"))
     print(tr(f"plantilla de comportamiento descargada en {PLANTILLA}",
              f"Behaviour template downloaded to {PLANTILLA}",
@@ -1809,27 +1809,27 @@ def main() -> int:
     p.add_argument("pokemon", help=tr("nombre o numero", "name or number", "nome o numero"))
     p.add_argument("--escala", type=float, default=0, help=tr("aumento, admite medios (0 = el que pida su talla)",
                                                               "scale, including half steps (0 = based on its size)",
-                                                              "scala, inclusi i passi intermedi (0 = basato sulla sua dimensione)"))
+                                                              "ingrandimento, anche a mezzi passi (0 = secondo la sua taglia)"))
     p.add_argument("--nombre", help=tr("como llamarlo (por defecto, el del pokemon)",
                                        "what to call it (defaults to the Pokémon name)",
-                                       "come chiamarlo (predefinito, il nome del Pokémon)"))
+                                       "come chiamarlo (di default, il nome del Pokémon)"))
     p.add_argument("--gif", help=tr("usa este gif en vez del de la cache (p.ej. el variocolor)",
                                     "use this GIF instead of the cached one (e.g. a shiny)",
                                     "usa questo GIF invece di quello nella cache (es. uno shiny)"))
     p.add_argument("--trepar", action="store_true",
                    help=tr("deja que trepe tambien por el TECHO (las paredes ya van de serie: ver PAREDES)",
                            "also allow climbing on the CEILING (walls are enabled by default: see PAREDES)",
-                           "permetti anche di arrampicarsi sul CEILING (le pareti sono abilitate di default: vedi PAREDES)"))
+                           "lascia che si arrampichi anche sul SOFFITTO (le pareti sono già attive: vedi PAREDES)"))
     p.add_argument("--probar", action="store_true",
                    help=tr("fabrica y convierte pero NO importa: para pasar el pokedex entero",
                            "build and convert but DO NOT import: for processing the whole Pokédex",
-                           "costruisci e converti ma NON importa: per elaborare tutto il Pokédex"))
+                           "crea e converte ma NON importa: per passare tutto il Pokédex"))
     p.add_argument("--vuela", action="store_true", help=tr("que vuele aunque no le toque",
                                                            "make it fly even if it normally would not",
-                                                           "fai volare anche se normalmente non lo farebbe"))
+                                                           "fallo volare anche se di solito non vola"))
     p.add_argument("--no-vuela", action="store_true", help=tr("que no vuele aunque le toque",
                                                               "prevent it from flying even if it normally would",
-                                                              "impedisci di volare anche se normalmente lo farebbe"))
+                                                              "non farlo volare anche se di solito vola"))
     args = p.parse_args()
 
     asegurar_plantilla()
@@ -2456,7 +2456,7 @@ def main() -> int:
         if (vivo.stdout or "").strip() == "active":
             print(tr(f"   {etiqueta} esta guardado, pero el overlay sigue con la version anterior en memoria: se vera al proximo arranque.",
                      f"   {etiqueta} is saved, but the overlay still has the previous version in memory: it will appear on the next start.",
-                     f"   {etiqueta} é stato salvato, ma l'overlay ha ancora la vecchia versione in memoria: comparirá al prossimo avvio."),
+                     f"   {etiqueta} è stato salvato, ma l'overlay ha ancora la vecchia versione in memoria: comparirà al prossimo avvio."),
                   file=sys.stderr)
     except (OSError, subprocess.SubprocessError):
         pass
@@ -2475,7 +2475,7 @@ def main() -> int:
     if len(ciclo) == 1:
         print(tr(f"   aviso: el sprite de #{num} no anima -- un solo fotograma-, asi que este se queda quieto de verdad. No es cosa del generador.",
                  f"   Warning: sprite #{num} has only one frame, so this Pokémon will stay still. This comes from the sprite itself.",
-                 f"   Attenzione: lo sprite #{num} ha solo un frame, quindi questo Pokémon sará statico. Questo dipende dallo sprite."),
+                 f"   Attenzione: lo sprite #{num} ha solo un frame, quindi questo Pokémon resterà fermo. Questo dipende dallo sprite."),
               file=sys.stderr)
     print(tr(f"{etiqueta} listo  (#{num}, {len(fs)} fotogramas, sprite {w}x{h} a {escala}x)",
              f"{etiqueta} ready  (#{num}, {len(fs)} frames, sprite {w}x{h} at {escala}x)",

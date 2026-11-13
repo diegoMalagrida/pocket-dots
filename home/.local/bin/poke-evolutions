@@ -117,7 +117,7 @@ def main() -> int:
         ya = json.loads(DESTINO.read_text())
         print(tr(f"ya estaba: {len(ya)} evoluciones en {DESTINO}",
                  f"Already present: {len(ya)} evolutions in {DESTINO}",
-                 f"Giá presente: {len(ya)} evoluzioni in {DESTINO}"))
+                 f"Già presente: {len(ya)} evoluzioni in {DESTINO}"))
         return 0
 
     por_nombre = leer_nombres()
@@ -154,8 +154,8 @@ def main() -> int:
              f"{len(fuera)} Pokémon evolve, {ramas} branches in total "
              f"({por_nivel} by level, {ramas - por_nivel} by other means); "
              f"{fallos} unreadable chains -> {DESTINO}",
-             f"{len(fuera)} evoluzioni Pokémon, {ramas} rami in totale "
-             f"({por_nivel} per livello, {ramas - por_nivel} per altro); "
+             f"{len(fuera)} Pokémon si evolvono, {ramas} rami in totale "
+             f"({por_nivel} per livello, {ramas - por_nivel} in altri modi); "
              f"{fallos} catene illeggibili -> {DESTINO}"))
     return 0
 

@@ -86,7 +86,7 @@ def elegir(nombres: list[str]) -> tuple[dict, dict]:
     eq = equipo()
     if len(eq) < 2:
         raise SystemExit(tr("hacen falta al menos dos en el equipo",
-                            "You need at least two Pokémon in the team", 
+                            "You need at least two Pokémon in the team",
                             "Hai bisogno di almeno due Pokémon nella squadra"))
     if not nombres:
         a = eq[0]
@@ -111,7 +111,7 @@ def elegir(nombres: list[str]) -> tuple[dict, dict]:
             if n in mapa:
                 cand = [m for m in eq if m["num"] == mapa[n]]
         if not cand:
-            raise SystemExit(tr(f"'{n}' no esta en el equipo", f"'{n}' is not in the team", f"'{n}' non é nella squadra"))
+            raise SystemExit(tr(f"'{n}' no esta en el equipo", f"'{n}' is not in the team", f"'{n}' non è nella squadra"))
         elegidos.append(cand[0])
     if len(elegidos) == 1:
         otros = [m for m in eq if m is not elegidos[0]]

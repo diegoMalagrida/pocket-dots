@@ -42,7 +42,7 @@ DIGESTS="$HOME/.local/state/dotfiles/digests"
 DRY=0
 ASSUME_YES=0
 MODE=link            # link | copy
-UI_LANG=             # es | en; empty means "ask, or take the default"
+UI_LANG=             # es | en | it | pt; empty means "ask, or take the default"
 DEFAULT_LANG=        # what is offered when nobody says; see current_lang()
 FALLBACK_LANG=es     # what a MISSING key or file means: the strings are written
                      # in Spanish, so that is what every program falls back to
@@ -373,9 +373,11 @@ check_reboot_needed() {
 #      installer without --lang silently undid a language picked in Settings:
 #      the default was hard-wired to 'es' and set_language_quickshell dutifully
 #      wrote it back.
-#   2. on a fresh machine, your locale: Spanish for an es_* locale, English for
-#      anything else. It used to be Spanish for everybody, which is how people
-#      who do not speak it ended up with a desktop they could not read.
+#   2. on a fresh machine, your locale: Spanish for an es_* locale, Italian for
+#      it_*, English for anything else. It used to be Spanish for everybody,
+#      which is how people who do not speak it ended up with a desktop they
+#      could not read. Portuguese is not picked from the locale: only the
+#      shell speaks it, the lock screen and the scripts would stay in Spanish.
 #
 # The usual order, LC_ALL over LC_MESSAGES over LANG. C and POSIX are English,
 # and they also switch LANGUAGE off, as gettext does; otherwise LANGUAGE, a
@@ -386,7 +388,11 @@ locale_lang() {
     first="${first%%:*}"
     for l in "$first" "$eff"; do
         [ -n "$l" ] || continue
-        case "$l" in es|es_*|es.*|es@*) printf 'es' ;; *) printf 'en' ;; esac
+        case "$l" in
+            es|es_*|es.*|es@*) printf 'es' ;;
+            it|it_*|it.*|it@*) printf 'it' ;;
+            *) printf 'en' ;;
+        esac
         return 0
     done
     printf 'en'
@@ -402,7 +408,7 @@ current_lang() {
         fi
     fi
     case "$cur" in
-        es|en) printf '%s' "$cur" ;;
+        es|en|it|pt) printf '%s' "$cur" ;;
         # The file is there but says nothing: Quickshell reads that as Spanish,
         # so that is what this desktop speaks. Only a machine with no file at
         # all has nothing to keep, and gets its locale's.
@@ -418,15 +424,17 @@ ask_lang() {
     [ "$DRY" = 1 ] && return 0
     [ -t 0 ] || return 0          # no keyboard (a pipe, a cron job): the default
     local answer
-    read -r -p "  language for the desktop, es or en? [$DEFAULT_LANG] " answer 2>&"$(prompt_fd)"
+    read -r -p "  language for the desktop, es, en, it or pt? [$DEFAULT_LANG] " answer 2>&"$(prompt_fd)"
     case "$answer" in
         en|EN) UI_LANG=en ;;
         es|ES) UI_LANG=es ;;
+        it|IT) UI_LANG=it ;;
+        pt|PT) UI_LANG=pt ;;
         # A bare Enter = whatever the desktop already spoke. And 'es' typed by hand
         # has to ASSIGN: once the default became what is installed, an empty case
         # here left UI_LANG on 'en' and what you asked for was ignored.
         '') ;;
-        *) warn "'$answer' is neither es nor en; keeping $DEFAULT_LANG" ;;
+        *) warn "'$answer' is not es, en, it or pt; keeping $DEFAULT_LANG" ;;
     esac
 }
 
@@ -435,8 +443,8 @@ ask_lang() {
 # set.
 set_lang() {
     case "$1" in
-        es|en) UI_LANG="$1" ;;
-        *) die "unknown language: $1  (only 'es' or 'en')" ;;
+        es|en|it|pt) UI_LANG="$1" ;;
+        *) die "unknown language: $1  (only 'es', 'en', 'it' or 'pt')" ;;
     esac
 }
 
@@ -451,9 +459,11 @@ Options:
   -y, --yes         never ask (for unattended runs)
       --copy        copy the configs instead of symlinking them
       --link        symlink the configs into the repo (default)
-      --lang es|en  what the desktop speaks (default: your locale's, Spanish for
-                    es_* and English otherwise; it asks if you do not say, and
-                    Settings changes it later anyway)
+      --lang es|en|it|pt
+                    what the desktop speaks (default: your locale's, Spanish for
+                    es_*, Italian for it_* and English otherwise; it asks if you
+                    do not say, and Settings changes it later anyway). pt only
+                    translates the shell: the rest stays in Spanish
   -h, --help        this
 
 Phases (if you name none, all of them run in this order):
@@ -506,7 +516,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --copy|--copiar) MODE=copy ;;
             --link|--enlazar) MODE=link ;;
             --lang|--idioma)
-                shift; [ $# -gt 0 ] || die "--lang needs a value: es or en"
+                shift; [ $# -gt 0 ] || die "--lang needs a value: es, en, it or pt"
                 set_lang "$1" ;;
             --lang=*|--idioma=*) set_lang "${1#*=}" ;;
             -h|--help|--ayuda) usage; exit 0 ;;

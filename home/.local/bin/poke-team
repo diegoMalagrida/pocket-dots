@@ -264,7 +264,7 @@ def rescatar() -> dict:
         print(tr(f"la partida estaba corrupta; restaurada la copia {copia.name} "
                  f"(la rota se guardo como {roto.name})",
                  f"The save was corrupt; restored backup {copia.name} (the broken save was kept as {roto.name})",
-                 f"la partida era corrotta; ripristinata la copia {copia.name} "
+                 f"la partita era corrotta; ripristinata la copia {copia.name} "
                  f"(la partita corrotta è stata salvata come {roto.name})"), file=sys.stderr)
         return d
     raise SystemExit(tr(f"la partida no se puede leer y no hay ninguna copia buena. "
@@ -568,7 +568,8 @@ def cmd_ver(args) -> int:
     print(tr(f"  rango: {rango_de(total)}  (nivel total {total})"
              f"   medallas: {len(ganadas)}/8",
              f"  Rank: {rango_de(total)}  (total level {total})   Badges: {len(ganadas)}/8",
-             f"  Rango: {rango_de(total)}  (livello totale {total})   Medaglie: {len(ganadas)}/8"))
+             f"  Rango: {rango_de(total)}  (livello totale {total})   Medaglie: {len(ganadas)}/8")
+          + (f"  [{', '.join(ganadas)}]" if ganadas else ""))
     for i, m in enumerate(d["equipo"]):
         a = adornar(m, mapa, evos)
         barra = int(a["progreso"] * 20)
@@ -584,8 +585,7 @@ def cmd_ver(args) -> int:
                  f"  {tipos:<18} {a['naturaleza']}{pend}",
                  f" {marca}{i}.{estrella}{(m.get('mote') or a['especie_es']):14} lv {m['nivel']:>3}  "
                  f"[{'#'*barra}{'.'*(20-barra)}] {m['xp']}/{a['umbral']}"
-                 f"  {tipos:<18} {a['naturaleza']}{pend}",
-                 ))
+                 f"  {tipos:<18} {a['naturaleza']}{pend}"))
     if d["caja"]:
         print(tr(f" caja ({len(d['caja'])}):", f" Box ({len(d['caja'])}):", f" Box ({len(d['caja'])}):"))
         for i, m in enumerate(d["caja"]):
@@ -648,7 +648,7 @@ def cmd_add(args) -> int:
 def cmd_quitar(args) -> int:
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quel posto della squadra non esiste"))
     fuera = d["equipo"].pop(args.puesto)
     guardar(d)
     print(tr(f"fuera {fuera.get('mote') or nombres().get(fuera['num'], fuera['num'])}",
@@ -660,7 +660,7 @@ def cmd_quitar(args) -> int:
 def cmd_mote(args) -> int:
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quel posto della squadra non esiste"))
     d["equipo"][args.puesto]["mote"] = args.nombre
     guardar(d)
     print(tr(f"ahora se llama {args.nombre}", f"Now called {args.nombre}", f"ora si chiama {args.nombre}"))
@@ -670,7 +670,7 @@ def cmd_mote(args) -> int:
 def cmd_lider(args) -> int:
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quel posto della squadra non esiste"))
     d["equipo"].insert(0, d["equipo"].pop(args.puesto))
     guardar(d)
     print(tr(f"{d['equipo'][0].get('mote') or nombres().get(d['equipo'][0]['num'])} va delante",
@@ -690,7 +690,7 @@ def cmd_mover(args) -> int:
     d = leer()
     n = len(d["equipo"])
     if not (0 <= args.de < n):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quel posto della squadra non esiste"))
     # The destination is clamped to the range instead of failing: dropping below
     # the last row means "the last one", not that you made a mistake.
     destino = max(0, min(args.a, n - 1))
@@ -708,7 +708,7 @@ def cmd_mover(args) -> int:
 def cmd_evolucionar(args) -> int:
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quel posto della squadra non esiste"))
     m = d["equipo"][args.puesto]
     mapa, evos = nombres(), evoluciones()
     listas = [r for r in evos.get(m["num"], []) if m["nivel"] >= r["nivel"]]
@@ -724,13 +724,13 @@ def cmd_evolucionar(args) -> int:
             opciones = ", ".join(mapa.get(r["a"], str(r["a"])) for r in listas)
             raise SystemExit(tr(f"no evoluciona en eso. Puede: {opciones}",
                                 f"It cannot evolve into that. Options: {opciones}",
-                                f"non si evolve in quello. Può: {opciones}"))
+                                f"non si evolve in quello. Opzioni: {opciones}"))
         elegida = coincide[0]
     elif len(listas) > 1:
         opciones = ", ".join(mapa.get(r["a"], str(r["a"])) for r in listas)
         raise SystemExit(tr(f"hay que elegir: {opciones}  (usa 'evolucionar {args.puesto} a <cual>')",
                             f"Choose one: {opciones}  (use 'evolucionar {args.puesto} a <which>')",
-                            f"devi scegliere: {opciones}  (usa 'evolucionar {args.puesto} a <which>')"))
+                            f"devi scegliere: {opciones}  (usa 'evolucionar {args.puesto} a <quale>')"))
     antes, antes_num = mapa.get(m["num"], ""), m["num"]
     m["num"] = elegida["a"]
     if m.get("shiny"):
@@ -815,7 +815,7 @@ def cmd_guardar(args) -> int:
     which is why guardar asks for no confirmation and quitar does."""
     d = leer()
     if not (0 <= args.puesto < len(d["equipo"])):
-        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quello slot della squadra non esiste"))
+        raise SystemExit(tr("ese puesto no existe", "That team slot does not exist", "quel posto della squadra non esiste"))
     m = d["equipo"].pop(args.puesto)
     d["caja"].append(m)
     guardar(d)
@@ -830,11 +830,11 @@ def cmd_sacar(args) -> int:
     """From the box to the team."""
     d = leer()
     if not (0 <= args.indice < len(d["caja"])):
-        raise SystemExit(tr("ese sitio de la caja esta vacio", "That box slot is empty", "quello slot della cassetta è vuoto"))
+        raise SystemExit(tr("ese sitio de la caja esta vacio", "That box slot is empty", "quel posto del box è vuoto"))
     if len(d["equipo"]) >= TAMANO:
         raise SystemExit(tr(f"el equipo ya tiene {TAMANO}: guarda a alguno primero",
                             f"The team already has {TAMANO}: store one first",
-                            f"la squadra ha già {TAMANO}: salva qualcuno prima"))
+                            f"la squadra ha già {TAMANO}: metti prima qualcuno nel box"))
     m = d["caja"].pop(args.indice)
     d["equipo"].append(m)
     guardar(d)

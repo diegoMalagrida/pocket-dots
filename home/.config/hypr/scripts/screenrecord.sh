@@ -32,7 +32,7 @@ if [ -r "$state_file" ]; then
       exit 1
     fi
     rm -f "$state_file"
-    notify-send -t 2500 "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'Guardada en' 'Saved to' 'Salvato in') ${out/#"$HOME"/\~}"
+    notify-send -t 2500 "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'Guardada en' 'Saved to' 'Salvata in') ${out/#"$HOME"/\~}"
     exit 0
   fi
 
@@ -47,9 +47,9 @@ if [ -r "$state_file" ]; then
   # was left behind.
   rm -f "$state_file"
   if [ -n "$out" ] && [ -e "$out" ]; then
-    notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'La grabación anterior se cortó sola; el vídeo a medias está en' 'The previous recording died on its own; the partial video is in' 'La registrazione precedente è morta da sola; il video parziale è in') ${out/#"$HOME"/\~}"
+    notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'La grabación anterior se cortó sola; el vídeo a medias está en' 'The previous recording died on its own; the partial video is in' 'La registrazione precedente si è interrotta da sola; il video parziale è in') ${out/#"$HOME"/\~}"
   else
-    notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'La grabación anterior se cortó sola y no dejó vídeo' 'The previous recording died on its own and left no video' 'La registrazione precedente è morta da sola e non ha lasciato alcun video')"
+    notify-send -u critical "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'La grabación anterior se cortó sola y no dejó vídeo' 'The previous recording died on its own and left no video' 'La registrazione precedente si è interrotta da sola e non ha lasciato alcun video')"
   fi
   exit 1
 fi
@@ -121,4 +121,4 @@ if ! kill -0 "$pid" 2>/dev/null; then
 fi
 
 printf '%s\n%s\n' "$pid" "$out" > "$state_file"
-notify-send -t 2000 "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'Grabando… (repite la tecla para parar)' 'Recording… (press the key again to stop)' 'Registrando… (premi di nuovo il tasto per fermare)')${audio:+ · $(tr_ 'con sonido' 'with sound' 'con suono')}"
+notify-send -t 2000 "󰑊 $(tr_ 'Grabación' 'Recording' 'Registrazione')" "$(tr_ 'Grabando… (repite la tecla para parar)' 'Recording… (press the key again to stop)' 'Registrazione in corso… (premi di nuovo il tasto per fermare)')${audio:+ · $(tr_ 'con sonido' 'with sound' 'con suono')}"

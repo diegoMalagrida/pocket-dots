@@ -77,7 +77,7 @@ def notch(*args):
         subprocess.run(["qs", "ipc", "call", "notch", *[str(a) for a in args]],
                        timeout=3, capture_output=True)
     except Exception as e:
-        log(tr("aviso al notch fallido:", "Could not notify the notch:", "Impossibile notificare il notch"), e)
+        log(tr("aviso al notch fallido:", "Could not notify the notch:", "Impossibile avvisare il notch:"), e)
 
 
 class Rejected(dbus.DBusException):
@@ -140,37 +140,28 @@ system_bus = None
 objetos = []    # what is exported on D-Bus, alive as long as the process is
 
 
-def english() -> bool:
+def language() -> str:
     """The rice language, read when it is needed and not at start: this agent
     lives for the whole session, and the language can change under it."""
     try:
         with open(os.path.expanduser("~/.config/quickshell-rice.json"),
                   encoding="utf-8") as f:
-            return json.load(f).get("language") == "en"
+            return json.load(f).get("language") or "es"
     except (OSError, ValueError, AttributeError):
-        return False
+        return "es"
+
+
+def english() -> bool:
+    return language() == "en"
+
 
 def italian() -> bool:
-    """The rice language, read when it is needed and not at start: this agent
-    lives for the whole session, and the language can change under it."""
-    try:
-        with open(os.path.expanduser("~/.config/quickshell-rice.json"),
-                  encoding="utf-8") as f:
-            return json.load(f).get("language") == "it"
-    except (OSError, ValueError, AttributeError):
-        return False
+    return language() == "it"
+
 
 def tr(es, en, it):
-    match english():
-        case True:
-            return en
-        case False:
-            match italian():
-                case True:
-                    return it
-                case False:
-                    return es
-    return es
+    lang = language()
+    return en if lang == "en" else (it if lang == "it" else es)
 
 
 def device_name(path):
@@ -224,7 +215,7 @@ class Agent(dbus.service.Object):
             if bool(props.Get("org.bluez.Device1", "Trusted")):
                 log(tr("servicio autorizado solo (aparato de confianza)",
                        "Service authorised automatically (trusted device)",
-                       "Servizio autorizzato automaticamente (dispositivo autorizzato)"), device)
+                       "Servizio autorizzato automaticamente (dispositivo attendibile)"), device)
                 ok()
                 return
         except Exception as e:
@@ -279,7 +270,7 @@ class Agent(dbus.service.Object):
 
     @dbus.service.method(AGENT_IFACE, in_signature="", out_signature="")
     def Cancel(self):
-        log(tr("BlueZ canceló", "BlueZ cancelled", "BlueZ e stato annullato"))
+        log(tr("BlueZ canceló", "BlueZ cancelled", "BlueZ ha annullato"))
         pending.clear()
 
     @dbus.service.method(AGENT_IFACE, in_signature="", out_signature="")
@@ -329,7 +320,7 @@ def main():
     except dbus.DBusException as e:
         log(tr("no se pudo ser el agente por defecto:", "Could not become the default agent:", "Impossibile impostare l'agente predefinito:"), e)
 
-    log(tr("agente registrado en", "Agent registered at", "agente registrato a"), AGENT_PATH, tr("con capacidad", "with capability", "con capacità"), CAPABILITY)
+    log(tr("agente registrado en", "Agent registered at", "agente registrato su"), AGENT_PATH, tr("con capacidad", "with capability", "con capacità"), CAPABILITY)
 
     loop = GLib.MainLoop()
 

@@ -513,8 +513,8 @@ def main(argv):
             import threading
             aviso = threading.Timer(1.5, lambda: subprocess.run(
                 ["notify-send", "-t", "4000", "-a", tr("Fondo", "Wallpaper", "Sfondo"),
-                 tr("Preparando el fondo nuevo", "Preparing the new wallpaper", "Preparando il nuovo sfondo"),
-                 tr("Recortando su personaje para la transición…", "Cutting out its character for the transition…", "Tagliando il suo personaggio per la transizione…")],
+                 tr("Preparando el fondo nuevo", "Preparing the new wallpaper", "Preparo il nuovo sfondo"),
+                 tr("Recortando su personaje para la transición…", "Cutting out its character for the transition…", "Ritaglio il personaggio per la transizione…")],
                 capture_output=True))
             aviso.start()
 
@@ -549,7 +549,7 @@ def main(argv):
                         "opencv-python-headless", "numpy", "pillow"], check=True)
         print(tr("listo. `wallfx warm` recorta tus fondos (la primera vez baja el modelo, ~210 MB)",
                  "done. `wallfx warm` cuts out your wallpapers (the first run downloads the model, ~210 MB)",
-                 "fatto. `wallfx warm` taglia i tuoi sfondi (la prima volta scarica il modello, ~210 MB)"))
+                 "fatto. `wallfx warm` ritaglia i tuoi sfondi (la prima volta scarica il modello, ~210 MB)"))
         return 0
     print(tr(f"wallfx: no conozco «{cmd}»", f"wallfx: unknown command '{cmd}'", f"wallfx: comando sconosciuto '{cmd}'"), file=sys.stderr)
     return 2

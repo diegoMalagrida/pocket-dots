@@ -218,7 +218,7 @@ def cmd_index(args) -> int:
     tmp.replace(INDEX)
     print(tr(f"indexados {len(nuevos)} nuevos ({fallos} ilegibles), total {len(ya)} -> {INDEX}",
              f"Indexed {len(nuevos)} new sprites ({fallos} unreadable), total {len(ya)} -> {INDEX}",
-             f"Indicizzati {len(nuevos)} nuovi ({fallos} illeggibili), total {len(ya)} -> {INDEX}"))
+             f"Indicizzati {len(nuevos)} nuovi ({fallos} illeggibili), totale {len(ya)} -> {INDEX}"))
     return 0
 
 
@@ -513,7 +513,7 @@ def indice_wallpapers(quiet: bool = True) -> dict[Path, list]:
         except Exception:
             pal = []
         if not quiet:
-            print(tr(f"  indexado {ruta.name}", f"  Indexed {ruta.name}", f"  Indicizzati {ruta.name}"), file=sys.stderr)
+            print(tr(f"  indexado {ruta.name}", f"  Indexed {ruta.name}", f"  Indicizzato {ruta.name}"), file=sys.stderr)
         if pal:
             fuera[ruta] = pal
             cache[clave] = (mt, pal)
@@ -612,7 +612,7 @@ def cmd_wear(args) -> int:
         suyos = [f for f in filas if nombre.lower() in f[1].stem.lower()]
         distancia, fondo = (suyos or filas)[0]
         if args.verbose and suyos:
-            print(tr(f"  con su nombre: {fondo.name}", f"  named after it: {fondo.name}", f"  denominato: {fondo.name}"), file=sys.stderr)
+            print(tr(f"  con su nombre: {fondo.name}", f"  named after it: {fondo.name}", f"  con il suo nome: {fondo.name}"), file=sys.stderr)
         if args.verbose:
             for d, r in filas[:5]:
                 print(f"  {d:6.2f}  {r.name}", file=sys.stderr)
@@ -660,10 +660,10 @@ def main() -> int:
 
     pi = sub.add_parser("index", help=tr("extrae la paleta de cada sprite (lento, 1 vez)",
                                          "extract each sprite palette (slow, once only)",
-                                         "estrarre la palette di ogni sprite (lento, una volta sola)"))
+                                         "estrae la palette di ogni sprite (lento, una volta sola)"))
     pi.add_argument("--force", action="store_true", help=tr("reindexa todo desde cero",
                                                             "rebuild the whole index from scratch",
-                                                            "ricostruire l'intero indice da zero"))
+                                                            "ricostruisce l'intero indice da zero"))
     pi.add_argument("-q", "--quiet", action="store_true")
     pi.set_defaults(func=cmd_index)
 
@@ -678,12 +678,12 @@ def main() -> int:
     pt.add_argument("--tipo", choices=("gif", "png"), default="gif")
     pt.add_argument("--peores", action="store_true", help=tr("los que menos pegan",
                                                              "the least matching sprites",
-                                                             "i meno corrispondenti sprite"))
+                                                             "gli sprite che si abbinano di meno"))
     pt.set_defaults(func=cmd_top)
 
     pp = sub.add_parser("pick", help=tr("escupe un sprite sesgado por tema",
                                         "choose a sprite weighted towards the theme",
-                                        "scegli un sprite pesato verso il tema"))
+                                        "sceglie uno sprite favorendo il tema"))
     pp.add_argument("tipo", nargs="?", choices=("gif", "png"), default="gif")
     pp.add_argument("--entre", type=int, default=40, help=tr("de cuantos mejores elegir",
                                                              "how many of the best matches to choose from",
@@ -692,7 +692,7 @@ def main() -> int:
 
     pw = sub.add_parser("wear", help=tr("se pone un pokemon: SU paleta pinta el sistema",
                                         "apply a Pokémon theme: ITS palette colours the system",
-                                        "applica un tema Pokémon: LA sua palette colora il sistema"))
+                                        "applica un tema Pokémon: la SUA palette colora il sistema"))
     pw.add_argument("pokemon", nargs="?", default="random", help=tr("nombre, numero o 'random'",
                                                                     "name, number or 'random'",
                                                                     "nome, numero o 'random'"))
@@ -712,11 +712,11 @@ def main() -> int:
 
     pwn = sub.add_parser("worn", help=tr("que pokemon llevas puesto (sale 1 si ninguno)",
                                          "show the current Pokémon theme (exit 1 if none)",
-                                         "mostra il tema Pokémon corrente (esci 1 se nessuno)"))
+                                         "mostra il tema Pokémon attuale (esce con 1 se nessuno)"))
     pwn.add_argument("--solo-nombre", action="store_true")
     pwn.set_defaults(func=cmd_worn)
 
-    for nombre, ayuda in (("on", tr("activa el sesgo por tema", "enable theme weighting", "attiva il bias per tema")),
+    for nombre, ayuda in (("on", tr("activa el sesgo por tema", "enable theme weighting", "attiva la preferenza per tema")),
                           ("off", tr("vuelve al pokemon al azar de siempre",
                                      "return to the usual random Pokémon",
                                      "torna al Pokémon casuale di sempre")),

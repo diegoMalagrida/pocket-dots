@@ -23,6 +23,7 @@ import QtQuick
 import "translations-en.js" as Dict
 import "translations-pt.js" as DictPt
 import "translations-it.js" as DictIt
+import "pokemon-types.js" as PokeTypes
 
 Singleton {
     id: root
@@ -53,6 +54,13 @@ Singleton {
     }
 
     readonly property var labels: root.languages.map(function (l) { return l.label; })
+
+    // A pokémon type's name in the shell's language, from its PokeAPI id, or ""
+    // when this language has no table (see pokemon-types.js).
+    function pokeType(id) {
+        var t = PokeTypes.names[root.lang];
+        return t && t[id] ? t[id] : "";
+    }
 
     // tr("Apagar")                       -> "Shut down"
     // tr("Quedan {0} minutos", 5)        -> "5 minutes left"
