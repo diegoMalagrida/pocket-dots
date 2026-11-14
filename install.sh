@@ -41,6 +41,7 @@ BACKUP="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)"
 DIGESTS="$HOME/.local/state/dotfiles/digests"
 DRY=0
 ASSUME_YES=0
+REPLACE_OMARCHY_CONFIG=0   # --replace-omarchy-config: see omarchy_hypr_consent
 MODE=link            # link | copy
 UI_LANG=             # es | en | it | pt; empty means "ask, or take the default"
 DEFAULT_LANG=        # what is offered when nobody says; see current_lang()
@@ -457,6 +458,9 @@ Usage: install.sh [options] [phase...]
 Options:
   -n, --dry-run     show what it would do without touching anything
   -y, --yes         never ask (for unattended runs)
+      --replace-omarchy-config
+                    on Omarchy, replace its ~/.config/hypr without asking
+                    (saved aside first; -y alone does not)
       --copy        copy the configs instead of symlinking them
       --link        symlink the configs into the repo (default)
       --lang es|en|it|pt
@@ -513,6 +517,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
         case "$1" in
             -n|--dry-run) DRY=1 ;;
             -y|--yes|--si) ASSUME_YES=1 ;;
+            --replace-omarchy-config) REPLACE_OMARCHY_CONFIG=1 ;;
             --copy|--copiar) MODE=copy ;;
             --link|--enlazar) MODE=link ;;
             --lang|--idioma)
@@ -1409,6 +1414,50 @@ describe_distro() {
                 warn "it should work, and what it already chose (audio, power, firewall, mirrors) is kept"
             fi ;;
     esac
+}
+
+# On Omarchy, ~/.config/hypr is the desktop that person is using right now.
+# The config phase replaces it with this one -- saved aside first, like
+# everything it replaces, and `./install.sh restore` puts it back -- but a
+# whole desktop changing under you is not something to do on a plain "yes to
+# everything". So, before anything else runs (no sudo, no packages, nothing
+# written), it stops and asks, with ask_risky's rules: -y, a dry run or no
+# terminal all answer no. --replace-omarchy-config is the yes for unattended
+# runs.
+#
+# Once ~/.config/hypr is ours -- the symlink into the repo, or a copy this
+# script laid down -- there is nothing of Omarchy's left to protect, and a
+# re-run does not ask again. Without that check every later ./install.sh on
+# Omarchy asked to "replace Omarchy's config" that was already this one, and
+# an unattended re-run refused forever.
+omarchy_hypr_consent() {
+    [ "$IS_OMARCHY" = 1 ] || return 0
+    doing config || return 0
+    local hypr="$HOME/.config/hypr"
+    [ -e "$hypr" ] || [ -L "$hypr" ] || return 0
+    if [ -L "$hypr" ] && [ "$(readlink -f "$hypr")" = "$(readlink -f "$REPO/home/.config/hypr")" ]; then
+        return 0
+    fi
+    deployed_here .config/hypr && return 0
+
+    if [ "$REPLACE_OMARCHY_CONFIG" = 1 ]; then
+        ok "Omarchy's ~/.config/hypr will be replaced (--replace-omarchy-config); it is saved aside first"
+        return 0
+    fi
+    warn "Omarchy's own Hyprland config is in ~/.config/hypr. This installs a whole"
+    warn "Hyprland desktop of its own: yours is moved to ~/.dotfiles-backup first, and"
+    warn "\`./install.sh restore\` brings it back, but the desktop you use will change."
+    if [ "$DRY" = 1 ]; then
+        warn "a real run asks before going on, or needs --replace-omarchy-config"
+        return 0
+    fi
+    ask_risky "replace Omarchy's Hyprland config with this one?" && return 0
+    if [ "$ASSUME_YES" = 1 ] || [ ! -t 0 ]; then
+        warn "unattended runs need --replace-omarchy-config for this; -y alone does not answer it"
+    else
+        warn "nothing was changed"
+    fi
+    return 1
 }
 
 phase_base() {
@@ -4355,6 +4404,8 @@ restore_install() {
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     start_run install
     detect_distro
+    # Nothing has run yet: refusing here leaves the machine as it was.
+    omarchy_hypr_consent || { SUMMARY_DONE=1; exit 1; }
 
     printf '%s' "$C_TIT"
     cat <<'HEADER'
