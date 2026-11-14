@@ -31,9 +31,6 @@ export USER
 
 REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)"
-BACKUP_ALLOCATED=0
-BACKUP_IS_RESTORE_ASSIGNED=0
-REPLACE_OMARCHY_CONFIG=0
 # Where the digest manifest lives: the sha256 of every file the repo and $HOME
 # were last seen to AGREE on, so ./diagnose can say WHO moved and not just that
 # something did. Spelled out from $HOME and deliberately NOT from
@@ -44,6 +41,7 @@ REPLACE_OMARCHY_CONFIG=0
 DIGESTS="$HOME/.local/state/dotfiles/digests"
 DRY=0
 ASSUME_YES=0
+REPLACE_OMARCHY_CONFIG=0   # --replace-omarchy-config: see omarchy_hypr_consent
 MODE=link            # link | copy
 UI_LANG=             # es | en | it | pt; empty means "ask, or take the default"
 DEFAULT_LANG=        # what is offered when nobody says; see current_lang()
@@ -461,7 +459,8 @@ Options:
   -n, --dry-run     show what it would do without touching anything
   -y, --yes         never ask (for unattended runs)
       --replace-omarchy-config
-                    allow replacing an existing Omarchy ~/.config/hypr non-interactively
+                    on Omarchy, replace its ~/.config/hypr without asking
+                    (saved aside first; -y alone does not)
       --copy        copy the configs instead of symlinking them
       --link        symlink the configs into the repo (default)
       --lang es|en|it|pt
@@ -558,100 +557,14 @@ doing() { [[ " ${PHASES[*]:-} " == *" $1 "* ]]; }
 
 # ----------------------------------------------------------------- helpers
 
-ensure_backup_dir() {
-    [ "$DRY" = 1 ] && return 0
-
-    # If this call is from a restore routine, it must use the pre-created restore directory.
-    # Refuse to silently fall back to allocating a normal installation backup directory.
-    if [ "${BACKUP_IS_RESTORE_ASSIGNED:-0}" = 1 ]; then
-        if [ -d "$BACKUP" ]; then
-            return 0
-        fi
-        die "restore backup directory does not exist: $BACKUP"
-    fi
-
-    [ "$BACKUP_ALLOCATED" = 1 ] && return 0
-
-    local parent="$HOME/.dotfiles-backup"
-    mkdir -p "$parent" || die "cannot prepare backup directory: $parent"
-
-    local base="${parent}/$(date +%Y%m%d-%H%M%S)"
-    local target="$base"
-    local seq=1
-
-    while :; do
-        if mkdir "$target" 2>/dev/null; then
-            BACKUP="$target"
-            BACKUP_ALLOCATED=1
-            return 0
-        fi
-
-        # mkdir failed. Check if failure was caused by target collision.
-        # -e checks regular files/dirs; -L detects dangling symlinks.
-        if [ -e "$target" ] || [ -L "$target" ]; then
-            [ "$seq" -le 100 ] || die "cannot allocate unique backup directory after 100 attempts"
-            target="${base}-${seq}"
-            seq=$((seq + 1))
-            continue
-        fi
-
-        # mkdir failed on a non-existent path: hard filesystem or permission failure.
-        die "cannot create backup directory: $target"
-    done
-}
-
-alloc_restore_dir() {
-    local suffix="$1"  # before-restore | taken-out
-    local marker="$2"  # .before-restore | .rice-copies
-    local parent="$HOME/.dotfiles-backup"
-
-    if [ "$DRY" = 1 ]; then
-        printf '%s/%s-%s\n' "$parent" "$(date +%Y%m%d-%H%M%S)" "$suffix"
-        return 0
-    fi
-
-    mkdir -p "$parent" || return 1
-
-    local base="${parent}/$(date +%Y%m%d-%H%M%S)-${suffix}"
-    local target="$base"
-    local seq=1
-
-    while :; do
-        if mkdir "$target" 2>/dev/null; then
-            if ! touch "$target/$marker" 2>/dev/null; then
-                rmdir "$target" 2>/dev/null
-                return 1
-            fi
-            printf '%s\n' "$target"
-            return 0
-        fi
-
-        # mkdir failed. Check if failure was caused by target collision.
-        # -e checks regular files/dirs; -L detects dangling symlinks.
-        if [ -e "$target" ] || [ -L "$target" ]; then
-            [ "$seq" -le 100 ] || return 1
-            target="${base}-${seq}"
-            seq=$((seq + 1))
-            continue
-        fi
-
-        # mkdir failed on a non-existent path: hard filesystem or permission failure.
-        return 1
-    done
-}
-
 # Saves whatever is at the destination path before replacing it. Symlinks that
 # already point where they should are left alone, which is what makes this
 # script genuinely idempotent.
 save_aside() {
     local dest="$1"
     [ -e "$dest" ] || [ -L "$dest" ] || return 0
-    ensure_backup_dir
     local rel="${dest#"$HOME"/}"
     local saved="$BACKUP/$rel"
-    if [ "$DRY" = 0 ] && { [ -e "$saved" ] || [ -L "$saved" ]; }; then
-        die "backup target $saved already exists; stopping before collision"
-    fi
     run mkdir -p "$(dirname "$saved")" || die "cannot prepare a backup for $dest"
     run mv -- "$dest" "$saved" || die "cannot back up $dest; stopping before replacement"
     printf '       %s(saved to %s)%s\n' "$C_DIM" "${saved/#$HOME/\~}" "$C_OFF"
@@ -1503,51 +1416,47 @@ describe_distro() {
     esac
 }
 
-check_omarchy_hypr_consent() {
-    [ "${IS_OMARCHY:-0}" = 1 ] || return 0
-    if declare -p PHASES >/dev/null 2>&1; then
-        doing config || return 0
-    fi
-
-    local hypr_dir="$HOME/.config/hypr"
-    [ -d "$hypr_dir" ] || [ -L "$hypr_dir" ] || return 0
-
-    if [ "$DRY" = 1 ]; then
-        if [ "$REPLACE_OMARCHY_CONFIG" = 1 ]; then
-            printf '  %s[dry]%s would replace Omarchy ~/.config/hypr (authorized via --replace-omarchy-config)\n' "$C_DIM" "$C_OFF"
-        else
-            warn "detected existing Omarchy ~/.config/hypr; real install requires interactive consent or --replace-omarchy-config"
-        fi
+# On Omarchy, ~/.config/hypr is the desktop that person is using right now.
+# The config phase replaces it with this one -- saved aside first, like
+# everything it replaces, and `./install.sh restore` puts it back -- but a
+# whole desktop changing under you is not something to do on a plain "yes to
+# everything". So, before anything else runs (no sudo, no packages, nothing
+# written), it stops and asks, with ask_risky's rules: -y, a dry run or no
+# terminal all answer no. --replace-omarchy-config is the yes for unattended
+# runs.
+#
+# Once ~/.config/hypr is ours -- the symlink into the repo, or a copy this
+# script laid down -- there is nothing of Omarchy's left to protect, and a
+# re-run does not ask again. Without that check every later ./install.sh on
+# Omarchy asked to "replace Omarchy's config" that was already this one, and
+# an unattended re-run refused forever.
+omarchy_hypr_consent() {
+    [ "$IS_OMARCHY" = 1 ] || return 0
+    doing config || return 0
+    local hypr="$HOME/.config/hypr"
+    [ -e "$hypr" ] || [ -L "$hypr" ] || return 0
+    if [ -L "$hypr" ] && [ "$(readlink -f "$hypr")" = "$(readlink -f "$REPO/home/.config/hypr")" ]; then
         return 0
     fi
+    deployed_here .config/hypr && return 0
 
     if [ "$REPLACE_OMARCHY_CONFIG" = 1 ]; then
-        ok "Replacing existing Omarchy ~/.config/hypr (--replace-omarchy-config specified)"
+        ok "Omarchy's ~/.config/hypr will be replaced (--replace-omarchy-config); it is saved aside first"
         return 0
     fi
-
-    if [ "$ASSUME_YES" = 1 ]; then
-        warn "Existing Omarchy Hyprland configuration detected at ~/.config/hypr."
-        warn "Refusing unattended replacement: --yes does not authorize replacing an existing Omarchy desktop."
-        warn "Re-run with --replace-omarchy-config to authorize replacement non-interactively."
-        return 1
-    fi
-
-    warn "Existing Omarchy Hyprland configuration detected at ~/.config/hypr."
-    warn "Pocket Dots installs its own Hyprland setup and will replace your active Omarchy configuration."
-    warn "Your current configuration will be backed up to: ~/.dotfiles-backup/"
-
-    if [ ! -t 0 ]; then
-        warn "Standard input is not a terminal; cannot prompt for consent."
-        warn "Re-run with --replace-omarchy-config to authorize replacement non-interactively."
-        return 1
-    fi
-
-    if ask "Replace Omarchy ~/.config/hypr and proceed with installation?"; then
+    warn "Omarchy's own Hyprland config is in ~/.config/hypr. This installs a whole"
+    warn "Hyprland desktop of its own: yours is moved to ~/.dotfiles-backup first, and"
+    warn "\`./install.sh restore\` brings it back, but the desktop you use will change."
+    if [ "$DRY" = 1 ]; then
+        warn "a real run asks before going on, or needs --replace-omarchy-config"
         return 0
     fi
-
-    warn "Installation cancelled by user."
+    ask_risky "replace Omarchy's Hyprland config with this one?" && return 0
+    if [ "$ASSUME_YES" = 1 ] || [ ! -t 0 ]; then
+        warn "unattended runs need --replace-omarchy-config for this; -y alone does not answer it"
+    else
+        warn "nothing was changed"
+    fi
     return 1
 }
 
@@ -3850,7 +3759,7 @@ phase_final() {
             "SIL OFL -- by setting fontClock in ~/.config/quickshell/Appearance.qml."
     fi
 
-    if [ "$BACKUP_ALLOCATED" = 1 ] && [ -d "$BACKUP" ]; then
+    if [ -d "$BACKUP" ]; then
         printf '\n  What was there before is saved in:\n    %s\n' "$BACKUP"
     fi
 }
@@ -4182,7 +4091,6 @@ phase_restore() {
 # The marker and the pointer go only when all of it worked; anything less, and
 # the same restore can be run again.
 restore_update_backup() {
-    BACKUP_IS_RESTORE_ASSIGNED=0
     local which="$1" old_head new_head head replaced=() added=() line src rel dest n=0 pkgs
     local move_repo=0 repo_note="" pre="" cur want before_fail=${#FAILED[@]} later=()
     local -A installed=()
@@ -4242,18 +4150,10 @@ restore_update_backup() {
     keep_later() {
         local d="$1" r="$2" saved_backup="$BACKUP"
         if [ -z "$pre" ]; then
-            if ! pre="$(alloc_restore_dir "before-restore" ".before-restore")" || [ -z "$pre" ]; then
-                pre=""
-                BACKUP_IS_RESTORE_ASSIGNED=0
-                BACKUP="$saved_backup"
-                die "cannot prepare restore backup directory"
-            fi
+            pre="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)-before-restore"
+            run mkdir -p "$pre" && run touch "$pre/.before-restore"
         fi
-        BACKUP="$pre"
-        BACKUP_IS_RESTORE_ASSIGNED=1
-        save_aside "$d" >/dev/null
-        BACKUP_IS_RESTORE_ASSIGNED=0
-        BACKUP="$saved_backup"
+        BACKUP="$pre"; save_aside "$d" >/dev/null; BACKUP="$saved_backup"
         later+=("$r")
     }
     # What the update put at $1 (relative to $HOME): written down at the time,
@@ -4294,7 +4194,6 @@ restore_update_backup() {
     done
     [ ${#added[@]} -gt 0 ] && ok "$n added file(s) taken away"
     unset -f keep_later installed_sha
-    BACKUP_IS_RESTORE_ASSIGNED=0
 
     if [ ${#later[@]} -gt 0 ]; then
         warn "${#later[@]} file(s) had changed since that update; your version is kept in ${pre/#$HOME/\~}:"
@@ -4383,7 +4282,6 @@ restore_taken_out() {
 # Undoes 'config': out with the symlinks to the repo, out with the copies that
 # are still exactly the repo's, and back with whatever was there before.
 restore_install() {
-    BACKUP_IS_RESTORE_ASSIGNED=0
     local which="$1" dest target links=() copies=() edited=() rel f src n=0 kept=() taken=""
     # A folder of copies a restore took out is put back as it is, with its
     # manifest and its list of deployments: nothing is unlinked or taken out
@@ -4438,27 +4336,16 @@ restore_install() {
     # 2) The untouched copies, into a folder of their own: a restore never
     #    deletes a file, it only moves it.
     local saved_backup="$BACKUP"
-    ensure_taken() {
-        [ -n "$taken" ] && return 0
-        if ! taken="$(alloc_restore_dir "taken-out" ".rice-copies")" || [ -z "$taken" ]; then
-            taken=""
-            BACKUP_IS_RESTORE_ASSIGNED=0
-            BACKUP="$saved_backup"
-            die "cannot prepare restore backup directory"
-        fi
-    }
+    taken="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)-taken-out"
     if [ ${#copies[@]} -gt 0 ]; then
-        ensure_taken
         BACKUP="$taken"
-        BACKUP_IS_RESTORE_ASSIGNED=1
+        run mkdir -p "$taken" && run touch "$taken/.rice-copies"
         for rel in "${copies[@]}"; do
             save_aside "$HOME/$rel" >/dev/null
             # The folders they leave empty go too, never one with anything
             # of yours still in it.
             [ "$DRY" = 0 ] && ( cd "$HOME" && rmdir -p --ignore-fail-on-non-empty "$(dirname "$rel")" 2>/dev/null )
         done
-        BACKUP_IS_RESTORE_ASSIGNED=0
-        BACKUP="$saved_backup"
         ok "${#copies[@]} untouched copies moved to ${taken/#$HOME/\~}"
     fi
     # Copies you changed since are yours now, and stay where they are.
@@ -4481,9 +4368,6 @@ restore_install() {
     #    place is left alone unless it is still exactly the repo's copy.
     if [ -z "$which" ]; then
         printf '\n  There was no backup to put back: your $HOME is left without those files.\n'
-        unset -f ensure_taken 2>/dev/null || true
-        BACKUP_IS_RESTORE_ASSIGNED=0
-        BACKUP="$saved_backup"
         return 0
     fi
     n=0
@@ -4492,12 +4376,7 @@ restore_install() {
         dest="$HOME/$rel"
         if [ -e "$dest" ] || [ -L "$dest" ]; then
             if [ -e "$REPO/home/$rel" ] && [ "$(file_sha256 "$dest" 2>/dev/null)" = "$(file_sha256 "$REPO/home/$rel" 2>/dev/null)" ]; then
-                ensure_taken
-                BACKUP="$taken"
-                BACKUP_IS_RESTORE_ASSIGNED=1
-                save_aside "$dest" >/dev/null
-                BACKUP_IS_RESTORE_ASSIGNED=0
-                BACKUP="$saved_backup"
+                BACKUP="$taken"; save_aside "$dest" >/dev/null; BACKUP="$saved_backup"
             else
                 kept+=("$rel")
                 continue
@@ -4516,9 +4395,6 @@ restore_install() {
         for rel in "${kept[@]:0:5}"; do warn "  ~/$rel"; done
         [ ${#kept[@]} -gt 5 ] && warn "  ...and $(( ${#kept[@]} - 5 )) more"
     fi
-    unset -f ensure_taken 2>/dev/null || true
-    BACKUP_IS_RESTORE_ASSIGNED=0
-    BACKUP="$saved_backup"
     printf '\n  The backup is still in %s just in case.\n  Delete it yourself once you are sure.\n' \
            "${which/#$HOME/\~}"
 }
@@ -4528,9 +4404,8 @@ restore_install() {
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     start_run install
     detect_distro
-    if ! check_omarchy_hypr_consent; then
-        exit 1
-    fi
+    # Nothing has run yet: refusing here leaves the machine as it was.
+    omarchy_hypr_consent || { SUMMARY_DONE=1; exit 1; }
 
     printf '%s' "$C_TIT"
     cat <<'HEADER'
